@@ -157,6 +157,8 @@ app.get('/api/class-data', async (c) => {
     const allAchievements = await db.select().from(achievements);
     const allOfficers = await db.select().from(classOfficers);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
+    const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
+    const allGrades = await db.select().from(grades);
 
     const quoteVal = currentQuote[0] || {
       text: "Pendidikan adalah senjata paling mematikan di dunia, karena dengan pendidikan, Anda dapat mengubah dunia.",
@@ -171,9 +173,19 @@ app.get('/api/class-data', async (c) => {
       status: s.status as 'Aktif' | 'Nonaktif'
     }));
 
+    const activeStudentIds = new Set(allStudents.filter((student) => student.status === 'Aktif').map((student) => student.id));
+    const activeDailyAttendance = dailyAttendance.filter((record) => activeStudentIds.has(record.userId));
+    const activeGrades = allGrades.filter((grade) => activeStudentIds.has(grade.userId));
+    const attendanceAverage = activeDailyAttendance.length
+      ? (activeDailyAttendance.filter((record) => record.status === 'Hadir').length / activeDailyAttendance.length) * 100
+      : null;
+    const gradeAverage = activeGrades.length
+      ? activeGrades.reduce((total, grade) => total + grade.score, 0) / activeGrades.length
+      : null;
+
     const stats = {
-      attendance: "98.5%",
-      averageGrade: "86.4",
+      attendance: attendanceAverage === null ? '—' : `${attendanceAverage.toFixed(1)}%`,
+      averageGrade: gradeAverage === null ? '—' : gradeAverage.toFixed(1),
       totalStudents: studentList.length.toString()
     };
 

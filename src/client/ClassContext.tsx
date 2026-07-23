@@ -114,8 +114,8 @@ const defaultData = {
     author: "Nelson Mandela"
   },
   stats: {
-    attendance: "98.5%",
-    averageGrade: "86.4",
+    attendance: "—",
+    averageGrade: "—",
     totalStudents: "4"
   },
   schedules: [],

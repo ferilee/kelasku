@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock } from 'lucide-react';
+import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle } from 'lucide-react';
 import { useClassData } from './ClassContext';
 
 const LandingPage = ({ 
@@ -152,6 +152,24 @@ const LandingPage = ({
             </div>
           </div>
         </main>
+
+        <section className={`max-w-7xl mx-auto px-6 pb-14 ${tabClass('beranda')}`} aria-labelledby="wali-kelas-title">
+          <div className="relative overflow-hidden rounded-3xl border border-cyan-200/70 dark:border-cyan-900/50 bg-white dark:bg-[#121C28] p-5 sm:p-7 shadow-lg shadow-cyan-950/5 dark:shadow-none">
+            <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-cyan-100 dark:bg-cyan-950/30 blur-3xl" />
+            <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
+              <div className="h-24 w-24 shrink-0 rounded-full border-4 border-white dark:border-slate-700 bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg grid place-items-center text-2xl font-black tracking-wide text-white" aria-label="Placeholder foto Feri Dwi Hermawan">FDH</div>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-400">Wali Kelas</p>
+                <h2 id="wali-kelas-title" className="text-xl font-bold text-slate-900 dark:text-white">Feri Dwi Hermawan, S.Pd</h2>
+                <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-400">Mendampingi proses belajar, perkembangan, dan aktivitas siswa {selectedClass}.</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <a href="https://ferilee.gurumuda.eu.org" target="_blank" rel="noreferrer" aria-label="Kunjungi website Feri Dwi Hermawan" title="Website" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-cyan-200 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors"><Globe className="h-5 w-5" /></a>
+                <a href="https://wa.me/6285174244128" target="_blank" rel="noreferrer" className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"><MessageCircle className="h-4 w-4" /> Hubungi Saya</a>
+              </div>
+            </div>
+          </div>
+        </section>
 
         {/* Main Content Dashboard-like Section */}
         <section id="statistik" className={`py-12 px-6 bg-white dark:bg-[#0E1621] relative z-20 border-t border-slate-200 dark:border-slate-800 transition-colors duration-500 ${activeMobileTab !== 'beranda' ? 'block' : 'hidden md:block'}`}>

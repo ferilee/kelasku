@@ -157,6 +157,7 @@ app.get('/api/class-data', async (c) => {
     const allAchievements = await db.select().from(achievements);
     const allOfficers = await db.select().from(classOfficers);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
+    const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
     const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
     const allGrades = await db.select().from(grades);
 
@@ -227,6 +228,7 @@ app.get('/api/class-data', async (c) => {
         name: allStudents.find(student => student.id === officer.userId)?.name || 'Siswa tidak ditemukan',
       })),
       heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
+      homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
       quote: { text: quoteVal.text, author: quoteVal.author },
       stats
     });
@@ -294,6 +296,34 @@ app.delete('/api/page-settings/hero-image', async (c) => {
   try {
     await db.delete(pageSettings).where(eq(pageSettings.key, 'hero_image'));
     return c.json({ success: true, heroImage: '/hero-default.svg' });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/page-settings/homeroom-teacher-photo', async (c) => {
+  try {
+    const { imageUrl } = await c.req.json();
+    const value = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+    if (!value || value.length > 2048 || (!value.startsWith('/') && !/^https?:\/\//i.test(value))) {
+      return c.json({ error: 'Gunakan URL gambar https:// atau path internal yang diawali /.' }, 400);
+    }
+    const existing = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
+    if (existing.length) {
+      await db.update(pageSettings).set({ value, updatedAt: new Date() }).where(eq(pageSettings.key, 'homeroom_teacher_photo'));
+    } else {
+      await db.insert(pageSettings).values({ key: 'homeroom_teacher_photo', value });
+    }
+    return c.json({ success: true, homeroomTeacherPhoto: value });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/page-settings/homeroom-teacher-photo', async (c) => {
+  try {
+    await db.delete(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo'));
+    return c.json({ success: true, homeroomTeacherPhoto: '/wali-kelas-placeholder.svg' });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

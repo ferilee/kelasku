@@ -12,7 +12,7 @@ const LandingPage = ({
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(true);
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, heroImage, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -157,7 +157,7 @@ const LandingPage = ({
           <div className="relative overflow-hidden rounded-3xl border border-cyan-200/70 dark:border-cyan-900/50 bg-white dark:bg-[#121C28] p-5 sm:p-7 shadow-lg shadow-cyan-950/5 dark:shadow-none">
             <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-cyan-100 dark:bg-cyan-950/30 blur-3xl" />
             <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
-              <div className="h-24 w-24 shrink-0 rounded-full border-4 border-white dark:border-slate-700 bg-gradient-to-br from-cyan-500 to-blue-700 shadow-lg grid place-items-center text-2xl font-black tracking-wide text-white" aria-label="Placeholder foto Feri Dwi Hermawan">FDH</div>
+              <img src={homeroomTeacherPhoto} alt="Feri Dwi Hermawan, S.Pd" className="h-24 w-24 shrink-0 rounded-full border-4 border-white dark:border-slate-700 bg-slate-100 object-cover shadow-lg" onError={(event) => { event.currentTarget.src = '/wali-kelas-placeholder.svg'; }} />
               <div className="min-w-0 flex-1">
                 <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-400">Wali Kelas</p>
                 <h2 id="wali-kelas-title" className="text-xl font-bold text-slate-900 dark:text-white">Feri Dwi Hermawan, S.Pd</h2>

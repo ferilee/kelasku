@@ -30,12 +30,17 @@ const Dashboard = () => {
   const [quoteText, setQuoteText] = useState(classData.quote.text);
   const [quoteAuthor, setQuoteAuthor] = useState(classData.quote.author);
   const [heroImageUrl, setHeroImageUrl] = useState(classData.heroImage);
+  const [homeroomTeacherPhotoUrl, setHomeroomTeacherPhotoUrl] = useState(classData.homeroomTeacherPhoto);
   const [officerRole, setOfficerRole] = useState('Ketua Kelas');
   const [officerStudentId, setOfficerStudentId] = useState('');
 
   useEffect(() => {
     setHeroImageUrl(classData.heroImage);
   }, [classData.heroImage]);
+
+  useEffect(() => {
+    setHomeroomTeacherPhotoUrl(classData.homeroomTeacherPhoto);
+  }, [classData.homeroomTeacherPhoto]);
 
   useEffect(() => {
     const activeStudents = classData.students.filter((student) => student.status === 'Aktif');
@@ -1309,6 +1314,17 @@ const Dashboard = () => {
                       <button onClick={async () => { if (!confirm('Kembalikan gambar hero ke gambar default?')) return; try { await classData.resetHeroImage(); alert('Gambar hero dikembalikan ke default.'); } catch { alert('Gagal mengembalikan gambar default.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Default</button>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
+                  <span className="p-2 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400"><ImageIcon className="h-5 w-5" /></span>
+                  <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Foto Wali Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Foto ini tampil pada card wali kelas di landing page.</p></div>
+                </div>
+                <div className="grid md:grid-cols-[112px_1fr] gap-5 items-start">
+                  <img src={homeroomTeacherPhotoUrl || '/wali-kelas-placeholder.svg'} alt="Pratinjau foto wali kelas" className="h-28 w-28 rounded-full border-4 border-slate-100 dark:border-slate-700 object-cover bg-slate-100 dark:bg-slate-900" onError={(event) => { event.currentTarget.src = '/wali-kelas-placeholder.svg'; }} />
+                  <div className="space-y-3"><label className="block text-sm font-medium text-slate-600 dark:text-slate-400">URL Foto</label><input value={homeroomTeacherPhotoUrl} onChange={(event) => setHomeroomTeacherPhotoUrl(event.target.value)} placeholder="https://contoh.sch.id/foto-wali-kelas.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" /><div className="flex flex-wrap gap-2"><button onClick={async () => { try { await classData.updateHomeroomTeacherPhoto(homeroomTeacherPhotoUrl); alert('Foto wali kelas berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan foto wali kelas.'); } }} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Foto</button><button onClick={async () => { if (!confirm('Kembalikan ke foto placeholder?')) return; try { await classData.resetHomeroomTeacherPhoto(); alert('Foto placeholder digunakan kembali.'); } catch { alert('Gagal mengembalikan foto placeholder.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Placeholder</button></div></div>
                 </div>
               </div>
 

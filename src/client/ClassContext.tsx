@@ -67,6 +67,7 @@ export interface ClassData {
   achievements: Achievement[];
   officers: ClassOfficer[];
   heroImage: string;
+  homeroomTeacherPhoto: string;
   quote: { text: string; author: string };
   stats: { attendance: string; averageGrade: string; totalStudents: string; };
   selectedClass: string | null;
@@ -76,6 +77,8 @@ export interface ClassData {
   updateQuote: (text: string, author: string) => void;
   updateHeroImage: (imageUrl: string) => Promise<void>;
   resetHeroImage: () => Promise<void>;
+  updateHomeroomTeacherPhoto: (imageUrl: string) => Promise<void>;
+  resetHomeroomTeacherPhoto: () => Promise<void>;
   saveClassOfficer: (userId: string, role: string) => Promise<void>;
   removeClassOfficer: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
@@ -127,7 +130,8 @@ const defaultData = {
     { id: '3', userId: '3', role: 'Sekretaris', name: 'Budi Santoso' },
     { id: '4', userId: '4', role: 'Bendahara', name: 'Dewi Lestari' },
   ],
-  heroImage: '/hero-default.svg'
+  heroImage: '/hero-default.svg',
+  homeroomTeacherPhoto: '/wali-kelas-placeholder.svg'
 };
 
 export const ClassContext = createContext<ClassData | undefined>(undefined);
@@ -179,6 +183,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           achievements: json.achievements || [],
           officers: json.officers || [],
           heroImage: json.heroImage || '/hero-default.svg',
+          homeroomTeacherPhoto: json.homeroomTeacherPhoto || '/wali-kelas-placeholder.svg',
           quote: json.quote,
           stats: json.stats,
         });
@@ -222,6 +227,18 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const resetHeroImage = async () => {
     const response = await fetch('/api/page-settings/hero-image', { method: 'DELETE' });
     if (!response.ok) throw new Error('Gagal mengembalikan gambar default');
+    await fetchClassData();
+  };
+
+  const updateHomeroomTeacherPhoto = async (imageUrl: string) => {
+    const response = await fetch('/api/page-settings/homeroom-teacher-photo', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageUrl }) });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menyimpan foto wali kelas');
+    await fetchClassData();
+  };
+
+  const resetHomeroomTeacherPhoto = async () => {
+    const response = await fetch('/api/page-settings/homeroom-teacher-photo', { method: 'DELETE' });
+    if (!response.ok) throw new Error('Gagal mengembalikan foto placeholder');
     await fetchClassData();
   };
 
@@ -409,6 +426,8 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       updateQuote,
       updateHeroImage,
       resetHeroImage,
+      updateHomeroomTeacherPhoto,
+      resetHomeroomTeacherPhoto,
       saveClassOfficer,
       removeClassOfficer,
       addAnnouncement,

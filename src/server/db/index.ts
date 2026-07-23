@@ -71,6 +71,12 @@ sqlite.run(`
     updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS page_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
   CREATE TABLE IF NOT EXISTS grades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),

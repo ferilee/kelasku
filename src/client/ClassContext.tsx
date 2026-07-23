@@ -53,6 +53,7 @@ export interface Achievement {
 
 export interface ClassOfficer {
   id: string;
+  userId: string;
   role: string;
   name: string;
 }
@@ -65,6 +66,7 @@ export interface ClassData {
   behaviorRecords: BehaviorRecord[];
   achievements: Achievement[];
   officers: ClassOfficer[];
+  heroImage: string;
   quote: { text: string; author: string };
   stats: { attendance: string; averageGrade: string; totalStudents: string; };
   selectedClass: string | null;
@@ -72,6 +74,10 @@ export interface ClassData {
   setSelectedClass: (cls: string | null) => void;
   setSelectedYear: (yr: string | null) => void;
   updateQuote: (text: string, author: string) => void;
+  updateHeroImage: (imageUrl: string) => Promise<void>;
+  resetHeroImage: () => Promise<void>;
+  saveClassOfficer: (userId: string, role: string) => Promise<void>;
+  removeClassOfficer: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
   removeAnnouncement: (id: string) => void;
   addAgenda: (item: AgendaItem) => void;
@@ -116,11 +122,12 @@ const defaultData = {
   behaviorRecords: [],
   achievements: [],
   officers: [
-    { id: '1', role: 'Ketua Kelas', name: 'Ahmad Fauzi' },
-    { id: '2', role: 'Wakil Ketua', name: 'Citra Kirana' },
-    { id: '3', role: 'Sekretaris', name: 'Budi Santoso' },
-    { id: '4', role: 'Bendahara', name: 'Dewi Lestari' },
-  ]
+    { id: '1', userId: '1', role: 'Ketua Kelas', name: 'Ahmad Fauzi' },
+    { id: '2', userId: '2', role: 'Wakil Ketua', name: 'Citra Kirana' },
+    { id: '3', userId: '3', role: 'Sekretaris', name: 'Budi Santoso' },
+    { id: '4', userId: '4', role: 'Bendahara', name: 'Dewi Lestari' },
+  ],
+  heroImage: '/hero-default.svg'
 };
 
 export const ClassContext = createContext<ClassData | undefined>(undefined);
@@ -171,6 +178,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           behaviorRecords: json.behaviorRecords || [],
           achievements: json.achievements || [],
           officers: json.officers || [],
+          heroImage: json.heroImage || '/hero-default.svg',
           quote: json.quote,
           stats: json.stats,
         });
@@ -197,6 +205,38 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       console.error('Error updating quote:', err);
     }
+  };
+
+  const updateHeroImage = async (imageUrl: string) => {
+    const response = await fetch('/api/page-settings/hero-image', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl }),
+    });
+    if (!response.ok) {
+      throw new Error((await response.json()).error || 'Gagal menyimpan gambar hero');
+    }
+    await fetchClassData();
+  };
+
+  const resetHeroImage = async () => {
+    const response = await fetch('/api/page-settings/hero-image', { method: 'DELETE' });
+    if (!response.ok) throw new Error('Gagal mengembalikan gambar default');
+    await fetchClassData();
+  };
+
+  const saveClassOfficer = async (userId: string, role: string) => {
+    const response = await fetch('/api/class-officers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, role })
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menyimpan pengurus kelas');
+    await fetchClassData();
+  };
+
+  const removeClassOfficer = async (id: string) => {
+    const response = await fetch(`/api/class-officers/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Gagal menghapus pengurus kelas');
+    await fetchClassData();
   };
 
   const addAnnouncement = async (ann: Announcement) => {
@@ -285,12 +325,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const removeStudent = async (id: string) => {
     try {
-      await fetch(`/api/students/${id}`, {
+      const response = await fetch(`/api/students/${id}`, {
         method: 'DELETE'
       });
+      if (!response.ok) {
+        throw new Error((await response.json()).error || 'Gagal menonaktifkan siswa');
+      }
       fetchClassData();
     } catch (err) {
       console.error('Error removing student:', err);
+      throw err;
     }
   };
 
@@ -363,6 +407,10 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       setSelectedClass: handleSetSelectedClass,
       setSelectedYear: handleSetSelectedYear,
       updateQuote,
+      updateHeroImage,
+      resetHeroImage,
+      saveClassOfficer,
+      removeClassOfficer,
       addAnnouncement,
       removeAnnouncement,
       addAgenda,

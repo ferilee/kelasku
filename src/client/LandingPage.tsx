@@ -12,7 +12,7 @@ const LandingPage = ({
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(true);
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, heroImage, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -143,8 +143,8 @@ const LandingPage = ({
               <div className="relative w-full max-w-sm aspect-square">
                 <div className="absolute inset-0 bg-cyan-500 blur-[80px] dark:blur-[120px] opacity-30 dark:opacity-20 rounded-full transition-opacity"></div>
                 <img 
-                  src="/@fs/home/ferilee/.gemini/antigravity/brain/c3e5b6b3-89ee-40ca-abc4-81a8926f7e60/hero_bg_classroom_1782785113233.png" 
-                  alt="Smart Class" 
+                  src={heroImage}
+                  alt={`Suasana ${selectedClass}`}
                   className="relative z-10 w-full h-full object-cover rounded-[100px] shadow-2xl dark:shadow-[0_0_60px_rgba(6,182,212,0.4)] border-4 border-white dark:border-[#0A1118] transition-colors"
                   style={{ clipPath: 'circle(50% at 50% 50%)' }}
                 />

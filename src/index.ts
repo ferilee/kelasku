@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements } from './server/db/schema';
+import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings } from './server/db/schema';
 import { eq, and, like } from 'drizzle-orm';
 
 const app = new Hono();
@@ -156,6 +156,7 @@ app.get('/api/class-data', async (c) => {
     const allBehavior = await db.select().from(behaviorRecords);
     const allAchievements = await db.select().from(achievements);
     const allOfficers = await db.select().from(classOfficers);
+    const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
 
     const quoteVal = currentQuote[0] || {
       text: "Pendidikan adalah senjata paling mematikan di dunia, karena dengan pendidikan, Anda dapat mengubah dunia.",
@@ -209,12 +210,78 @@ app.get('/api/class-data', async (c) => {
       })),
       officers: allOfficers.map(officer => ({
         id: officer.id.toString(),
+        userId: officer.userId.toString(),
         role: officer.role,
         name: allStudents.find(student => student.id === officer.userId)?.name || 'Siswa tidak ditemukan',
       })),
+      heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
       quote: { text: quoteVal.text, author: quoteVal.author },
       stats
     });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/class-officers', async (c) => {
+  try {
+    const body = await c.req.json();
+    const userId = Number(body.userId);
+    const role = typeof body.role === 'string' ? body.role.trim() : '';
+    if (!Number.isInteger(userId) || !role || role.length > 80) {
+      return c.json({ error: 'Data pengurus tidak valid.' }, 400);
+    }
+
+    const student = await db.select().from(users).where(and(eq(users.id, userId), eq(users.role, 'student'), eq(users.status, 'Aktif'))).limit(1);
+    if (!student.length) return c.json({ error: 'Siswa aktif tidak ditemukan.' }, 400);
+
+    const existingRole = await db.select().from(classOfficers).where(eq(classOfficers.role, role)).limit(1);
+    if (existingRole.length) {
+      await db.update(classOfficers).set({ userId }).where(eq(classOfficers.id, existingRole[0].id));
+      return c.json({ success: true, id: existingRole[0].id.toString(), action: 'updated' });
+    }
+
+    const inserted = await db.insert(classOfficers).values({ userId, role }).returning({ id: classOfficers.id });
+    return c.json({ success: true, id: inserted[0].id.toString(), action: 'created' });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/class-officers/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id)) return c.json({ error: 'ID pengurus tidak valid.' }, 400);
+    await db.delete(classOfficers).where(eq(classOfficers.id, id));
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/page-settings/hero-image', async (c) => {
+  try {
+    const { imageUrl } = await c.req.json();
+    const value = typeof imageUrl === 'string' ? imageUrl.trim() : '';
+    if (!value || value.length > 2048 || (!value.startsWith('/') && !/^https?:\/\//i.test(value))) {
+      return c.json({ error: 'Gunakan URL gambar https:// atau path internal yang diawali /.' }, 400);
+    }
+    const existing = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
+    if (existing.length) {
+      await db.update(pageSettings).set({ value, updatedAt: new Date() }).where(eq(pageSettings.key, 'hero_image'));
+    } else {
+      await db.insert(pageSettings).values({ key: 'hero_image', value });
+    }
+    return c.json({ success: true, heroImage: value });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/page-settings/hero-image', async (c) => {
+  try {
+    await db.delete(pageSettings).where(eq(pageSettings.key, 'hero_image'));
+    return c.json({ success: true, heroImage: '/hero-default.svg' });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -298,12 +365,20 @@ app.post('/api/students', async (c) => {
   }
 });
 
-// Delete a student
+// Keep student history intact by marking a student as inactive instead of deleting it.
 app.delete('/api/students/:id', async (c) => {
   try {
     const id = parseInt(c.req.param('id'));
-    await db.delete(users).where(eq(users.id, id));
-    return c.json({ success: true });
+    const result = await db.update(users)
+      .set({ status: 'Nonaktif' })
+      .where(and(eq(users.id, id), eq(users.role, 'student')))
+      .returning({ id: users.id });
+
+    if (result.length === 0) {
+      return c.json({ error: 'Siswa tidak ditemukan' }, 404);
+    }
+
+    return c.json({ success: true, status: 'Nonaktif' });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

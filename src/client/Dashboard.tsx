@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, Bell, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
 const Dashboard = () => {
@@ -29,6 +29,20 @@ const Dashboard = () => {
   // Local state for the settings form to avoid immediate re-renders while typing
   const [quoteText, setQuoteText] = useState(classData.quote.text);
   const [quoteAuthor, setQuoteAuthor] = useState(classData.quote.author);
+  const [heroImageUrl, setHeroImageUrl] = useState(classData.heroImage);
+  const [officerRole, setOfficerRole] = useState('Ketua Kelas');
+  const [officerStudentId, setOfficerStudentId] = useState('');
+
+  useEffect(() => {
+    setHeroImageUrl(classData.heroImage);
+  }, [classData.heroImage]);
+
+  useEffect(() => {
+    const activeStudents = classData.students.filter((student) => student.status === 'Aktif');
+    if (!activeStudents.some((student) => student.id === officerStudentId)) {
+      setOfficerStudentId(activeStudents[0]?.id || '');
+    }
+  }, [classData.students, officerStudentId]);
   
   const [newAnnType, setNewAnnType] = useState<'PENTING' | 'INFO' | 'SELAMAT'>('INFO');
   const [newAnnText, setNewAnnText] = useState('');
@@ -947,10 +961,6 @@ const Dashboard = () => {
             >
               {isDarkMode ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5" />}
             </button>
-            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1 right-1 h-2 w-2 bg-red-500 rounded-full"></span>
-            </button>
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0">W</div>
               <div className="hidden sm:flex flex-col">
@@ -1282,6 +1292,40 @@ const Dashboard = () => {
 
           {activeTab === 'settings' && (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
+                  <span className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"><ImageIcon className="h-5 w-5" /></span>
+                  <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Gambar Hero Landing Page</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Gunakan URL gambar HTTPS atau path aset internal, misalnya <code>/gambar-kelas.jpg</code>.</p></div>
+                </div>
+                <div className="grid md:grid-cols-[180px_1fr] gap-5 items-start">
+                  <div className="aspect-square rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900">
+                    <img src={heroImageUrl || '/hero-default.svg'} alt="Pratinjau gambar hero" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.src = '/hero-default.svg'; }} />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-slate-600 dark:text-slate-400">URL Gambar</label>
+                    <input value={heroImageUrl} onChange={(event) => setHeroImageUrl(event.target.value)} placeholder="https://contoh.sch.id/gambar-kelas.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={async () => { try { await classData.updateHeroImage(heroImageUrl); alert('Gambar hero berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan gambar hero.'); } }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Gambar</button>
+                      <button onClick={async () => { if (!confirm('Kembalikan gambar hero ke gambar default?')) return; try { await classData.resetHeroImage(); alert('Gambar hero dikembalikan ke default.'); } catch { alert('Gagal mengembalikan gambar default.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Default</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
+                  <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"><Users className="h-5 w-5" /></span>
+                  <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Pengurus Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Tetapkan siswa aktif sebagai pengurus. Memakai jabatan yang sama akan mengganti penugasannya.</p></div>
+                </div>
+                <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end mb-5">
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Jabatan</label><input value={officerRole} onChange={(event) => setOfficerRole(event.target.value)} placeholder="Contoh: Ketua Kelas" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Siswa Aktif</label><select value={officerStudentId} onChange={(event) => setOfficerStudentId(event.target.value)} className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500">{classData.students.filter((student) => student.status === 'Aktif').map((student) => <option key={student.id} value={student.id}>{student.name} — {student.nisn}</option>)}</select></div>
+                  <button disabled={!officerRole.trim() || !officerStudentId} onClick={async () => { try { await classData.saveClassOfficer(officerStudentId, officerRole); alert('Pengurus kelas berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan pengurus kelas.'); } }} className="flex justify-center items-center gap-2 bg-emerald-600 disabled:opacity-50 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"><Save className="h-4 w-4" /> Simpan</button>
+                </div>
+                <div className="space-y-2">
+                  {classData.officers.length === 0 ? <p className="py-4 text-center text-sm text-slate-400">Belum ada pengurus kelas.</p> : classData.officers.map((officer) => <div key={officer.id} className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-4 py-3"><div className="h-9 w-9 shrink-0 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 grid place-items-center font-bold">{officer.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{officer.name}</p><p className="text-xs text-slate-500 dark:text-slate-400">{officer.role}</p></div><button onClick={() => { setOfficerRole(officer.role); setOfficerStudentId(officer.userId); }} className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg" title="Ubah penugasan"><Edit2 className="h-4 w-4" /></button><button onClick={async () => { if (!confirm(`Hapus jabatan ${officer.role}?`)) return; try { await classData.removeClassOfficer(officer.id); } catch { alert('Gagal menghapus pengurus kelas.'); } }} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg" title="Hapus jabatan"><Trash2 className="h-4 w-4" /></button></div>)}
+                </div>
+              </div>
               
               {/* Quote Settings */}
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -1530,16 +1574,16 @@ const Dashboard = () => {
                           </button>
                           <button 
                             onClick={async () => {
-                              const isConfirmed = window.confirm(`Apakah Anda yakin ingin menghapus siswa ${student.name}?`);
+                              const isConfirmed = window.confirm(`Nonaktifkan ${student.name}? Data presensi, nilai, sikap, dan prestasi tetap tersimpan.`);
                               if (isConfirmed) {
                                 await classData.removeStudent(student.id);
-                                alert('Siswa berhasil dihapus!');
+                                alert('Status siswa berhasil diubah menjadi Nonaktif.');
                               }
                             }}
-                            className="text-slate-400 hover:text-red-500 p-1 ml-1" 
-                            title="Hapus"
+                            className="text-slate-400 hover:text-amber-500 p-1 ml-1"
+                            title="Nonaktifkan siswa"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Ban className="h-4 w-4" />
                           </button>
                         </td>
                       </tr>

@@ -58,6 +58,19 @@ export interface ClassOfficer {
   name: string;
 }
 
+export interface AcademicLeaderboardEntry {
+  studentId: string;
+  name: string;
+  average: number;
+}
+
+export interface GradeTrendEntry {
+  month: string;
+  average: number | null;
+}
+
+export interface GalleryItem { id: string; title: string; imageUrl: string; description: string; }
+
 export interface ClassData {
   announcements: Announcement[];
   agenda: AgendaItem[];
@@ -66,6 +79,9 @@ export interface ClassData {
   behaviorRecords: BehaviorRecord[];
   achievements: Achievement[];
   officers: ClassOfficer[];
+  academicLeaderboard: AcademicLeaderboardEntry[];
+  gradeTrend: GradeTrendEntry[];
+  galleryItems: GalleryItem[];
   heroImage: string;
   homeroomTeacherPhoto: string;
   quote: { text: string; author: string };
@@ -82,6 +98,8 @@ export interface ClassData {
   updateClassProfile: (className: string, academicYear: string) => Promise<void>;
   saveClassOfficer: (userId: string, role: string) => Promise<void>;
   removeClassOfficer: (id: string) => Promise<void>;
+  addGalleryItem: (item: Omit<GalleryItem, 'id'>) => Promise<void>;
+  removeGalleryItem: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
   removeAnnouncement: (id: string) => void;
   addAgenda: (item: AgendaItem) => void;
@@ -132,6 +150,9 @@ const defaultData = {
     { id: '3', userId: '3', role: 'Sekretaris', name: 'Budi Santoso' },
     { id: '4', userId: '4', role: 'Bendahara', name: 'Dewi Lestari' },
   ],
+  academicLeaderboard: [],
+  gradeTrend: [],
+  galleryItems: [],
   heroImage: '/hero-default.svg',
   homeroomTeacherPhoto: '/wali-kelas-placeholder.svg'
 };
@@ -164,6 +185,9 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           behaviorRecords: json.behaviorRecords || [],
           achievements: json.achievements || [],
           officers: json.officers || [],
+          academicLeaderboard: json.academicLeaderboard || [],
+          gradeTrend: json.gradeTrend || [],
+          galleryItems: json.galleryItems || [],
           heroImage: json.heroImage || '/hero-default.svg',
           homeroomTeacherPhoto: json.homeroomTeacherPhoto || '/wali-kelas-placeholder.svg',
           quote: json.quote,
@@ -245,6 +269,18 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const removeClassOfficer = async (id: string) => {
     const response = await fetch(`/api/class-officers/${id}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Gagal menghapus pengurus kelas');
+    await fetchClassData();
+  };
+
+  const addGalleryItem = async (item: Omit<GalleryItem, 'id'>) => {
+    const response = await fetch('/api/gallery', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item) });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menambah foto galeri');
+    await fetchClassData();
+  };
+
+  const removeGalleryItem = async (id: string) => {
+    const response = await fetch(`/api/gallery/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Gagal menghapus foto galeri');
     await fetchClassData();
   };
 
@@ -429,6 +465,8 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       updateClassProfile,
       saveClassOfficer,
       removeClassOfficer,
+      addGalleryItem,
+      removeGalleryItem,
       addAnnouncement,
       removeAnnouncement,
       addAgenda,

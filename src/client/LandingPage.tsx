@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle } from 'lucide-react';
+import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useClassData } from './ClassContext';
 
 const LandingPage = ({ 
@@ -12,11 +12,14 @@ const LandingPage = ({
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(true);
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [showAllGallery, setShowAllGallery] = useState(false);
 
   const tabClass = (tabName: string) => {
     return activeMobileTab === tabName ? 'block' : 'hidden md:block';
@@ -36,8 +39,29 @@ const LandingPage = ({
   };
 
   const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
   const todayName = dayNames[new Date().getDay()];
   const todaySchedules = schedules.filter((schedule) => schedule.day === todayName);
+  const parseAgendaDate = (value: string) => {
+    const [dayValue, monthValue] = value.trim().split(/\s+/);
+    const day = Number(dayValue);
+    const month = monthShortNames.findIndex((monthName) => monthName.toLowerCase() === (monthValue || '').slice(0, 3).toLowerCase());
+    if (!Number.isInteger(day) || day < 1 || month < 0) return new Date(Number.NaN);
+    const now = new Date();
+    const date = new Date(now.getFullYear(), month, day);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (date < today) date.setFullYear(date.getFullYear() + 1);
+    return date;
+  };
+  const agendaWithDates = agenda.map((item) => ({ item, date: parseAgendaDate(item.date) })).filter((entry) => !Number.isNaN(entry.date.getTime()));
+  const calendarDays = Array.from({ length: new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0).getDate() }, (_, index) => index + 1);
+  const calendarLeadingDays = Array.from({ length: new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1).getDay() }, () => null);
+  const openFullCalendar = () => {
+    const nearestAgenda = [...agendaWithDates].sort((first, second) => first.date.getTime() - second.date.getTime())[0];
+    setCalendarDate(nearestAgenda?.date || new Date());
+    setShowCalendarModal(true);
+  };
 
   return (
     <div className={`${isDark ? 'dark' : ''}`}>
@@ -205,34 +229,25 @@ const LandingPage = ({
                       <TrendingUp className="h-6 w-6 text-emerald-500 dark:text-emerald-400" />
                       Tren Nilai Kelas
                     </h3>
-                    <select className="bg-white dark:bg-[#0A1118] border border-slate-300 dark:border-slate-700 text-sm rounded-lg px-3 py-1 outline-none text-slate-600 dark:text-slate-300 transition-colors">
-                      <option>Semester Ini</option>
-                      <option>Semester Lalu</option>
-                    </select>
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">6 bulan terakhir</span>
                   </div>
                   
                   {/* CSS Bar Chart */}
                   <div className="h-48 flex items-end justify-between gap-2 px-2">
-                    {[
-                      { month: "Jul", value: 65 },
-                      { month: "Ags", value: 72 },
-                      { month: "Sep", value: 85 },
-                      { month: "Okt", value: 81 },
-                      { month: "Nov", value: 92 },
-                      { month: "Des", value: 88 },
-                    ].map((data, i) => (
+                    {gradeTrend.map((data, i) => (
                       <div key={i} className="flex flex-col items-center flex-1 group">
                         <div className="w-full bg-slate-200 dark:bg-[#0A1118] border border-transparent dark:border-slate-800 rounded-t-lg flex items-end justify-center relative overflow-hidden transition-colors" style={{ height: '160px' }}>
                           <div 
-                            className="w-full bg-gradient-to-t from-cyan-400 to-cyan-300 dark:from-cyan-600 dark:to-cyan-400 group-hover:from-cyan-500 group-hover:to-cyan-400 transition-all rounded-t-lg shadow-sm dark:shadow-[0_0_15px_rgba(6,182,212,0.2)]" 
-                            style={{ height: `${data.value}%` }}
+                            className="w-full bg-gradient-to-t from-cyan-400 to-cyan-300 dark:from-cyan-600 dark:to-cyan-400 group-hover:from-cyan-500 group-hover:to-cyan-400 transition-all rounded-t-lg shadow-sm dark:shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+                            style={{ height: `${data.average ?? 0}%` }}
                           ></div>
-                          <span className="absolute bottom-3 text-xs font-bold text-slate-800 dark:text-slate-900 opacity-0 group-hover:opacity-100 transition-opacity">{data.value}</span>
+                          <span className="absolute bottom-3 text-xs font-bold text-slate-800 dark:text-slate-900 opacity-0 group-hover:opacity-100 transition-opacity">{data.average ?? '—'}</span>
                         </div>
                         <span className="text-xs text-slate-500 dark:text-slate-400 mt-3 font-medium">{data.month}</span>
                       </div>
                     ))}
                   </div>
+                  {!gradeTrend.some((data) => data.average !== null) && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai dalam enam bulan terakhir.</p>}
                 </div>
 
                 {/* Leaderboard & 3. Wall of Fame */}
@@ -244,21 +259,18 @@ const LandingPage = ({
                       Top Akademik
                     </h3>
                     <div className="space-y-4">
-                      {[
-                        { rank: 1, name: "Ahmad Fauzi", score: 98 },
-                        { rank: 2, name: "Budi Santoso", score: 95 },
-                        { rank: 3, name: "Citra Kirana", score: 94 },
-                      ].map((student) => (
-                        <div key={student.rank} className="flex items-center justify-between p-3 bg-white dark:bg-[#0A1118] rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
+                      {academicLeaderboard.length === 0 ? <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai untuk menentukan peringkat akademik.</p> : academicLeaderboard.map((student, index) => {
+                        const rank = index + 1;
+                        return <div key={student.studentId} className="flex items-center justify-between p-3 bg-white dark:bg-[#0A1118] rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
                           <div className="flex items-center gap-3">
-                            <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-xs ${student.rank === 1 ? 'bg-orange-500 text-white' : student.rank === 2 ? 'bg-slate-200 dark:bg-slate-300 text-slate-700 dark:text-slate-900' : 'bg-amber-600 dark:bg-amber-700 text-white'}`}>
-                              {student.rank}
+                            <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-xs ${rank === 1 ? 'bg-orange-500 text-white' : rank === 2 ? 'bg-slate-200 dark:bg-slate-300 text-slate-700 dark:text-slate-900' : 'bg-amber-600 dark:bg-amber-700 text-white'}`}>
+                              {rank}
                             </div>
                             <div className="font-medium text-sm text-slate-700 dark:text-white transition-colors">{student.name}</div>
                           </div>
-                          <div className="text-cyan-600 dark:text-cyan-400 font-bold text-sm">{student.score}</div>
-                        </div>
-                      ))}
+                          <div className="text-cyan-600 dark:text-cyan-400 font-bold text-sm">{student.average.toFixed(1)}</div>
+                        </div>;
+                      })}
                     </div>
                   </div>
 
@@ -289,18 +301,10 @@ const LandingPage = ({
                       <ImageIcon className="h-6 w-6 text-pink-500 dark:text-pink-400" />
                       Momen Kelas
                     </h3>
-                    <button className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline">Lihat Semua</button>
+                    {galleryItems.length > 3 && <button onClick={() => setShowAllGallery(true)} className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline">Lihat Semua</button>}
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="aspect-square rounded-xl bg-slate-200 dark:bg-[#0A1118] border border-slate-300 dark:border-slate-800 overflow-hidden transition-colors">
-                      <img src="/@fs/home/ferilee/.gemini/antigravity/brain/c3e5b6b3-89ee-40ca-abc4-81a8926f7e60/feature_card_1_1782785125342.png" className="w-full h-full object-cover opacity-80 dark:opacity-60 hover:opacity-100 hover:scale-110 transition-all cursor-pointer" alt="Momen 1" />
-                    </div>
-                    <div className="aspect-square rounded-xl bg-slate-200 dark:bg-[#0A1118] border border-slate-300 dark:border-slate-800 overflow-hidden transition-colors">
-                      <img src="/@fs/home/ferilee/.gemini/antigravity/brain/c3e5b6b3-89ee-40ca-abc4-81a8926f7e60/hero_bg_classroom_1782785113233.png" className="w-full h-full object-cover opacity-80 dark:opacity-60 hover:opacity-100 hover:scale-110 transition-all cursor-pointer" alt="Momen 2" />
-                    </div>
-                    <div className="aspect-square rounded-xl bg-slate-200 dark:bg-[#0A1118] border border-slate-300 dark:border-slate-800 overflow-hidden transition-colors">
-                      <img src="/@fs/home/ferilee/.gemini/antigravity/brain/c3e5b6b3-89ee-40ca-abc4-81a8926f7e60/feature_card_2_1782785137182.png" className="w-full h-full object-cover opacity-80 dark:opacity-60 hover:opacity-100 hover:scale-110 transition-all cursor-pointer" alt="Momen 3" />
-                    </div>
+                    {galleryItems.length === 0 ? <p className="col-span-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada momen kelas yang ditambahkan.</p> : galleryItems.slice(0, 3).map((item) => <button key={item.id} onClick={() => setShowAllGallery(true)} className="aspect-square overflow-hidden rounded-xl border border-slate-300 bg-slate-200 text-left dark:border-slate-800 dark:bg-[#0A1118]"><img src={item.imageUrl} className="h-full w-full object-cover opacity-90 transition-all hover:scale-110 hover:opacity-100" alt={item.title} onError={(event) => { event.currentTarget.style.display = 'none'; }} /></button>)}
                   </div>
                 </div>
 
@@ -357,7 +361,7 @@ const LandingPage = ({
                       </div>
                     ))}
                   </div>
-                  <button className="w-full mt-6 py-2.5 rounded-xl bg-white dark:bg-[#0A1118] text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
+                  <button onClick={openFullCalendar} className="w-full mt-6 py-2.5 rounded-xl bg-white dark:bg-[#0A1118] text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
                     Lihat Kalender Penuh
                   </button>
                 </div>
@@ -429,6 +433,39 @@ const LandingPage = ({
           </div>
         </div>
       </div>
+
+      {showCalendarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setShowCalendarModal(false)}>
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-[#121C28] sm:p-7" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="calendar-title">
+            <div className="mb-6 flex items-center justify-between gap-4">
+              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-500">Agenda Kelas</p><h2 id="calendar-title" className="text-xl font-bold text-slate-900 dark:text-white">Kalender Penuh</h2></div>
+              <button onClick={() => setShowCalendarModal(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-700 dark:hover:text-white" aria-label="Tutup kalender"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mb-5 flex items-center justify-between rounded-2xl bg-slate-50 p-3 dark:bg-slate-900/60">
+              <button onClick={() => setCalendarDate((date) => new Date(date.getFullYear(), date.getMonth() - 1, 1))} className="rounded-xl p-2 text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-700" aria-label="Bulan sebelumnya"><ChevronLeft className="h-5 w-5" /></button>
+              <p className="font-bold text-slate-800 dark:text-white">{monthNames[calendarDate.getMonth()]} {calendarDate.getFullYear()}</p>
+              <button onClick={() => setCalendarDate((date) => new Date(date.getFullYear(), date.getMonth() + 1, 1))} className="rounded-xl p-2 text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-700" aria-label="Bulan berikutnya"><ChevronRight className="h-5 w-5" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-500 dark:text-slate-400">{dayNames.map((day) => <span key={day} className="py-2">{day.slice(0, 3)}</span>)}</div>
+            <div className="grid grid-cols-7 gap-1">{[...calendarLeadingDays, ...calendarDays].map((day, index) => {
+              if (!day) return <div key={`blank-${index}`} className="min-h-20 rounded-xl" />;
+              const events = agendaWithDates.filter(({ date }) => date.getFullYear() === calendarDate.getFullYear() && date.getMonth() === calendarDate.getMonth() && date.getDate() === day);
+              const isToday = new Date().getFullYear() === calendarDate.getFullYear() && new Date().getMonth() === calendarDate.getMonth() && new Date().getDate() === day;
+              return <div key={day} className={`min-h-20 rounded-xl border p-1.5 text-left ${events.length ? 'border-orange-200 bg-orange-50 dark:border-orange-900/60 dark:bg-orange-950/20' : 'border-slate-100 dark:border-slate-800'} ${isToday ? 'ring-2 ring-cyan-400 dark:ring-cyan-500' : ''}`}><p className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-200">{day}</p>{events.map(({ item }) => <p key={item.id} title={item.title} className="mb-1 truncate rounded bg-white px-1 py-0.5 text-[9px] font-semibold text-orange-700 shadow-sm dark:bg-slate-800 dark:text-orange-300">{item.title}</p>)}</div>;
+            })}</div>
+            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-700"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Agenda pada bulan ini</p>{agendaWithDates.filter(({ date }) => date.getFullYear() === calendarDate.getFullYear() && date.getMonth() === calendarDate.getMonth()).length === 0 ? <p className="text-sm text-slate-500">Tidak ada agenda pada bulan ini.</p> : <div className="space-y-2">{agendaWithDates.filter(({ date }) => date.getFullYear() === calendarDate.getFullYear() && date.getMonth() === calendarDate.getMonth()).map(({ item, date }) => <div key={item.id} className="flex justify-between gap-4 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/60"><span className="font-semibold text-slate-800 dark:text-slate-100">{item.title}</span><span className="shrink-0 text-slate-500">{date.getDate()} {monthShortNames[date.getMonth()]} · {item.type}</span></div>)}</div>}</div>
+          </div>
+        </div>
+      )}
+
+      {showAllGallery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setShowAllGallery(false)}>
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-[#121C28]" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="gallery-title">
+            <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-pink-500">Dokumentasi</p><h2 id="gallery-title" className="text-xl font-bold text-slate-900 dark:text-white">Galeri Momen Kelas</h2></div><button onClick={() => setShowAllGallery(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup galeri"><X className="h-5 w-5" /></button></div>
+            {galleryItems.length === 0 ? <p className="py-12 text-center text-slate-500">Belum ada foto galeri.</p> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">{galleryItems.map((item) => <figure key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><figcaption className="p-3"><p className="font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>{item.description && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.description}</p>}</figcaption></figure>)}</div>}
+          </div>
+        </div>
+      )}
 
       {/* Unified Login Modal */}
       {showLoginModal && (

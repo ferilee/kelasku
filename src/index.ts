@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings } from './server/db/schema';
+import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems } from './server/db/schema';
 import { eq, and, like } from 'drizzle-orm';
 
 const app = new Hono();
@@ -156,6 +156,7 @@ app.get('/api/class-data', async (c) => {
     const allBehavior = await db.select().from(behaviorRecords);
     const allAchievements = await db.select().from(achievements);
     const allOfficers = await db.select().from(classOfficers);
+    const allGalleryItems = await db.select().from(galleryItems).orderBy(galleryItems.createdAt);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
     const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
     const classNameSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'class_name')).limit(1);
@@ -185,6 +186,29 @@ app.get('/api/class-data', async (c) => {
     const gradeAverage = activeGrades.length
       ? activeGrades.reduce((total, grade) => total + grade.score, 0) / activeGrades.length
       : null;
+    const studentGrades = new Map<number, { total: number; count: number }>();
+    for (const grade of activeGrades) {
+      const current = studentGrades.get(grade.userId) || { total: 0, count: 0 };
+      studentGrades.set(grade.userId, { total: current.total + grade.score, count: current.count + 1 });
+    }
+    const academicLeaderboard = Array.from(studentGrades.entries())
+      .map(([studentId, summary]) => ({
+        studentId: studentId.toString(),
+        name: allStudents.find((student) => student.id === studentId)?.name || 'Siswa tidak ditemukan',
+        average: Number((summary.total / summary.count).toFixed(1)),
+      }))
+      .sort((first, second) => second.average - first.average || first.name.localeCompare(second.name, 'id'))
+      .slice(0, 3);
+    const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+    const now = new Date();
+    const gradeTrend = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+      const monthlyGrades = activeGrades.filter((grade) => grade.createdAt.getFullYear() === date.getFullYear() && grade.createdAt.getMonth() === date.getMonth());
+      return {
+        month: monthLabels[date.getMonth()],
+        average: monthlyGrades.length ? Number((monthlyGrades.reduce((total, grade) => total + grade.score, 0) / monthlyGrades.length).toFixed(1)) : null,
+      };
+    });
 
     const stats = {
       attendance: attendanceAverage === null ? '—' : `${attendanceAverage.toFixed(1)}%`,
@@ -229,6 +253,9 @@ app.get('/api/class-data', async (c) => {
         role: officer.role,
         name: allStudents.find(student => student.id === officer.userId)?.name || 'Siswa tidak ditemukan',
       })),
+      academicLeaderboard,
+      galleryItems: allGalleryItems.map((item) => ({ id: item.id.toString(), title: item.title, imageUrl: item.imageUrl, description: item.description || '' })),
+      gradeTrend,
       heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
       homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
       className: classNameSetting[0]?.value || 'X TKJ A',
@@ -239,6 +266,29 @@ app.get('/api/class-data', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+app.post('/api/gallery', async (c) => {
+  try {
+    const body = await c.req.json();
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl.trim() : '';
+    const description = typeof body.description === 'string' ? body.description.trim() : '';
+    if (!title || !imageUrl || title.length > 120 || imageUrl.length > 2048 || (!imageUrl.startsWith('/') && !/^https?:\/\//i.test(imageUrl))) {
+      return c.json({ error: 'Judul dan URL gambar yang valid wajib diisi.' }, 400);
+    }
+    const inserted = await db.insert(galleryItems).values({ title, imageUrl, description: description || null }).returning();
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.delete('/api/gallery/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id)) return c.json({ error: 'ID galeri tidak valid.' }, 400);
+    await db.delete(galleryItems).where(eq(galleryItems.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 app.put('/api/page-settings/class-profile', async (c) => {

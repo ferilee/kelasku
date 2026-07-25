@@ -31,6 +31,9 @@ const Dashboard = () => {
   const [quoteAuthor, setQuoteAuthor] = useState(classData.quote.author);
   const [heroImageUrl, setHeroImageUrl] = useState(classData.heroImage);
   const [homeroomTeacherPhotoUrl, setHomeroomTeacherPhotoUrl] = useState(classData.homeroomTeacherPhoto);
+  const [galleryTitle, setGalleryTitle] = useState('');
+  const [galleryImageUrl, setGalleryImageUrl] = useState('');
+  const [galleryDescription, setGalleryDescription] = useState('');
   const [officerRole, setOfficerRole] = useState('Ketua Kelas');
   const [officerStudentId, setOfficerStudentId] = useState('');
 
@@ -1315,6 +1318,13 @@ const Dashboard = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3"><span className="p-2 rounded-lg bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400"><ImageIcon className="h-5 w-5" /></span><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Galeri Momen Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Tambahkan dokumentasi kegiatan kelas melalui URL gambar.</p></div></div>
+                <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-xs font-medium text-slate-500">Judul</label><input value={galleryTitle} onChange={(event) => setGalleryTitle(event.target.value)} placeholder="Contoh: Kegiatan Projek P5" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div><label className="mb-1 block text-xs font-medium text-slate-500">URL Gambar</label><input value={galleryImageUrl} onChange={(event) => setGalleryImageUrl(event.target.value)} placeholder="https://contoh.sch.id/kegiatan.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div className="sm:col-span-2"><label className="mb-1 block text-xs font-medium text-slate-500">Keterangan (opsional)</label><input value={galleryDescription} onChange={(event) => setGalleryDescription(event.target.value)} placeholder="Deskripsi singkat kegiatan" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div></div>
+                <div className="mt-3 flex flex-wrap gap-3"><button disabled={!galleryTitle.trim() || !galleryImageUrl.trim()} onClick={async () => { try { await classData.addGalleryItem({ title: galleryTitle, imageUrl: galleryImageUrl, description: galleryDescription }); setGalleryTitle(''); setGalleryImageUrl(''); setGalleryDescription(''); alert('Foto galeri berhasil ditambahkan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menambah foto galeri.'); } }} className="flex items-center gap-2 rounded-lg bg-pink-600 px-4 py-2 font-medium text-white transition-colors hover:bg-pink-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah Foto</button>{galleryImageUrl && <img src={galleryImageUrl} alt="Pratinjau galeri" className="h-10 w-10 rounded-lg object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
+                <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{classData.galleryItems.length === 0 ? <p className="col-span-full py-3 text-center text-sm text-slate-400">Belum ada foto galeri.</p> : classData.galleryItems.map((item) => <div key={item.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><div className="p-2"><p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.title}</p></div><button onClick={async () => { if (!confirm(`Hapus foto "${item.title}"?`)) return; try { await classData.removeGalleryItem(item.id); } catch { alert('Gagal menghapus foto galeri.'); } }} className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 text-red-500 opacity-0 shadow transition-opacity group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></div>)}</div>
               </div>
 
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">

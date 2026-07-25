@@ -158,6 +158,8 @@ app.get('/api/class-data', async (c) => {
     const allOfficers = await db.select().from(classOfficers);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
     const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
+    const classNameSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'class_name')).limit(1);
+    const academicYearSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'academic_year')).limit(1);
     const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
     const allGrades = await db.select().from(grades);
 
@@ -229,9 +231,34 @@ app.get('/api/class-data', async (c) => {
       })),
       heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
       homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
+      className: classNameSetting[0]?.value || 'X TKJ A',
+      academicYear: academicYearSetting[0]?.value || '2026-2027',
       quote: { text: quoteVal.text, author: quoteVal.author },
       stats
     });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/page-settings/class-profile', async (c) => {
+  try {
+    const body = await c.req.json();
+    const className = typeof body.className === 'string' ? body.className.trim() : '';
+    const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
+    if (!className || !academicYear || className.length > 100 || academicYear.length > 30) {
+      return c.json({ error: 'Nama kelas dan tahun ajaran wajib diisi.' }, 400);
+    }
+
+    for (const [key, value] of [['class_name', className], ['academic_year', academicYear]] as const) {
+      const existing = await db.select().from(pageSettings).where(eq(pageSettings.key, key)).limit(1);
+      if (existing.length) {
+        await db.update(pageSettings).set({ value, updatedAt: new Date() }).where(eq(pageSettings.key, key));
+      } else {
+        await db.insert(pageSettings).values({ key, value });
+      }
+    }
+    return c.json({ success: true, className, academicYear });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

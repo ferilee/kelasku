@@ -79,6 +79,7 @@ export interface ClassData {
   resetHeroImage: () => Promise<void>;
   updateHomeroomTeacherPhoto: (imageUrl: string) => Promise<void>;
   resetHomeroomTeacherPhoto: () => Promise<void>;
+  updateClassProfile: (className: string, academicYear: string) => Promise<void>;
   saveClassOfficer: (userId: string, role: string) => Promise<void>;
   removeClassOfficer: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
@@ -139,35 +140,15 @@ export const ClassContext = createContext<ClassData | undefined>(undefined);
 
 export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const [data, setData] = useState(defaultData);
-  const [selectedClass, setSelectedClass] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('selectedClass') || 'XII RPL A';
-    }
-    return 'XII RPL A';
-  });
-  const [selectedYear, setSelectedYear] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('selectedYear') || '2024-2025';
-    }
-    return '2024-2025';
-  });
+  const [selectedClass, setSelectedClass] = useState<string | null>('X TKJ A');
+  const [selectedYear, setSelectedYear] = useState<string | null>('2026-2027');
 
   const handleSetSelectedClass = (cls: string | null) => {
     setSelectedClass(cls);
-    if (cls) {
-      localStorage.setItem('selectedClass', cls);
-    } else {
-      localStorage.removeItem('selectedClass');
-    }
   };
 
   const handleSetSelectedYear = (yr: string | null) => {
     setSelectedYear(yr);
-    if (yr) {
-      localStorage.setItem('selectedYear', yr);
-    } else {
-      localStorage.removeItem('selectedYear');
-    }
   };
 
   const fetchClassData = useCallback(async () => {
@@ -188,6 +169,8 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           quote: json.quote,
           stats: json.stats,
         });
+        setSelectedClass(json.className || 'X TKJ A');
+        setSelectedYear(json.academicYear || '2026-2027');
       }
     } catch (err) {
       console.error('Error fetching class data:', err);
@@ -240,6 +223,14 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const resetHomeroomTeacherPhoto = async () => {
     const response = await fetch('/api/page-settings/homeroom-teacher-photo', { method: 'DELETE' });
     if (!response.ok) throw new Error('Gagal mengembalikan foto placeholder');
+    await fetchClassData();
+  };
+
+  const updateClassProfile = async (className: string, academicYear: string) => {
+    const response = await fetch('/api/page-settings/class-profile', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ className, academicYear })
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menyimpan pengaturan kelas');
     await fetchClassData();
   };
 
@@ -435,6 +426,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       resetHeroImage,
       updateHomeroomTeacherPhoto,
       resetHomeroomTeacherPhoto,
+      updateClassProfile,
       saveClassOfficer,
       removeClassOfficer,
       addAnnouncement,

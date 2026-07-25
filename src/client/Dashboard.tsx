@@ -1817,15 +1817,18 @@ const Dashboard = () => {
                 <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Pengaturan Halaman Kelas</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Sesuaikan nama kelas dan tahun ajaran aktif untuk kelas Anda.</p>
                 
-                <form onSubmit={(e) => {
+                <form onSubmit={async (e) => {
                   e.preventDefault();
                   const target = e.target as typeof e.target & {
                     classNameInput: { value: string };
                     yearInput: { value: string };
                   };
-                  classData.setSelectedClass(target.classNameInput.value);
-                  classData.setSelectedYear(target.yearInput.value);
-                  alert('Pengaturan kelas berhasil disimpan!');
+                  try {
+                    await classData.updateClassProfile(target.classNameInput.value, target.yearInput.value);
+                    alert('Pengaturan kelas berhasil disimpan untuk semua browser.');
+                  } catch (error) {
+                    alert(error instanceof Error ? error.message : 'Gagal menyimpan pengaturan kelas.');
+                  }
                 }} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Nama Kelas</label>

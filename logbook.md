@@ -4,6 +4,46 @@ Dokumen ini mencatat seluruh riwayat aktivitas, implementasi fitur, dan pemecaha
 
 ---
 
+## [23 Juli 2026] - Finalisasi Produksi, Laporan, dan Personalisasi Landing Page
+
+### 1. Stabilitas Produksi & Database
+
+* Menginvestigasi respons HTTP 500 pada produksi dan menemukan database SQLite belum memiliki tabel yang diperlukan.
+* Mengganti inisialisasi skema produksi dari `drizzle-kit push` ke inisialisasi idempoten berbasis `bun:sqlite`, karena `drizzle-kit` memuat `better-sqlite3` yang belum didukung Bun.
+* Memperbarui startup container agar aplikasi tidak gagal saat migrasi CLI dijalankan.
+* Menyempurnakan konfigurasi Docker Compose produksi agar aplikasi memakai `expose: 3000` pada jaringan Docker internal, sehingga dapat diproksikan Nginx Proxy Manager tanpa konflik port host.
+
+### 2. Data Siswa, Presensi, dan Laporan
+
+* Mengubah aksi hapus siswa menjadi **Nonaktifkan siswa** untuk menjaga riwayat presensi, nilai, sikap, prestasi, serta jabatan pengurus kelas.
+* Menyempurnakan laporan presensi PDF bulanan dan harian: hari sekolah Senin–Jumat, rekap status kehadiran, ringkasan jumlah hadir/tidak hadir, serta penyatuan status sholat.
+* Menambahkan laporan PDF untuk buku nilai dan nilai sikap dalam menu Laporan terpusat.
+* Mengganti statistik landing page yang sebelumnya data contoh menjadi perhitungan nyata:
+  * Rata-rata hadir dihitung dari presensi harian siswa aktif.
+  * Rata-rata nilai dihitung dari seluruh nilai siswa aktif.
+  * Statistik menampilkan tanda `—` bila data belum tersedia.
+
+### 3. UI Responsif dan Pengaturan Kelas
+
+* Menyempurnakan tampilan mobile manajemen siswa, buku nilai, laporan presensi, dashboard guru, dan bottom navigation.
+* Menambahkan CRUD mata pelajaran untuk buku nilai digital.
+* Menambahkan manajemen pengurus kelas: menetapkan siswa aktif, mengganti pemegang jabatan, dan menghapus jabatan; perubahan tampil pada landing page.
+* Menyembunyikan ikon notifikasi header yang belum memiliki fungsi agar tidak menimbulkan ekspektasi keliru.
+
+### 4. Landing Page, PWA, dan Branding
+
+* Menambahkan informasi kelas, struktur pengurus, card wali kelas, CTA WhatsApp, serta tautan website wali kelas pada landing page.
+* Menambahkan pengaturan gambar hero landing page melalui URL gambar dan reset ke ilustrasi default.
+* Menambahkan pengaturan foto wali kelas melalui URL gambar, pratinjau, reset placeholder, dan validasi URL di backend.
+* Menambahkan PWA: manifest, service worker, ikon aplikasi, favicon, metadata Open Graph, dan metadata Twitter.
+
+### 5. Verifikasi
+
+* Melakukan pengujian API terkontrol untuk pengaturan gambar, foto wali kelas, pengurus kelas, status siswa, serta perhitungan statistik.
+* Menjalankan `bun run build` setelah perubahan utama dengan hasil sukses.
+
+---
+
 ## [21 Juli 2026] - Modul Sikap & Prestasi (Behavior & Achievements)
 
 ### 1. Deskripsi Tugas

@@ -89,6 +89,7 @@ export interface ClassData {
   removeSchedule: (id: string) => Promise<void>;
   addStudent: (student: Student) => void;
   removeStudent: (id: string) => void;
+  permanentlyDeleteStudent: (id: string) => Promise<void>;
   updateStudent: (student: Student) => void;
   addBehaviorRecord: (record: Omit<BehaviorRecord, 'id'>) => Promise<void>;
   removeBehaviorRecord: (id: string) => Promise<void>;
@@ -355,6 +356,12 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const permanentlyDeleteStudent = async (id: string) => {
+    const response = await fetch(`/api/students/${id}/permanent`, { method: 'DELETE' });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menghapus siswa');
+    await fetchClassData();
+  };
+
   const updateStudent = async (student: Student) => {
     try {
       await fetch(`/api/students/${student.id}`, {
@@ -438,6 +445,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       removeSchedule,
       addStudent,
       removeStudent,
+      permanentlyDeleteStudent,
       updateStudent,
       addBehaviorRecord,
       removeBehaviorRecord,

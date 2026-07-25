@@ -1601,6 +1601,22 @@ const Dashboard = () => {
                           >
                             <Ban className="h-4 w-4" />
                           </button>
+                          <button
+                            onClick={async () => {
+                              const isConfirmed = window.confirm(`Hapus permanen ${student.name}? Tindakan ini tidak dapat dibatalkan dan hanya tersedia bila siswa belum memiliki riwayat data.`);
+                              if (!isConfirmed) return;
+                              try {
+                                await classData.permanentlyDeleteStudent(student.id);
+                                alert('Siswa berhasil dihapus permanen.');
+                              } catch (error) {
+                                alert(error instanceof Error ? error.message : 'Gagal menghapus siswa.');
+                              }
+                            }}
+                            className="text-slate-400 hover:text-red-500 p-1 ml-1"
+                            title="Hapus permanen"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         </td>
                       </tr>
                     )))}

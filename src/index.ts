@@ -426,6 +426,37 @@ app.delete('/api/students/:id', async (c) => {
   }
 });
 
+// Permanently delete a student only when no academic or class history exists.
+app.delete('/api/students/:id/permanent', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'));
+    const student = await db.select().from(users).where(and(eq(users.id, id), eq(users.role, 'student'))).limit(1);
+    if (!student.length) return c.json({ error: 'Siswa tidak ditemukan.' }, 404);
+
+    const [officer, attendanceRecord, grade, behavior, achievement, submission] = await Promise.all([
+      db.select({ id: classOfficers.id }).from(classOfficers).where(eq(classOfficers.userId, id)).limit(1),
+      db.select({ id: attendance.id }).from(attendance).where(eq(attendance.userId, id)).limit(1),
+      db.select({ id: grades.id }).from(grades).where(eq(grades.userId, id)).limit(1),
+      db.select({ id: behaviorRecords.id }).from(behaviorRecords).where(eq(behaviorRecords.studentId, id)).limit(1),
+      db.select({ id: achievements.id }).from(achievements).where(eq(achievements.studentId, id)).limit(1),
+      db.select({ id: submissions.id }).from(submissions).where(eq(submissions.userId, id)).limit(1),
+    ]);
+
+    const relatedData = [
+      officer.length && 'jabatan pengurus', attendanceRecord.length && 'presensi', grade.length && 'nilai',
+      behavior.length && 'catatan sikap', achievement.length && 'prestasi', submission.length && 'pengumpulan tugas',
+    ].filter(Boolean);
+    if (relatedData.length) {
+      return c.json({ error: `Siswa masih memiliki ${relatedData.join(', ')}. Gunakan status Nonaktif untuk menjaga riwayat.` }, 409);
+    }
+
+    await db.delete(users).where(eq(users.id, id));
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Update a student
 app.put('/api/students/:id', async (c) => {
   try {

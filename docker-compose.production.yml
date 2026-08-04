@@ -3,21 +3,18 @@ services:
     image: ghcr.io/ferilee/kelasku:latest
     container_name: kelasku
     expose:
-      - "3000"
+      - "3300"
     env_file:
       - .env
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: 3300
       DATABASE_URL: /app/data/sqlite.db
     volumes:
-      - sqlite_data:/app/data
+      - /srv/data/webkelas/sqlite:/app/data
     networks:
       - ferileenet
     restart: always
-
-volumes:
-  sqlite_data:
 
 networks:
   ferileenet:

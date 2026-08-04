@@ -36,6 +36,15 @@ const Dashboard = () => {
   const [galleryDescription, setGalleryDescription] = useState('');
   const [officerRole, setOfficerRole] = useState('Ketua Kelas');
   const [officerStudentId, setOfficerStudentId] = useState('');
+  const [teachers, setTeachers] = useState<{ id: string; name: string; identifier: string; status: string }[]>([]);
+  const [teachingAssignments, setTeachingAssignments] = useState<{ id: string; teacherId: string; classId: string; subjectId: string; academicYear: string; teacherName: string; className: string; subjectName: string }[]>([]);
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassYear, setNewClassYear] = useState('');
+  const [newTeacherName, setNewTeacherName] = useState('');
+  const [newTeacherIdentifier, setNewTeacherIdentifier] = useState('');
+  const [assignmentTeacherId, setAssignmentTeacherId] = useState('');
+  const [assignmentClassId, setAssignmentClassId] = useState('');
+  const [assignmentSubjectId, setAssignmentSubjectId] = useState('');
 
   useEffect(() => {
     setHeroImageUrl(classData.heroImage);
@@ -81,7 +90,8 @@ const Dashboard = () => {
     const fetchDashboardSummary = async () => {
       try {
         const currentMonth = new Date().toISOString().slice(0, 7);
-        const res = await fetch(`/api/attendance/summary?month=${currentMonth}`);
+        if (!classData.classId) return;
+        const res = await fetch(`/api/attendance/summary?month=${currentMonth}&classId=${classData.classId}`);
         if (res.ok) {
           const json = await res.json();
           setDashboardSummary(json);
@@ -91,12 +101,13 @@ const Dashboard = () => {
       }
     };
     fetchDashboardSummary();
-  }, [classData.students]);
+  }, [classData.students, classData.classId]);
 
   const fetchReportData = useCallback(async () => {
     setIsLoadingReport(true);
     try {
-      const res = await fetch(`/api/attendance/summary?month=${selectedMonth}`);
+      if (!classData.classId) return;
+      const res = await fetch(`/api/attendance/summary?month=${selectedMonth}&classId=${classData.classId}`);
       if (res.ok) {
         const json = await res.json();
         setReportData(json);
@@ -106,7 +117,7 @@ const Dashboard = () => {
     } finally {
       setIsLoadingReport(false);
     }
-  }, [selectedMonth]);
+  }, [selectedMonth, classData.classId]);
 
   useEffect(() => {
     if (activeTab === 'reports' && reportCategory === 'attendance') {
@@ -122,7 +133,8 @@ const Dashboard = () => {
   const fetchClassStats = useCallback(async () => {
     setIsLoadingStats(true);
     try {
-      const res = await fetch('/api/attendance/stats');
+      if (!classData.classId) return;
+      const res = await fetch(`/api/attendance/stats?classId=${classData.classId}`);
       if (res.ok) {
         const json = await res.json();
         setClassStats(json);
@@ -132,7 +144,7 @@ const Dashboard = () => {
     } finally {
       setIsLoadingStats(false);
     }
-  }, []);
+  }, [classData.classId]);
 
   useEffect(() => {
     fetchClassStats();
@@ -156,7 +168,8 @@ const Dashboard = () => {
   const fetchGrades = useCallback(async () => {
     setIsLoadingGrades(true);
     try {
-      const res = await fetch('/api/grades');
+      if (!classData.classId) return;
+      const res = await fetch(`/api/grades?classId=${classData.classId}`);
       if (res.ok) {
         const data = await res.json();
         setGradesList(data);
@@ -173,7 +186,7 @@ const Dashboard = () => {
     } finally {
       setIsLoadingGrades(false);
     }
-  }, []);
+  }, [classData.classId]);
 
   const fetchSubjects = useCallback(async () => {
     try {
@@ -189,6 +202,21 @@ const Dashboard = () => {
       console.error('Error fetching subjects:', err);
     }
   }, [selectedSubject]);
+
+  const fetchTeachingSetup = useCallback(async () => {
+    try {
+      const [teachersResponse, assignmentsResponse, subjectsResponse] = await Promise.all([
+        fetch('/api/teachers'), fetch('/api/teaching-assignments'), fetch('/api/subjects'),
+      ]);
+      if (teachersResponse.ok) setTeachers(await teachersResponse.json());
+      if (assignmentsResponse.ok) setTeachingAssignments(await assignmentsResponse.json());
+      if (subjectsResponse.ok) setSubjects(await subjectsResponse.json());
+    } catch (error) { console.error('Gagal memuat pengaturan mengajar:', error); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'settings') fetchTeachingSetup();
+  }, [activeTab, fetchTeachingSetup]);
 
   useEffect(() => {
     if (activeTab === 'academic' || activeTab === 'reports') {
@@ -245,7 +273,8 @@ const Dashboard = () => {
             subject: selectedSubject,
             type: assessment.type,
             name: assessment.name,
-            scores
+            scores,
+            classId: classData.classId
           })
         });
       }
@@ -261,7 +290,7 @@ const Dashboard = () => {
     const isConfirmed = window.confirm(`Apakah Anda yakin ingin menghapus kolom penilaian "${assessmentName}"?`);
     if (!isConfirmed) return;
     try {
-      const res = await fetch(`/api/grades/assessment?subject=${encodeURIComponent(selectedSubject)}&type=${assessmentType}&name=${encodeURIComponent(assessmentName)}`, {
+      const res = await fetch(`/api/grades/assessment?subject=${encodeURIComponent(selectedSubject)}&type=${assessmentType}&name=${encodeURIComponent(assessmentName)}&classId=${classData.classId}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -811,7 +840,8 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchAttendance = async () => {
       try {
-        const res = await fetch(`/api/attendance?date=${attendanceDate}&type=${attendanceType}`);
+        if (!classData.classId) return;
+        const res = await fetch(`/api/attendance?date=${attendanceDate}&type=${attendanceType}&classId=${classData.classId}`);
         if (res.ok) {
           const json = await res.json();
           const map: Record<string, string> = {};
@@ -836,7 +866,7 @@ const Dashboard = () => {
     if (classData.students.length > 0) {
       fetchAttendance();
     }
-  }, [attendanceDate, attendanceType, classData.students]);
+  }, [attendanceDate, attendanceType, classData.students, classData.classId]);
 
   const handleSaveAttendance = async () => {
     try {
@@ -850,7 +880,8 @@ const Dashboard = () => {
         body: JSON.stringify({
           date: attendanceDate,
           type: attendanceType,
-          records
+          records,
+          classId: classData.classId
         })
       });
       if (res.ok) {
@@ -961,6 +992,14 @@ const Dashboard = () => {
             {activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : 'Manajemen Kelas'}
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
+            <select
+              value={classData.classId || ''}
+              onChange={(event) => { if (event.target.value) classData.selectClass(event.target.value); }}
+              aria-label="Pilih kelas aktif"
+              className="max-w-[150px] sm:max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+            >
+              {classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name} · {item.academicYear}</option>)}
+            </select>
             {/* Dark Mode Toggle */}
             <button 
               onClick={() => setIsDarkMode(!isDarkMode)} 
@@ -1300,6 +1339,14 @@ const Dashboard = () => {
 
           {activeTab === 'settings' && (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6">
+                <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Kelas & Penugasan Mengajar</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola rombel, guru pengajar, dan akses mata pelajaran per kelas.</p></div>
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Master Kelas</h4><div className="grid grid-cols-2 gap-2"><input value={newClassName} onChange={(event) => setNewClassName(event.target.value)} placeholder="Contoh: XI TKJ B" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newClassYear} onChange={(event) => setNewClassYear(event.target.value)} placeholder={classData.selectedYear || '2026-2027'} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { const name = newClassName.trim(), academicYear = newClassYear.trim() || classData.selectedYear || ''; if (!name || !academicYear) return; const response = await fetch('/api/classes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah kelas.'); setNewClassName(''); setNewClassYear(''); await classData.selectClass(classData.classId || ''); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Kelas</button><div className="space-y-2">{classData.classes.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><button onClick={() => classData.selectClass(item.id)} className="text-left"><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></button>{item.id !== classData.classId && <button onClick={async () => { if (!confirm(`Hapus kelas ${item.name}?`)) return; const response = await fetch(`/api/classes/${item.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus kelas.'); await classData.selectClass(classData.classId || ''); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></section>
+                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Guru Pengajar</h4><div className="grid grid-cols-2 gap-2"><input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="Nama guru" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newTeacherIdentifier} onChange={(event) => setNewTeacherIdentifier(event.target.value)} placeholder="NIP / username" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { if (!newTeacherName.trim() || !newTeacherIdentifier.trim()) return; const response = await fetch('/api/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeacherName, identifier: newTeacherIdentifier }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah guru.'); setNewTeacherName(''); setNewTeacherIdentifier(''); fetchTeachingSetup(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Guru</button><div className="space-y-2">{teachers.length ? teachers.map((teacher) => <div key={teacher.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><span><span className="font-medium text-slate-800 dark:text-slate-100">{teacher.name}</span><span className="ml-2 text-xs text-slate-400">{teacher.identifier}</span></span><button onClick={async () => { if (!confirm(`Hapus guru ${teacher.name}?`)) return; const response = await fetch(`/api/teachers/${teacher.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus guru.'); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada guru pengajar.</p>}</div></section>
+                </div>
+                <section className="border-t border-slate-100 pt-5 dark:border-slate-700"><h4 className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Penugasan Mengajar</h4><div className="grid gap-2 md:grid-cols-4"><select value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih guru</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select><select value={assignmentClassId} onChange={(event) => setAssignmentClassId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih mapel</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select><button onClick={async () => { const currentClass = classData.classes.find((item) => item.id === assignmentClassId); if (!assignmentTeacherId || !assignmentClassId || !assignmentSubjectId || !currentClass) return; const response = await fetch('/api/teaching-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: assignmentTeacherId, classId: assignmentClassId, subjectId: assignmentSubjectId, academicYear: currentClass.academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menyimpan penugasan.'); setAssignmentTeacherId(''); setAssignmentClassId(''); setAssignmentSubjectId(''); fetchTeachingSetup(); }} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white"><Save className="mr-1 inline h-4 w-4" />Tetapkan</button></div><div className="mt-3 space-y-2">{teachingAssignments.length ? teachingAssignments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-700"><span className="text-slate-700 dark:text-slate-200"><b>{item.teacherName}</b> · {item.subjectName} · {item.className} <span className="text-xs text-slate-400">({item.academicYear})</span></span><button onClick={async () => { if (!confirm('Hapus penugasan ini?')) return; await fetch(`/api/teaching-assignments/${item.id}`, { method: 'DELETE' }); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada penugasan mengajar.</p>}</div></section>
+              </div>
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
                   <span className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"><ImageIcon className="h-5 w-5" /></span>

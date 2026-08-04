@@ -70,6 +70,7 @@ export interface GradeTrendEntry {
 }
 
 export interface GalleryItem { id: string; title: string; imageUrl: string; description: string; }
+export interface ClassRoom { id: string; name: string; academicYear: string; status: 'Aktif' | 'Nonaktif'; }
 
 export interface ClassData {
   announcements: Announcement[];
@@ -86,8 +87,11 @@ export interface ClassData {
   homeroomTeacherPhoto: string;
   quote: { text: string; author: string };
   stats: { attendance: string; averageGrade: string; totalStudents: string; };
+  classId: string | null;
+  classes: ClassRoom[];
   selectedClass: string | null;
   selectedYear: string | null;
+  selectClass: (classId: string) => Promise<void>;
   setSelectedClass: (cls: string | null) => void;
   setSelectedYear: (yr: string | null) => void;
   updateQuote: (text: string, author: string) => void;
@@ -161,6 +165,8 @@ export const ClassContext = createContext<ClassData | undefined>(undefined);
 
 export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const [data, setData] = useState(defaultData);
+  const [classId, setClassId] = useState<string | null>(null);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>('X TKJ A');
   const [selectedYear, setSelectedYear] = useState<string | null>('2026-2027');
 
@@ -172,9 +178,10 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
     setSelectedYear(yr);
   };
 
-  const fetchClassData = useCallback(async () => {
+  const fetchClassData = useCallback(async (requestedClassId?: string | null) => {
     try {
-      const res = await fetch('/api/class-data');
+      const query = requestedClassId ? `?classId=${encodeURIComponent(requestedClassId)}` : '';
+      const res = await fetch(`/api/class-data${query}`);
       if (res.ok) {
         const json = await res.json();
         setData({
@@ -193,6 +200,8 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           quote: json.quote,
           stats: json.stats,
         });
+        setClasses(json.classes || []);
+        setClassId(json.classId || null);
         setSelectedClass(json.className || 'X TKJ A');
         setSelectedYear(json.academicYear || '2026-2027');
       }
@@ -204,6 +213,10 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     fetchClassData();
   }, [fetchClassData]);
+
+  const selectClass = async (nextClassId: string) => {
+    await fetchClassData(nextClassId);
+  };
 
   const updateQuote = async (text: string, author: string) => {
     // Optimistic UI update
@@ -252,7 +265,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const updateClassProfile = async (className: string, academicYear: string) => {
     const response = await fetch('/api/page-settings/class-profile', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ className, academicYear })
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ classId, className, academicYear })
     });
     if (!response.ok) throw new Error((await response.json()).error || 'Gagal menyimpan pengaturan kelas');
     await fetchClassData();
@@ -360,7 +373,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status })
+        body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status, classId })
       });
       fetchClassData();
     } catch (err) {
@@ -453,8 +466,11 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   return (
     <ClassContext.Provider value={{
       ...data,
+      classId,
+      classes,
       selectedClass,
       selectedYear,
+      selectClass,
       setSelectedClass: handleSetSelectedClass,
       setSelectedYear: handleSetSelectedYear,
       updateQuote,

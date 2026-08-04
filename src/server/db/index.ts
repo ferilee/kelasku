@@ -21,6 +21,15 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    academic_year TEXT NOT NULL,
+    homeroom_teacher_id INTEGER REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'Aktif',
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
   CREATE TABLE IF NOT EXISTS attendance (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -101,6 +110,16 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS teaching_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    subject_id INTEGER NOT NULL REFERENCES subjects(id),
+    academic_year TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(teacher_id, class_id, subject_id, academic_year)
+  );
+
   CREATE TABLE IF NOT EXISTS class_officers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -141,4 +160,24 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 `);
+
+function addColumnIfMissing(table: string, column: string, definition: string) {
+  const columns = sqlite.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    sqlite.run(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
+addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+
+const configuredClassName = (sqlite.query("SELECT value FROM page_settings WHERE key = 'class_name' LIMIT 1").get() as { value?: string } | null)?.value || 'X TKJ A';
+const configuredAcademicYear = (sqlite.query("SELECT value FROM page_settings WHERE key = 'academic_year' LIMIT 1").get() as { value?: string } | null)?.value || '2026-2027';
+let initialClass = sqlite.query('SELECT id FROM classes ORDER BY id LIMIT 1').get() as { id: number } | null;
+if (!initialClass) {
+  sqlite.query('INSERT INTO classes (name, academic_year) VALUES (?, ?)').run(configuredClassName, configuredAcademicYear);
+  initialClass = sqlite.query('SELECT id FROM classes ORDER BY id LIMIT 1').get() as { id: number } | null;
+}
+if (initialClass) {
+  sqlite.query("UPDATE users SET class_id = ? WHERE role = 'student' AND class_id IS NULL").run(initialClass.id);
+}
 export const db = drizzle(sqlite, { schema });

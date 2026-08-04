@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems } from './server/db/schema';
-import { eq, and, like } from 'drizzle-orm';
+import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments } from './server/db/schema';
+import { eq, and, like, isNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
 
@@ -132,6 +132,13 @@ async function seedIfNeeded() {
         { userId: 5, role: 'Bendahara' },
       ]);
     }
+
+    const primaryClass = await db.select().from(classes).orderBy(classes.id).limit(1);
+    if (primaryClass[0]) {
+      await db.update(users)
+        .set({ classId: primaryClass[0].id })
+        .where(and(eq(users.role, 'student'), isNull(users.classId)));
+    }
   } catch (err) {
     console.error("Database seeding error:", err);
   }
@@ -145,12 +152,128 @@ app.get('/api/hello', (c) => {
   return c.json({ message: 'Hello from WebKelas API' });
 });
 
+app.get('/api/classes', async (c) => {
+  try {
+    const classRows = await db.select().from(classes).orderBy(classes.academicYear, classes.name);
+    const studentRows = await db.select({ classId: users.classId }).from(users).where(eq(users.role, 'student'));
+    return c.json(classRows.map((item) => ({
+      id: item.id.toString(), name: item.name, academicYear: item.academicYear, status: item.status,
+      homeroomTeacherId: item.homeroomTeacherId?.toString() || null,
+      studentCount: studentRows.filter((student) => student.classId === item.id).length,
+    })));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/classes', async (c) => {
+  try {
+    const body = await c.req.json();
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
+    if (!name || !academicYear || name.length > 100 || academicYear.length > 30) return c.json({ error: 'Nama kelas dan tahun ajaran wajib diisi.' }, 400);
+    const inserted = await db.insert(classes).values({ name, academicYear, status: body.status === 'Nonaktif' ? 'Nonaktif' : 'Aktif' }).returning();
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.put('/api/classes/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
+    if (!Number.isInteger(id) || !name || !academicYear) return c.json({ error: 'Data kelas tidak valid.' }, 400);
+    const result = await db.update(classes).set({ name, academicYear, status: body.status === 'Nonaktif' ? 'Nonaktif' : 'Aktif' }).where(eq(classes.id, id)).returning();
+    if (!result.length) return c.json({ error: 'Kelas tidak ditemukan.' }, 404);
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.delete('/api/classes/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const assignedStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, id))).limit(1);
+    const assignedTeachers = await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(eq(teachingAssignments.classId, id)).limit(1);
+    if (assignedStudents.length || assignedTeachers.length) return c.json({ error: 'Kelas masih memiliki siswa atau penugasan mengajar. Nonaktifkan kelas atau pindahkan datanya terlebih dahulu.' }, 409);
+    await db.delete(classes).where(eq(classes.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/teachers', async (c) => {
+  try {
+    const list = await db.select().from(users).where(eq(users.role, 'teacher')).orderBy(users.name);
+    return c.json(list.map((teacher) => ({ id: teacher.id.toString(), name: teacher.name, identifier: teacher.identifier, status: teacher.status })));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/teachers', async (c) => {
+  try {
+    const body = await c.req.json();
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
+    if (!name || !identifier) return c.json({ error: 'Nama dan identitas guru wajib diisi.' }, 400);
+    const inserted = await db.insert(users).values({ name, role: 'teacher', identifier, passwordHash: '123456', gender: body.gender === 'P' ? 'P' : 'L', status: 'Aktif' }).returning();
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: 'Identitas guru sudah digunakan atau data tidak valid.' }, 400); }
+});
+
+app.delete('/api/teachers/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const linked = await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(eq(teachingAssignments.teacherId, id)).limit(1);
+    if (linked.length) return c.json({ error: 'Guru masih memiliki penugasan mengajar.' }, 409);
+    await db.delete(users).where(and(eq(users.id, id), eq(users.role, 'teacher')));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/teaching-assignments', async (c) => {
+  try {
+    const [items, classRows, teacherRows, subjectRows] = await Promise.all([
+      db.select().from(teachingAssignments).orderBy(teachingAssignments.id), db.select().from(classes),
+      db.select().from(users).where(eq(users.role, 'teacher')), db.select().from(subjects),
+    ]);
+    return c.json(items.map((item) => ({
+      id: item.id.toString(), teacherId: item.teacherId.toString(), classId: item.classId.toString(), subjectId: item.subjectId.toString(), academicYear: item.academicYear,
+      teacherName: teacherRows.find((teacher) => teacher.id === item.teacherId)?.name || 'Guru tidak ditemukan',
+      className: classRows.find((classItem) => classItem.id === item.classId)?.name || 'Kelas tidak ditemukan',
+      subjectName: subjectRows.find((subject) => subject.id === item.subjectId)?.name || 'Mapel tidak ditemukan',
+    })));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/teaching-assignments', async (c) => {
+  try {
+    const body = await c.req.json();
+    const teacherId = Number(body.teacherId), classId = Number(body.classId), subjectId = Number(body.subjectId);
+    const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
+    if (![teacherId, classId, subjectId].every(Number.isInteger) || !academicYear) return c.json({ error: 'Data penugasan tidak valid.' }, 400);
+    const [teacher, classItem, subject] = await Promise.all([
+      db.select({ id: users.id }).from(users).where(and(eq(users.id, teacherId), eq(users.role, 'teacher'))).limit(1),
+      db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1),
+      db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, subjectId)).limit(1),
+    ]);
+    if (!teacher.length || !classItem.length || !subject.length) return c.json({ error: 'Guru, kelas, atau mata pelajaran tidak ditemukan.' }, 400);
+    const inserted = await db.insert(teachingAssignments).values({ teacherId, classId, subjectId, academicYear }).returning();
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: 'Penugasan sudah ada atau data tidak valid.' }, 400); }
+});
+
+app.delete('/api/teaching-assignments/:id', async (c) => {
+  try { await db.delete(teachingAssignments).where(eq(teachingAssignments.id, Number(c.req.param('id')))); return c.json({ success: true }); }
+  catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
 // Get unified class data
 app.get('/api/class-data', async (c) => {
   try {
+    const requestedClassId = Number(c.req.query('classId'));
+    const allClasses = await db.select().from(classes).orderBy(classes.academicYear, classes.name);
+    const currentClass = (Number.isInteger(requestedClassId) && allClasses.find((item) => item.id === requestedClassId)) || allClasses[0];
+    if (!currentClass) return c.json({ error: 'Belum ada kelas yang tersedia.' }, 404);
     const allAnnouncements = await db.select().from(announcements);
     const allAgenda = await db.select().from(agenda);
-    const allStudents = await db.select().from(users).where(eq(users.role, 'student'));
+    const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id)));
     const currentQuote = await db.select().from(quotes).limit(1);
     const allSchedules = await db.select().from(schedules);
     const allBehavior = await db.select().from(behaviorRecords);
@@ -159,8 +282,6 @@ app.get('/api/class-data', async (c) => {
     const allGalleryItems = await db.select().from(galleryItems).orderBy(galleryItems.createdAt);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
     const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
-    const classNameSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'class_name')).limit(1);
-    const academicYearSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'academic_year')).limit(1);
     const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
     const allGrades = await db.select().from(grades);
 
@@ -258,8 +379,10 @@ app.get('/api/class-data', async (c) => {
       gradeTrend,
       heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
       homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
-      className: classNameSetting[0]?.value || 'X TKJ A',
-      academicYear: academicYearSetting[0]?.value || '2026-2027',
+      classId: currentClass.id.toString(),
+      className: currentClass.name,
+      academicYear: currentClass.academicYear,
+      classes: allClasses.map((item) => ({ id: item.id.toString(), name: item.name, academicYear: item.academicYear, status: item.status })),
       quote: { text: quoteVal.text, author: quoteVal.author },
       stats
     });
@@ -296,18 +419,14 @@ app.put('/api/page-settings/class-profile', async (c) => {
     const body = await c.req.json();
     const className = typeof body.className === 'string' ? body.className.trim() : '';
     const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
+    const classId = Number(body.classId);
     if (!className || !academicYear || className.length > 100 || academicYear.length > 30) {
       return c.json({ error: 'Nama kelas dan tahun ajaran wajib diisi.' }, 400);
     }
 
-    for (const [key, value] of [['class_name', className], ['academic_year', academicYear]] as const) {
-      const existing = await db.select().from(pageSettings).where(eq(pageSettings.key, key)).limit(1);
-      if (existing.length) {
-        await db.update(pageSettings).set({ value, updatedAt: new Date() }).where(eq(pageSettings.key, key));
-      } else {
-        await db.insert(pageSettings).values({ key, value });
-      }
-    }
+    if (!Number.isInteger(classId)) return c.json({ error: 'Kelas aktif tidak valid.' }, 400);
+    const updated = await db.update(classes).set({ name: className, academicYear }).where(eq(classes.id, classId)).returning();
+    if (!updated.length) return c.json({ error: 'Kelas tidak ditemukan.' }, 404);
     return c.json({ success: true, className, academicYear });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -470,13 +589,17 @@ app.delete('/api/agenda/:id', async (c) => {
 app.post('/api/students', async (c) => {
   try {
     const body = await c.req.json();
+    const classId = Number(body.classId);
+    const classItem = await db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1);
+    if (!Number.isInteger(classId) || !classItem.length) return c.json({ error: 'Kelas tujuan tidak valid.' }, 400);
     await db.insert(users).values({
       name: body.name,
       role: 'student',
       identifier: body.nisn || ('10' + Math.floor(Math.random() * 1000000)),
       passwordHash: '123456',
       gender: body.gender || 'L',
-      status: body.status || 'Aktif'
+      status: body.status || 'Aktif',
+      classId,
     });
     return c.json({ success: true });
   } catch (err: any) {
@@ -556,12 +679,16 @@ app.get('/api/attendance', async (c) => {
   try {
     const date = c.req.query('date');
     const type = c.req.query('type');
+    const classId = Number(c.req.query('classId'));
     if (!date || !type) {
       return c.json({ error: 'Missing date or type' }, 400);
     }
-    const records = await db.select().from(attendance).where(
-      and(eq(attendance.date, date), eq(attendance.type, type))
-    );
+    if (!Number.isInteger(classId)) return c.json({ error: 'Missing classId' }, 400);
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    const records = studentIds.length ? await db.select().from(attendance).where(
+      and(eq(attendance.date, date), eq(attendance.type, type), inArray(attendance.userId, studentIds))
+    ) : [];
     return c.json(records.map(r => ({
       id: r.id.toString(),
       studentId: r.userId.toString(),
@@ -577,17 +704,18 @@ app.post('/api/attendance', async (c) => {
   try {
     const body = await c.req.json();
     const { date, type, records } = body;
-    if (!date || !type || !Array.isArray(records)) {
+    const classId = Number(body.classId);
+    if (!date || !type || !Array.isArray(records) || !Number.isInteger(classId)) {
       return c.json({ error: 'Invalid payload' }, 400);
     }
     
-    // Delete existing records for this date and type
-    await db.delete(attendance).where(
-      and(eq(attendance.date, date), eq(attendance.type, type))
-    );
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    if (studentIds.length) await db.delete(attendance).where(and(eq(attendance.date, date), eq(attendance.type, type), inArray(attendance.userId, studentIds)));
     
     // Insert new ones
     if (records.length > 0) {
+      if (records.some((record: any) => !studentIds.includes(Number(record.studentId)))) return c.json({ error: 'Siswa harus berasal dari kelas aktif.' }, 400);
       await db.insert(attendance).values(
         records.map((r: any) => ({
           userId: parseInt(r.studentId),
@@ -607,17 +735,17 @@ app.post('/api/attendance', async (c) => {
 app.get('/api/attendance/summary', async (c) => {
   try {
     const month = c.req.query('month'); // Expecting 'YYYY-MM'
-    if (!month) {
+    const classId = Number(c.req.query('classId'));
+    if (!month || !Number.isInteger(classId)) {
       return c.json({ error: 'Missing month parameter' }, 400);
     }
     
     // Fetch all students
-    const studentsList = await db.select().from(users).where(eq(users.role, 'student'));
+    const studentsList = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     
     // Fetch all attendance records for this month
-    const records = await db.select().from(attendance).where(
-      like(attendance.date, `${month}-%`)
-    );
+    const studentIds = studentsList.map((student) => student.id);
+    const records = studentIds.length ? await db.select().from(attendance).where(and(like(attendance.date, `${month}-%`), inArray(attendance.userId, studentIds))) : [];
     
     const summary = studentsList.map(s => {
       const studentRecords = records.filter(r => r.userId === s.id);
@@ -672,6 +800,8 @@ app.get('/api/attendance/summary', async (c) => {
 // Get aggregated stats for dashboard (harian/mingguan/bulanan)
 app.get('/api/attendance/stats', async (c) => {
   try {
+    const classId = Number(c.req.query('classId'));
+    if (!Number.isInteger(classId)) return c.json({ error: 'Missing classId' }, 400);
     const todayStr = new Date().toISOString().split('T')[0];
     
     // Get start of week (7 days ago)
@@ -683,7 +813,9 @@ app.get('/api/attendance/stats', async (c) => {
     const currentMonthPrefix = todayStr.slice(0, 8); // e.g. '2026-07-'
     
     // Fetch all attendance records
-    const allRecords = await db.select().from(attendance);
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    const allRecords = studentIds.length ? await db.select().from(attendance).where(inArray(attendance.userId, studentIds)) : [];
     
     const createEmptyStats = () => ({
       harian: { Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0, total: 0 },
@@ -786,7 +918,11 @@ app.delete('/api/subjects/:id', async (c) => {
 
 app.get('/api/grades', async (c) => {
   try {
-    const list = await db.select().from(grades);
+    const classId = Number(c.req.query('classId'));
+    if (!Number.isInteger(classId)) return c.json({ error: 'Missing classId' }, 400);
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    const list = studentIds.length ? await db.select().from(grades).where(inArray(grades.userId, studentIds)) : [];
     return c.json(list);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -798,10 +934,14 @@ app.post('/api/grades', async (c) => {
   try {
     const body = await c.req.json();
     const { subject, type, name, scores } = body;
-    if (!subject || !type || !name || !Array.isArray(scores)) {
+    const classId = Number(body.classId);
+    if (!subject || !type || !name || !Array.isArray(scores) || !Number.isInteger(classId)) {
       return c.json({ error: 'Invalid payload parameters' }, 400);
     }
 
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    if (scores.some((item: any) => !studentIds.includes(Number(item.userId)))) return c.json({ error: 'Siswa harus berasal dari kelas aktif.' }, 400);
     for (const item of scores) {
       const existing = await db.select().from(grades).where(
         and(
@@ -837,15 +977,19 @@ app.delete('/api/grades/assessment', async (c) => {
     const subject = c.req.query('subject');
     const type = c.req.query('type');
     const name = c.req.query('name');
-    if (!subject || !type || !name) {
+    const classId = Number(c.req.query('classId'));
+    if (!subject || !type || !name || !Number.isInteger(classId)) {
       return c.json({ error: 'Missing subject, type, or name parameters' }, 400);
     }
 
-    await db.delete(grades).where(
+    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = classStudents.map((student) => student.id);
+    if (studentIds.length) await db.delete(grades).where(
       and(
         eq(grades.subject, subject),
         eq(grades.type, type),
-        eq(grades.name, name)
+        eq(grades.name, name),
+        inArray(grades.userId, studentIds)
       )
     );
 

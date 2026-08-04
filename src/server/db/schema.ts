@@ -3,11 +3,30 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
-  role: text('role', { enum: ['admin', 'student'] }).notNull().default('student'),
+  role: text('role', { enum: ['admin', 'teacher', 'student'] }).notNull().default('student'),
   identifier: text('identifier').notNull().unique(), // email for admin, NIS for student
   passwordHash: text('password_hash').notNull(),
   gender: text('gender', { enum: ['L', 'P'] }).notNull().default('L'),
   status: text('status', { enum: ['Aktif', 'Nonaktif'] }).notNull().default('Aktif'),
+  classId: integer('class_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const classes = sqliteTable('classes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  academicYear: text('academic_year').notNull(),
+  homeroomTeacherId: integer('homeroom_teacher_id'),
+  status: text('status', { enum: ['Aktif', 'Nonaktif'] }).notNull().default('Aktif'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const teachingAssignments = sqliteTable('teaching_assignments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  teacherId: integer('teacher_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subjectId: integer('subject_id').notNull().references(() => subjects.id),
+  academicYear: text('academic_year').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

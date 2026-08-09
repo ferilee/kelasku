@@ -725,13 +725,18 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const handlePrintTeachingAttendancePDF = () => {
     if (!activeTeachingSubject || !teachingAttendanceReport.length) return alert('Belum ada data presensi pembelajaran pada periode ini.');
-    const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td><td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
+    const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
+    if (!dates.length) return alert('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
+    const statusCode: Record<string, string> = { Hadir: 'H', Sakit: 'S', Izin: 'I', Alfa: 'A' };
+    const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</th>`).join('');
+    const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
     printReportDocument(`Presensi ${activeTeachingSubject}`, `
       <h1>REKAP PRESENSI PEMBELAJARAN</h1><p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
       <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Bulan: ${teachingAttendanceMonth} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear}</p>
-      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alfa</th></tr></thead><tbody>${rows}</tbody></table>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>H</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="meta">Keterangan: H = Hadir, S = Sakit, I = Izin, A = Alfa.</p>
       <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
-    `);
+    `, true);
   };
 
   const handlePrintGradesPDF = () => {
@@ -3227,7 +3232,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
             <div className="grid grid-cols-3 gap-3">{[
-              ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
+              ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
               ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
               ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
             ].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>

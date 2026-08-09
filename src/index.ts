@@ -932,7 +932,11 @@ app.get('/api/teaching-attendance/summary', async (c) => {
       const studentRecords = records.filter((record) => record.userId === student.id);
       const totals = { Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0 };
       studentRecords.forEach((record) => { if (record.status in totals) totals[record.status as keyof typeof totals]++; });
-      return { studentId: student.id.toString(), name: student.name, gender: student.gender, ...totals };
+      const attendanceByDate = studentRecords.reduce<Record<string, string>>((byDate, record) => {
+        byDate[record.date] = record.status;
+        return byDate;
+      }, {});
+      return { studentId: student.id.toString(), name: student.name, gender: student.gender, attendanceByDate, ...totals };
     }));
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });

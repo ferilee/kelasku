@@ -148,7 +148,7 @@ const LandingPage = ({
                     onClick={() => onLoginSuccess(userSession)}
                     className="inline-flex items-center justify-center bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-650 hover:to-teal-650 text-white px-8 py-3.5 rounded-full font-bold text-sm transition-all shadow-lg dark:shadow-[0_0_25px_rgba(16,185,129,0.5)] tracking-wide"
                   >
-                    Kembali ke Dashboard ({userSession === 'admin' ? 'Guru' : 'Siswa'})
+                    Kembali ke Dashboard ({userSession === 'student' ? 'Siswa' : 'Guru'})
                   </button>
                 ) : (
                   <button 

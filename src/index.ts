@@ -204,6 +204,10 @@ app.get('/api/hello', (c) => {
   return c.json({ message: 'Hello from WebKelas API' });
 });
 
+// Public liveness probe for Docker and the reverse proxy. It deliberately does
+// not expose application data or require an authenticated session.
+app.get('/api/health', (c) => c.json({ status: 'ok' }));
+
 app.post('/api/auth/login', async (c) => {
   try {
     const body = await c.req.json();

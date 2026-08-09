@@ -15,6 +15,13 @@ services:
     networks:
       - ferileenet
     restart: always
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3300/api/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   ferileenet:

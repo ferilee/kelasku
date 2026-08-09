@@ -2,6 +2,24 @@ import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
+const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
+  positif: {
+    'Sopan Santun': ['Berbicara santun kepada guru dan teman.'],
+    Kedisiplinan: ['Hadir tepat waktu dan mengikuti pembelajaran dengan tertib.'],
+    'Tanggung Jawab': ['Menyelesaikan tugas sesuai batas waktu.'],
+    Kejujuran: ['Mengerjakan evaluasi secara mandiri dan jujur.'],
+    Kerjasama: ['Aktif membantu kelompok menyelesaikan tugas.'],
+    Kepedulian: ['Membantu teman yang mengalami kesulitan belajar.'],
+  },
+  negatif: {
+    Kedisiplinan: ['Datang terlambat tanpa keterangan.'],
+    Kerapian: ['Seragam belum sesuai ketentuan sekolah.'],
+    'Sopan Santun': ['Perlu diingatkan untuk menggunakan bahasa yang santun.'],
+    Ketertiban: ['Mengganggu proses pembelajaran di kelas.'],
+    Kejujuran: ['Perlu pembinaan terkait kemandirian saat mengerjakan tugas.'],
+  },
+};
+
 const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) => {
   const [activeTab, setActiveTab] = useState('workspace');
   const classData = useClassData();
@@ -3772,6 +3790,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                       const val = e.target.value as 'positif' | 'negatif';
                       setBehaviorType(val);
                       setBehaviorPoints(val === 'positif' ? 10 : 5);
+                      setBehaviorCategory('Kedisiplinan');
                     }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 cursor-pointer"
                   >
@@ -3833,6 +3852,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                     required
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Contoh Keterangan</label>
+                <div className="flex flex-wrap gap-2">
+                  {(BEHAVIOR_DESCRIPTION_EXAMPLES[behaviorType][behaviorCategory] || []).map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setBehaviorDescription(example)}
+                      className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-left text-xs font-medium text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">Pilih contoh untuk mengisi keterangan, lalu sesuaikan bila diperlukan.</p>
               </div>
 
               <div>

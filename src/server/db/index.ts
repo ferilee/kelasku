@@ -30,6 +30,14 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS user_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    role TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(user_id, role)
+  );
+
   CREATE TABLE IF NOT EXISTS attendance (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -146,6 +154,8 @@ sqlite.run(`
     category TEXT NOT NULL,
     description TEXT NOT NULL,
     date TEXT NOT NULL,
+    subject TEXT,
+    recorded_by INTEGER REFERENCES users(id),
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
@@ -169,6 +179,8 @@ function addColumnIfMissing(table: string, column: string, definition: string) {
 }
 
 addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
+addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 
 const configuredClassName = (sqlite.query("SELECT value FROM page_settings WHERE key = 'class_name' LIMIT 1").get() as { value?: string } | null)?.value || 'X TKJ A';
 const configuredAcademicYear = (sqlite.query("SELECT value FROM page_settings WHERE key = 'academic_year' LIMIT 1").get() as { value?: string } | null)?.value || '2026-2027';

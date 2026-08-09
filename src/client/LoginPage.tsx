@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { BookOpen, AlertCircle, ArrowLeft } from 'lucide-react';
 
-const LoginPage = ({ onLoginSuccess, onBack }: { onLoginSuccess: () => void, onBack: () => void }) => {
+const LoginPage = ({ onLoginSuccess, onBack }: { onLoginSuccess: (role: 'admin' | 'teacher' | 'student') => void, onBack: () => void }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'Ferilee' && password === 'F3r!-lee') {
-      onLoginSuccess();
-    } else {
-      setError('Username atau password salah');
-    }
+    setError('');
+    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: username, password }) });
+    const result = await response.json();
+    if (!response.ok) return setError(result.error || 'Username atau password salah');
+    if (result.user.role !== 'admin' && result.user.role !== 'teacher') return setError('Akun ini tidak memiliki akses dashboard guru.');
+    onLoginSuccess(result.user.role);
   };
 
   return (

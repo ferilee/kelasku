@@ -2,9 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
-const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) => {
+  const [activeTab, setActiveTab] = useState('workspace');
   const classData = useClassData();
+  const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
+  const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(null);
+  const canManageStudents = userRole === 'admin';
+  const [workspace, setWorkspace] = useState<{ user: { name: string; roles: string[] }; homeroomClasses: { id: string; name: string; academicYear: string }[]; subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[] } | null>(null);
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
 
   // Dark mode state with persistence
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -25,6 +30,25 @@ const Dashboard = () => {
       localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const fetchWorkspace = async () => {
+      try {
+        const response = await fetch('/api/my-workspace');
+        if (response.ok) setWorkspace(await response.json());
+      } finally { setIsLoadingWorkspace(false); }
+    };
+    fetchWorkspace();
+  }, []);
+
+  const openTeachingClass = async (classId: string, subjectName: string) => {
+    await classData.selectClass(classId);
+    setWorkspaceMode('teaching');
+    setActiveTeachingSubject(subjectName);
+    setBehaviorSubTab('sikap');
+    setSelectedSubject(subjectName);
+    setActiveTab('academic');
+  };
 
   // Local state for the settings form to avoid immediate re-renders while typing
   const [quoteText, setQuoteText] = useState(classData.quote.text);
@@ -84,6 +108,8 @@ const Dashboard = () => {
   const [reportData, setReportData] = useState<any[]>([]);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [reportCategory, setReportCategory] = useState<'attendance' | 'grades' | 'behavior'>('attendance');
+  const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior'>('grades');
+  const [teachingReportPeriod, setTeachingReportPeriod] = useState('Semester Ganjil');
   const [dashboardSummary, setDashboardSummary] = useState<any[]>([]);
 
   useEffect(() => {
@@ -714,6 +740,56 @@ const Dashboard = () => {
     `);
   };
 
+  const handlePrintTeachingGradesPDF = () => {
+    if (!activeTeachingSubject) return alert('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
+    const assessments = teachingAssessments;
+    if (!assessments.length) return alert('Belum ada data penilaian untuk mata pelajaran ini.');
+
+    const headers = assessments.map((assessment: { name: string; type: string }) => `<th>${assessment.type}<br>${assessment.name}</th>`).join('');
+    const rows = classData.students.map((student, index) => {
+      const scores: (number | undefined)[] = assessments.map((assessment: { name: string; type: string }) => gradesList.find((grade: any) =>
+        grade.userId === Number(student.id) && grade.subject === activeTeachingSubject && grade.type === assessment.type && grade.name === assessment.name
+      )?.score);
+      const filledScores = scores.filter((score): score is number => score !== undefined);
+      const average = filledScores.length ? Math.round(filledScores.reduce((sum, score) => sum + score, 0) / filledScores.length) : '-';
+      const predicate = typeof average === 'number' ? (average >= 90 ? 'Sangat Baik' : average >= 75 ? 'Baik' : 'Perlu Bimbingan') : '-';
+      return `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.nisn}</td>${scores.map((score: number | undefined) => `<td>${score ?? '-'}</td>`).join('')}<td><b>${average}</b></td><td>${predicate}</td></tr>`;
+    }).join('');
+
+    printReportDocument(`Rekap Nilai ${activeTeachingSubject}`, `
+      <h1>REKAP NILAI MATA PELAJARAN</h1>
+      <p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
+      <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Periode: ${teachingReportPeriod} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear} &nbsp; | &nbsp; KKM: 75</p>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>NISN</th>${headers}<th>Rata-rata</th><th>Predikat</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
+    `, true);
+  };
+
+  const handlePrintTeachingBehaviorPDF = () => {
+    if (!activeTeachingSubject) return alert('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
+    const subjectRecords = (classData.behaviorRecords || []).filter((record) => record.subject === activeTeachingSubject);
+    const rows = classData.students.map((student, index) => {
+      const records = subjectRecords.filter((record) => record.studentId === student.id);
+      const positive = records.filter((record) => record.type === 'positif').reduce((sum, record) => sum + record.points, 0);
+      const negative = records.filter((record) => record.type === 'negatif').reduce((sum, record) => sum + record.points, 0);
+      const score = 100 + positive - negative;
+      const predicate = score >= 100 ? 'Sangat Baik' : score >= 85 ? 'Baik' : score >= 75 ? 'Cukup' : 'Perlu Pembinaan';
+      return `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td><td>+${positive}</td><td>-${negative}</td><td><b>${score}</b></td><td>${predicate}</td></tr>`;
+    }).join('');
+    const notes = subjectRecords.length
+      ? subjectRecords.map((record) => `<tr><td class="name">${classData.students.find((student) => student.id === record.studentId)?.name || '-'}</td><td>${record.date}</td><td>${record.category}</td><td>${record.type === 'positif' ? 'Positif' : 'Perlu Pembinaan'}</td><td class="name">${record.description}</td></tr>`).join('')
+      : '<tr><td colspan="5">Belum ada catatan sikap untuk mata pelajaran ini.</td></tr>';
+    printReportDocument(`Laporan Sikap ${activeTeachingSubject}`, `
+      <h1>LAPORAN SIKAP & KARAKTER MAPEL</h1>
+      <p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
+      <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Periode: ${teachingReportPeriod} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear}</p>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th><th>Positif</th><th>Negatif</th><th>Skor</th><th>Predikat</th></tr></thead><tbody>${rows}</tbody></table>
+      <h3 style="margin:20px 0 8px">Rincian Catatan Observasi</h3>
+      <table><thead><tr><th>Nama Siswa</th><th>Tanggal</th><th>Kategori</th><th>Status</th><th>Catatan</th></tr></thead><tbody>${notes}</tbody></table>
+      <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
+    `, true);
+  };
+
   const [newAgendaDate, setNewAgendaDate] = useState('');
   const [newAgendaTitle, setNewAgendaTitle] = useState('');
   const [newAgendaType, setNewAgendaType] = useState('Kegiatan');
@@ -948,6 +1024,15 @@ const Dashboard = () => {
       return matchSearch;
     });
 
+  const visibleBehaviorRecords = (classData.behaviorRecords || []).filter((record) => workspaceMode !== 'teaching' || record.subject === activeTeachingSubject);
+  const teachingAssessments: { name: string; type: string }[] = gradesList
+    .filter((grade: any) => grade.subject === activeTeachingSubject)
+    .reduce((items: { name: string; type: string }[], grade: any) => (
+      items.some((item) => item.name === grade.name && item.type === grade.type)
+        ? items
+        : [...items, { name: grade.name, type: grade.type }]
+    ), []);
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
       {/* Sidebar */}
@@ -960,13 +1045,14 @@ const Dashboard = () => {
         </div>
         <nav className="flex-1 p-4 space-y-2">
           {[
+            { id: 'workspace', label: 'Dashboard Saya', icon: LayoutDashboard },
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
             { id: 'students', label: 'Siswa', icon: Users },
-            { id: 'attendance', label: 'Presensi', icon: CheckSquare },
-            { id: 'reports', label: 'Laporan', icon: FileText },
+            ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
             { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
-            { id: 'behavior', label: 'Sikap & Prestasi', icon: Award },
-            { id: 'settings', label: 'Pengaturan Halaman', icon: Settings },
+            ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
+            ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : []),
+            ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan Halaman', icon: Settings }] : []),
           ].map((item) => (
             <button
               key={item.id}
@@ -989,7 +1075,7 @@ const Dashboard = () => {
         {/* Header */}
         <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate mr-2">
-            {activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : 'Manajemen Kelas'}
+            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : 'Manajemen Kelas'}
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
             <select
@@ -1011,7 +1097,7 @@ const Dashboard = () => {
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0">W</div>
               <div className="hidden sm:flex flex-col">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Wali Kelas</span>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{userRole === 'admin' ? 'Wali Kelas' : 'Guru Pengajar'}</span>
                 <span className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">{classData.selectedClass} ({classData.selectedYear})</span>
               </div>
             </div>
@@ -1020,6 +1106,16 @@ const Dashboard = () => {
 
         {/* Content Scrollable Area */}
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
+          {activeTab === 'workspace' && (
+            <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>
+              {isLoadingWorkspace ? <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 dark:border-slate-700 dark:bg-slate-800">Memuat ruang kerja…</div> : <>
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Perwalian</h3><p className="text-xs text-slate-500">Akses penuh sebagai wali kelas.</p></div><Users className="h-5 w-5 text-blue-500" /></div>{workspace?.homeroomClasses.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{workspace.homeroomClasses.map((item) => <button key={item.id} onClick={async () => { await classData.selectClass(item.id); setWorkspaceMode('homeroom'); setActiveTeachingSubject(null); setActiveTab('dashboard'); }} className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:border-blue-300 hover:shadow-sm dark:border-blue-900/60 dark:bg-blue-950/20"><p className="font-bold text-slate-800 dark:text-slate-100">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.academicYear}</p><span className="mt-3 inline-block text-xs font-bold text-blue-600 dark:text-blue-400">Buka Dashboard Kelas →</span></button>)}</div> : <p className="py-4 text-sm text-slate-400">Belum ada kelas perwalian.</p>}</section>
+                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka buku nilai mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Buku Nilai →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>
+              </>}
+            </div>
+          )}
+
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {/* Stats Grid */}
@@ -1509,12 +1605,12 @@ const Dashboard = () => {
 
           {activeTab === 'students' && (
             <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-              <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+              <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Daftar Siswa</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Kelola data seluruh siswa di kelas Anda.</p>
+                  <div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Daftar Siswa</h3><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{classData.selectedClass} · {classData.selectedYear}</span></div>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{workspaceMode === 'teaching' ? `Mode Mengajar${activeTeachingSubject ? ` · ${activeTeachingSubject}` : ''} — daftar siswa hanya dapat dilihat.` : 'Mode Wali Kelas — kelola data siswa pada kelas aktif.'}</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                {canManageStudents && <div className="flex flex-wrap gap-2">
                   <button 
                     onClick={handleDownloadTemplate}
                     aria-label="Unduh Template"
@@ -1542,7 +1638,7 @@ const Dashboard = () => {
                   >
                     <Plus className="h-4 w-4" /> <span className="hidden sm:inline">Tambah Manual</span>
                   </button>
-                </div>
+                </div>}
               </div>
 
               {/* Search & Filter Bar for Students */}
@@ -1610,13 +1706,13 @@ const Dashboard = () => {
                       <th className="px-6 py-4">Nama Lengkap</th>
                       <th className="px-6 py-4">L/P</th>
                       <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Aksi</th>
+                      {canManageStudents && <th className="px-6 py-4 text-right">Aksi</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                     {filteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="text-center py-8 text-slate-400">Tidak ada data siswa yang cocok dengan filter.</td>
+                        <td colSpan={canManageStudents ? 5 : 4} className="text-center py-8 text-slate-400">Tidak ada data siswa yang cocok dengan filter.</td>
                       </tr>
                     ) : (
                       filteredStudents.map((student) => (
@@ -1629,7 +1725,7 @@ const Dashboard = () => {
                             {student.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        {canManageStudents && <td className="px-6 py-4 text-right">
                           <button onClick={() => handleResetPassword(student.name)} className="text-slate-400 hover:text-amber-500 p-1 mr-1" title="Reset Password"><Key className="h-4 w-4" /></button>
                           <button 
                             onClick={() => {
@@ -1674,7 +1770,7 @@ const Dashboard = () => {
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
-                        </td>
+                        </td>}
                       </tr>
                     )))}
                   </tbody>
@@ -1922,6 +2018,52 @@ const Dashboard = () => {
             </div>
           )}
           
+          {activeTab === 'teaching-reports' && (
+            <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm dark:border-blue-900/50 dark:from-slate-800 dark:to-slate-800">
+                <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Mode Mengajar</p>
+                    <h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Laporan Mengajar</h3>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Siapkan PDF untuk diserahkan secara manual kepada sekolah.</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"><span className="block text-xs text-slate-400">Kelas</span><b className="text-slate-700 dark:text-slate-100">{classData.selectedClass}</b></div>
+                    <div className="rounded-xl bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"><span className="block text-xs text-slate-400">Mata Pelajaran</span><b className="text-slate-700 dark:text-slate-100">{activeTeachingSubject || 'Belum dipilih'}</b></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
+                  {([['grades', 'Rekap Nilai'], ['behavior', 'Sikap & Karakter']] as const).map(([category, label]) => (
+                    <button key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>{label}</button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Periode laporan
+                  <select value={teachingReportPeriod} onChange={(event) => setTeachingReportPeriod(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+                    <option>Semester Ganjil</option><option>Semester Genap</option><option>Tahun Ajaran Penuh</option>
+                  </select>
+                </label>
+              </div>
+
+              {teachingReportCategory === 'grades' ? (
+                <div className="space-y-5">
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between">
+                    <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rekap Nilai Mata Pelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Memuat komponen nilai, rata-rata, KKM, dan predikat untuk kelas serta mapel aktif.</p></div>
+                    <button onClick={handlePrintTeachingGradesPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th>{teachingAssessments.map((assessment) => <th key={`${assessment.type}-${assessment.name}`} className="px-5 py-4 text-center whitespace-nowrap">{assessment.name}</th>)}<th className="px-5 py-4 text-center">Rata-rata</th></tr></thead><tbody>{classData.students.map((student) => { const scores: (number | undefined)[] = teachingAssessments.map((assessment) => gradesList.find((grade: any) => grade.userId === Number(student.id) && grade.subject === activeTeachingSubject && grade.type === assessment.type && grade.name === assessment.name)?.score); const filled = scores.filter((score): score is number => score !== undefined); const average = filled.length ? Math.round(filled.reduce((sum, score) => sum + score, 0) / filled.length) : '-'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td>{scores.map((score, index) => <td key={index} className="px-5 py-3 text-center">{score ?? '-'}</td>)}<td className="px-5 py-3 text-center font-bold">{average}</td></tr>; })}</tbody></table></div></div>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Laporan Sikap & Karakter Mapel</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hanya menggunakan catatan observasi {activeTeachingSubject || 'mata pelajaran aktif'} pada kelas ini.</p></div><button onClick={handlePrintTeachingBehaviorPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button></div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th><th className="px-5 py-4 text-center">Positif</th><th className="px-5 py-4 text-center">Negatif</th><th className="px-5 py-4 text-center">Skor Akhir</th><th className="px-5 py-4 text-center">Predikat</th></tr></thead><tbody>{classData.students.map((student) => { const records = (classData.behaviorRecords || []).filter((record) => record.studentId === student.id && record.subject === activeTeachingSubject); const positive = records.filter((record) => record.type === 'positif').reduce((sum, record) => sum + record.points, 0); const negative = records.filter((record) => record.type === 'negatif').reduce((sum, record) => sum + record.points, 0); const score = 100 + positive - negative; const predicate = score >= 100 ? 'Sangat Baik' : score >= 85 ? 'Baik' : score >= 75 ? 'Cukup' : 'Perlu Pembinaan'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-center text-emerald-600">+{positive}</td><td className="px-5 py-3 text-center text-rose-600">-{negative}</td><td className="px-5 py-3 text-center font-bold">{score}</td><td className="px-5 py-3 text-center">{predicate}</td></tr>; })}</tbody></table></div></div>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'reports' && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               <div className="flex bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 gap-2 w-fit">
@@ -2681,9 +2823,9 @@ const Dashboard = () => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
                   }`}
                 >
-                  Catatan Sikap & Karakter
+                  {workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Catatan Sikap & Karakter'}
                 </button>
-                <button
+                {workspaceMode !== 'teaching' && <button
                   onClick={() => setBehaviorSubTab('prestasi')}
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     behaviorSubTab === 'prestasi'
@@ -2692,7 +2834,7 @@ const Dashboard = () => {
                   }`}
                 >
                   Prestasi Siswa
-                </button>
+                </button>}
               </div>
 
               {behaviorSubTab === 'sikap' && (
@@ -2702,8 +2844,8 @@ const Dashboard = () => {
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
                         <div>
-                          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Poin Sikap & Karakter Siswa</h3>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Nilai awal standar adalah 100 poin.</p>
+                          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Poin Sikap & Karakter Siswa'}</h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{workspaceMode === 'teaching' ? `Catatan observasi ${activeTeachingSubject || 'mata pelajaran'} untuk ${classData.selectedClass}.` : 'Nilai awal standar adalah 100 poin.'}</p>
                         </div>
                         <button
                           onClick={() => {
@@ -2735,7 +2877,7 @@ const Dashboard = () => {
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                             {classData.students.map((student) => {
-                              const sRecords = (classData.behaviorRecords || []).filter(r => r.studentId === student.id);
+                              const sRecords = visibleBehaviorRecords.filter(r => r.studentId === student.id);
                               const posPoints = sRecords.filter(r => r.type === 'positif').reduce((sum, r) => sum + r.points, 0);
                               const negPoints = sRecords.filter(r => r.type === 'negatif').reduce((sum, r) => sum + r.points, 0);
                               const score = 100 + posPoints - negPoints;
@@ -2782,7 +2924,7 @@ const Dashboard = () => {
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                       {selectedStudentForDetails ? (() => {
                         const student = classData.students.find(s => s.id === selectedStudentForDetails);
-                        const sRecords = (classData.behaviorRecords || []).filter(r => r.studentId === selectedStudentForDetails)
+                        const sRecords = visibleBehaviorRecords.filter(r => r.studentId === selectedStudentForDetails)
                           .sort((a, b) => b.date.localeCompare(a.date));
 
                         if (!student) return <p className="text-sm text-slate-400 italic">Siswa tidak ditemukan.</p>;
@@ -2810,7 +2952,7 @@ const Dashboard = () => {
                                           ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
                                           : 'bg-rose-100 dark:bg-rose-900/50 text-rose-800 dark:text-rose-400 border-rose-200 dark:border-rose-800'
                                       }`}>
-                                        {rec.category} ({rec.type === 'positif' ? `+${rec.points}` : `-${rec.points}`})
+                                        {rec.category} ({rec.type === 'positif' ? `+${rec.points}` : `-${rec.points}`}){rec.subject ? ` · ${rec.subject}` : ''}
                                       </span>
                                       <span className="text-[10px] text-slate-400 font-mono">{rec.date}</span>
                                     </div>
@@ -2844,7 +2986,7 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {behaviorSubTab === 'prestasi' && (
+              {behaviorSubTab === 'prestasi' && workspaceMode !== 'teaching' && (
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                   <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
                     <div>
@@ -2928,7 +3070,7 @@ const Dashboard = () => {
             </div>
           )}
 
-          {activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'academic' && activeTab !== 'behavior' && (
+          {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'teaching-reports' && activeTab !== 'academic' && activeTab !== 'behavior' && (
             <div className="flex items-center justify-center h-full text-slate-500 animate-in fade-in">
               <div className="text-center">
                 <Settings className="h-12 w-12 mx-auto mb-4 text-slate-300 animate-spin-slow" />
@@ -2970,7 +3112,11 @@ const Dashboard = () => {
         <div className="md:hidden fixed inset-0 z-50 flex items-end bg-slate-900/40" onClick={() => setShowMobileMoreMenu(false)}>
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
-            <div className="grid grid-cols-3 gap-3">{[{ id: 'reports', label: 'Laporan', icon: FileText }, { id: 'behavior', label: 'Sikap & Prestasi', icon: Award }, { id: 'settings', label: 'Pengaturan', icon: Settings }].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>
+            <div className="grid grid-cols-3 gap-3">{[
+              ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
+              ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
+              ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
+            ].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>
           </div>
         </div>
       )}
@@ -3551,7 +3697,7 @@ const Dashboard = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Catat Sikap Siswa</h3>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Catat Sikap & Karakter' : 'Catat Sikap Siswa'}</h3>
               <button onClick={() => setShowAddBehaviorModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                 <X className="h-5 w-5" />
               </button>
@@ -3565,11 +3711,13 @@ const Dashboard = () => {
                 points: behaviorPoints,
                 category: behaviorCategory,
                 description: behaviorDescription,
-                date: behaviorDate
+                date: behaviorDate,
+                subject: workspaceMode === 'teaching' ? activeTeachingSubject || undefined : undefined
               });
               setShowAddBehaviorModal(false);
               alert('Catatan sikap berhasil disimpan!');
             }} className="p-6 space-y-4">
+              {workspaceMode === 'teaching' && <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/20 dark:text-violet-300"><span className="font-bold">Mata Pelajaran:</span> {activeTeachingSubject || 'Belum dipilih'}</div>}
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Siswa</label>
                 <select

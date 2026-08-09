@@ -7,8 +7,8 @@ const LandingPage = ({
   userSession,
   onLogout
 }: { 
-  onLoginSuccess: (role: 'admin' | 'student') => void;
-  userSession: 'admin' | 'student' | null;
+  onLoginSuccess: (role: 'admin' | 'teacher' | 'student') => void;
+  userSession: 'admin' | 'teacher' | 'student' | null;
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(true);
@@ -27,15 +27,13 @@ const LandingPage = ({
 
   const toggleTheme = () => setIsDark(!isDark);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Auto-detect role based on credentials
-    if (username === 'Ferilee' && password === 'F3r!-lee') {
-      onLoginSuccess('admin');
-    } else if (username && password) {
-      // Simulate student login if not teacher
-      onLoginSuccess('student');
-    }
+    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: username, password }) });
+    const result = await response.json();
+    if (!response.ok) return alert(result.error || 'Username atau password salah.');
+    setShowLoginModal(false);
+    onLoginSuccess(result.user.role);
   };
 
   const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];

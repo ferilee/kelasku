@@ -21,6 +21,13 @@ export const classes = sqliteTable('classes', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
+export const userRoles = sqliteTable('user_roles', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id),
+  role: text('role', { enum: ['admin', 'homeroom', 'teacher'] }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
 export const teachingAssignments = sqliteTable('teaching_assignments', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   teacherId: integer('teacher_id').notNull().references(() => users.id),
@@ -136,6 +143,8 @@ export const behaviorRecords = sqliteTable('behavior_records', {
   category: text('category').notNull(), // e.g. 'Kedisiplinan', 'Kerapian', 'Sopan Santun', 'Tanggung Jawab', 'Prestasi'
   description: text('description').notNull(),
   date: text('date').notNull(), // YYYY-MM-DD
+  subject: text('subject'),
+  recordedBy: integer('recorded_by').references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

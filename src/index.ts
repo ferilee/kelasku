@@ -1,10 +1,46 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments } from './server/db/schema';
+import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles } from './server/db/schema';
 import { eq, and, like, isNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
+
+type AuthUser = { id: number; name: string; role: 'admin' | 'teacher' | 'student'; roles: Array<'admin' | 'homeroom' | 'teacher'> };
+const activeSessions = new Map<string, { user: AuthUser; expiresAt: number }>();
+
+function getAuthenticatedUser(c: { req: { raw: Request } }): AuthUser | null {
+  const token = getCookie(c as any, 'webkelas_session');
+  if (!token) return null;
+  const session = activeSessions.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    if (session) activeSessions.delete(token);
+    return null;
+  }
+  return session.user;
+}
+
+async function accessibleClassIds(user: AuthUser) {
+  if (user.roles.includes('admin')) return null;
+  if (user.role === 'student') {
+    const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, user.id)).limit(1);
+    return student[0]?.classId ? [student[0].classId] : [];
+  }
+  const [assignmentsForTeacher, homeroomClasses] = await Promise.all([
+    db.select({ classId: teachingAssignments.classId }).from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)),
+    db.select({ id: classes.id }).from(classes).where(eq(classes.homeroomTeacherId, user.id)),
+  ]);
+  return [...new Set([...assignmentsForTeacher.map((item) => item.classId), ...homeroomClasses.map((item) => item.id)])];
+}
+
+const canManageClass = (user: AuthUser) => user.roles.includes('admin') || user.roles.includes('homeroom');
+
+async function mayAccessClass(user: AuthUser | null, classId: number) {
+  if (!user) return true;
+  const ids = await accessibleClassIds(user);
+  return ids === null || ids.includes(classId);
+}
 
 // Helper to seed data if database is empty
 async function seedIfNeeded() {
@@ -139,6 +175,22 @@ async function seedIfNeeded() {
         .set({ classId: primaryClass[0].id })
         .where(and(eq(users.role, 'student'), isNull(users.classId)));
     }
+
+    const allAccounts = await db.select({ id: users.id, role: users.role }).from(users);
+    for (const account of allAccounts) {
+      if (account.role === 'admin') {
+        await db.insert(userRoles).values({ userId: account.id, role: 'admin' }).onConflictDoNothing();
+        await db.insert(userRoles).values({ userId: account.id, role: 'homeroom' }).onConflictDoNothing();
+      }
+      if (account.role === 'teacher') {
+        await db.insert(userRoles).values({ userId: account.id, role: 'teacher' }).onConflictDoNothing();
+      }
+    }
+    if (primaryClass[0]) {
+      const admin = allAccounts.find((account) => account.role === 'admin');
+      if (admin) await db.update(classes).set({ homeroomTeacherId: admin.id }).where(and(eq(classes.id, primaryClass[0].id), isNull(classes.homeroomTeacherId)));
+    }
+
   } catch (err) {
     console.error("Database seeding error:", err);
   }
@@ -150,6 +202,92 @@ seedIfNeeded();
 // API Routes
 app.get('/api/hello', (c) => {
   return c.json({ message: 'Hello from WebKelas API' });
+});
+
+app.post('/api/auth/login', async (c) => {
+  try {
+    const body = await c.req.json();
+    const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const account = await db.select().from(users).where(and(eq(users.identifier, identifier), eq(users.status, 'Aktif'))).limit(1);
+    if (!account[0]) return c.json({ error: 'Username atau password salah.' }, 401);
+    const storedPassword = account[0].passwordHash;
+    const validPassword = storedPassword.startsWith('$')
+      ? await Bun.password.verify(password, storedPassword)
+      : storedPassword === password;
+    if (!validPassword) return c.json({ error: 'Username atau password salah.' }, 401);
+    if (!storedPassword.startsWith('$')) {
+      await db.update(users).set({ passwordHash: await Bun.password.hash(password) }).where(eq(users.id, account[0].id));
+    }
+    const user = account[0];
+    const token = crypto.randomUUID();
+    const roleRows = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, user.id));
+    const roles = roleRows.map((item) => item.role as AuthUser['roles'][number]);
+    const sessionUser: AuthUser = { id: user.id, name: user.name, role: user.role as AuthUser['role'], roles };
+    activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12 });
+    setCookie(c, 'webkelas_session', token, { httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 12 });
+    return c.json({ user: sessionUser });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/auth/me', (c) => {
+  const user = getAuthenticatedUser(c);
+  if (!user) return c.json({ error: 'Sesi tidak ditemukan.' }, 401);
+  return c.json({ user });
+});
+
+app.post('/api/auth/logout', (c) => {
+  const token = getCookie(c, 'webkelas_session');
+  if (token) activeSessions.delete(token);
+  deleteCookie(c, 'webkelas_session', { path: '/' });
+  return c.json({ success: true });
+});
+
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
+  const user = getAuthenticatedUser(c);
+  if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
+  if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath) {
+    return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
+  }
+  if (user.role === 'student' && c.req.method !== 'GET') return c.json({ error: 'Siswa tidak memiliki akses untuk mengubah data ini.' }, 403);
+  return next();
+});
+
+app.get('/api/my-workspace', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+    const [homeroomClasses, assignmentsForTeacher, classRows, subjectRows, studentRows, gradeRows] = await Promise.all([
+      db.select().from(classes).where(eq(classes.homeroomTeacherId, user.id)).orderBy(classes.name),
+      db.select().from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)).orderBy(teachingAssignments.id),
+      db.select().from(classes), db.select().from(subjects),
+      db.select({ id: users.id, classId: users.classId }).from(users).where(eq(users.role, 'student')),
+      db.select().from(grades),
+    ]);
+    const subjectGroups = Array.from(new Map(assignmentsForTeacher.map((assignment) => [assignment.subjectId, assignment])).values()).map((firstAssignment) => {
+      const subject = subjectRows.find((item) => item.id === firstAssignment.subjectId);
+      const classAssignments = assignmentsForTeacher.filter((item) => item.subjectId === firstAssignment.subjectId);
+      return {
+        subjectId: firstAssignment.subjectId.toString(), subjectName: subject?.name || 'Mata pelajaran',
+        classes: classAssignments.map((assignment) => {
+          const classItem = classRows.find((item) => item.id === assignment.classId);
+          const studentIds = studentRows.filter((student) => student.classId === assignment.classId).map((student) => student.id);
+          return {
+            assignmentId: assignment.id.toString(), classId: assignment.classId.toString(), className: classItem?.name || 'Kelas', academicYear: assignment.academicYear,
+            studentCount: studentIds.length,
+            gradeCount: gradeRows.filter((grade) => grade.subject === subject?.name && studentIds.includes(grade.userId)).length,
+          };
+        }),
+      };
+    });
+    return c.json({
+      user: { id: user.id.toString(), name: user.name, roles: user.roles },
+      homeroomClasses: homeroomClasses.map((item) => ({ id: item.id.toString(), name: item.name, academicYear: item.academicYear })),
+      subjectGroups,
+    });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 app.get('/api/classes', async (c) => {
@@ -201,8 +339,8 @@ app.delete('/api/classes/:id', async (c) => {
 
 app.get('/api/teachers', async (c) => {
   try {
-    const list = await db.select().from(users).where(eq(users.role, 'teacher')).orderBy(users.name);
-    return c.json(list.map((teacher) => ({ id: teacher.id.toString(), name: teacher.name, identifier: teacher.identifier, status: teacher.status })));
+    const list = (await db.select().from(users).orderBy(users.name)).filter((account) => account.role !== 'student');
+    return c.json(list.map((teacher) => ({ id: teacher.id.toString(), name: teacher.name, identifier: teacher.identifier, status: teacher.status, primaryRole: teacher.role })));
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
@@ -212,7 +350,8 @@ app.post('/api/teachers', async (c) => {
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
     if (!name || !identifier) return c.json({ error: 'Nama dan identitas guru wajib diisi.' }, 400);
-    const inserted = await db.insert(users).values({ name, role: 'teacher', identifier, passwordHash: '123456', gender: body.gender === 'P' ? 'P' : 'L', status: 'Aktif' }).returning();
+    const inserted = await db.insert(users).values({ name, role: 'teacher', identifier, passwordHash: await Bun.password.hash('123456'), gender: body.gender === 'P' ? 'P' : 'L', status: 'Aktif' }).returning();
+    await db.insert(userRoles).values({ userId: inserted[0].id, role: 'teacher' }).onConflictDoNothing();
     return c.json({ id: inserted[0].id.toString() }, 201);
   } catch (err: any) { return c.json({ error: 'Identitas guru sudah digunakan atau data tidak valid.' }, 400); }
 });
@@ -231,7 +370,7 @@ app.get('/api/teaching-assignments', async (c) => {
   try {
     const [items, classRows, teacherRows, subjectRows] = await Promise.all([
       db.select().from(teachingAssignments).orderBy(teachingAssignments.id), db.select().from(classes),
-      db.select().from(users).where(eq(users.role, 'teacher')), db.select().from(subjects),
+      db.select().from(users), db.select().from(subjects),
     ]);
     return c.json(items.map((item) => ({
       id: item.id.toString(), teacherId: item.teacherId.toString(), classId: item.classId.toString(), subjectId: item.subjectId.toString(), academicYear: item.academicYear,
@@ -249,11 +388,12 @@ app.post('/api/teaching-assignments', async (c) => {
     const academicYear = typeof body.academicYear === 'string' ? body.academicYear.trim() : '';
     if (![teacherId, classId, subjectId].every(Number.isInteger) || !academicYear) return c.json({ error: 'Data penugasan tidak valid.' }, 400);
     const [teacher, classItem, subject] = await Promise.all([
-      db.select({ id: users.id }).from(users).where(and(eq(users.id, teacherId), eq(users.role, 'teacher'))).limit(1),
+      db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, teacherId)).limit(1),
       db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1),
       db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, subjectId)).limit(1),
     ]);
-    if (!teacher.length || !classItem.length || !subject.length) return c.json({ error: 'Guru, kelas, atau mata pelajaran tidak ditemukan.' }, 400);
+    if (!teacher.length || teacher[0].role === 'student' || !classItem.length || !subject.length) return c.json({ error: 'Guru, kelas, atau mata pelajaran tidak ditemukan.' }, 400);
+    await db.insert(userRoles).values({ userId: teacherId, role: 'teacher' }).onConflictDoNothing();
     const inserted = await db.insert(teachingAssignments).values({ teacherId, classId, subjectId, academicYear }).returning();
     return c.json({ id: inserted[0].id.toString() }, 201);
   } catch (err: any) { return c.json({ error: 'Penugasan sudah ada atau data tidak valid.' }, 400); }
@@ -268,16 +408,30 @@ app.delete('/api/teaching-assignments/:id', async (c) => {
 app.get('/api/class-data', async (c) => {
   try {
     const requestedClassId = Number(c.req.query('classId'));
-    const allClasses = await db.select().from(classes).orderBy(classes.academicYear, classes.name);
+    const authenticatedUser = getAuthenticatedUser(c);
+    const permittedClassIds = authenticatedUser ? await accessibleClassIds(authenticatedUser) : null;
+    const allClasses = (await db.select().from(classes).orderBy(classes.academicYear, classes.name))
+      .filter((item) => permittedClassIds === null || permittedClassIds.includes(item.id));
+    if (authenticatedUser && Number.isInteger(requestedClassId) && !allClasses.some((item) => item.id === requestedClassId)) {
+      return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    }
     const currentClass = (Number.isInteger(requestedClassId) && allClasses.find((item) => item.id === requestedClassId)) || allClasses[0];
     if (!currentClass) return c.json({ error: 'Belum ada kelas yang tersedia.' }, 404);
     const allAnnouncements = await db.select().from(announcements);
     const allAgenda = await db.select().from(agenda);
     const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id)));
+    const classStudentIds = new Set(allStudents.map((student) => student.id));
     const currentQuote = await db.select().from(quotes).limit(1);
     const allSchedules = await db.select().from(schedules);
-    const allBehavior = await db.select().from(behaviorRecords);
-    const allAchievements = await db.select().from(achievements);
+    let allBehavior = (await db.select().from(behaviorRecords)).filter((record) => classStudentIds.has(record.studentId));
+    if (authenticatedUser?.roles.includes('teacher') && !canManageClass(authenticatedUser)) {
+      const assignmentsForTeacher = await db.select({ subjectId: teachingAssignments.subjectId }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, authenticatedUser.id), eq(teachingAssignments.classId, currentClass.id)));
+      const allowedSubjectIds = assignmentsForTeacher.map((item) => item.subjectId);
+      const allowedSubjects = allowedSubjectIds.length ? await db.select({ name: subjects.name }).from(subjects).where(inArray(subjects.id, allowedSubjectIds)) : [];
+      const allowedNames = new Set(allowedSubjects.map((item) => item.name));
+      allBehavior = allBehavior.filter((record) => record.subject && allowedNames.has(record.subject));
+    }
+    const allAchievements = (await db.select().from(achievements)).filter((record) => classStudentIds.has(record.studentId));
     const allOfficers = await db.select().from(classOfficers);
     const allGalleryItems = await db.select().from(galleryItems).orderBy(galleryItems.createdAt);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
@@ -349,16 +503,17 @@ app.get('/api/class-data', async (c) => {
         teacherName: s.teacherName || '',
         color: s.color
       })),
-      students: studentList,
-      behaviorRecords: allBehavior.map(b => ({
+      students: authenticatedUser ? studentList : [],
+      behaviorRecords: authenticatedUser ? allBehavior.map(b => ({
         id: b.id.toString(),
         studentId: b.studentId.toString(),
         type: b.type,
         points: b.points,
         category: b.category,
         description: b.description,
-        date: b.date
-      })),
+        date: b.date,
+        subject: b.subject || undefined
+      })) : [],
       achievements: allAchievements.map(ac => ({
         id: ac.id.toString(),
         studentId: ac.studentId.toString(),
@@ -920,9 +1075,18 @@ app.get('/api/grades', async (c) => {
   try {
     const classId = Number(c.req.query('classId'));
     if (!Number.isInteger(classId)) return c.json({ error: 'Missing classId' }, 400);
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (authenticatedUser && !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
     const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
-    const list = studentIds.length ? await db.select().from(grades).where(inArray(grades.userId, studentIds)) : [];
+    let list = studentIds.length ? await db.select().from(grades).where(inArray(grades.userId, studentIds)) : [];
+    if (authenticatedUser?.roles.includes('teacher') && !canManageClass(authenticatedUser)) {
+      const assignmentsForTeacher = await db.select({ subjectId: teachingAssignments.subjectId }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, authenticatedUser.id), eq(teachingAssignments.classId, classId)));
+      const allowedSubjectIds = assignmentsForTeacher.map((item) => item.subjectId);
+      const allowedSubjects = allowedSubjectIds.length ? await db.select({ name: subjects.name }).from(subjects).where(inArray(subjects.id, allowedSubjectIds)) : [];
+      const allowedNames = new Set(allowedSubjects.map((item) => item.name));
+      list = list.filter((item) => allowedNames.has(item.subject));
+    }
     return c.json(list);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -937,6 +1101,14 @@ app.post('/api/grades', async (c) => {
     const classId = Number(body.classId);
     if (!subject || !type || !name || !Array.isArray(scores) || !Number.isInteger(classId)) {
       return c.json({ error: 'Invalid payload parameters' }, 400);
+    }
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role === 'student') return c.json({ error: 'Silakan masuk sebagai guru.' }, 401);
+    if (!(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    if (authenticatedUser.roles.includes('teacher') && !canManageClass(authenticatedUser)) {
+      const subjectRow = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject)).limit(1);
+      const permitted = subjectRow[0] && await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, authenticatedUser.id), eq(teachingAssignments.classId, classId), eq(teachingAssignments.subjectId, subjectRow[0].id))).limit(1);
+      if (!permitted?.length) return c.json({ error: 'Mata pelajaran ini tidak ada dalam penugasan Anda.' }, 403);
     }
 
     const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
@@ -1230,8 +1402,18 @@ app.post('/api/behavior', async (c) => {
   try {
     const body = await c.req.json();
     const { studentId, type, points, category, description, date } = body;
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
     if (!studentId || !type || !points || !category || !description || !date) {
       return c.json({ error: 'Missing required fields' }, 400);
+    }
+    const user = getAuthenticatedUser(c);
+    const student = await db.select({ classId: users.classId }).from(users).where(and(eq(users.id, Number(studentId)), eq(users.role, 'student'))).limit(1);
+    if (!student[0] || !student[0].classId) return c.json({ error: 'Siswa tidak ditemukan.' }, 404);
+    if (!(await mayAccessClass(user, student[0].classId))) return c.json({ error: 'Anda tidak memiliki akses ke siswa ini.' }, 403);
+    if (user?.roles.includes('teacher') && !canManageClass(user)) {
+      const subjectRow = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject)).limit(1);
+      const assignment = subjectRow[0] && await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, user.id), eq(teachingAssignments.classId, student[0].classId), eq(teachingAssignments.subjectId, subjectRow[0].id))).limit(1);
+      if (!assignment?.length) return c.json({ error: 'Mata pelajaran ini tidak ada dalam penugasan Anda.' }, 403);
     }
     const inserted = await db.insert(behaviorRecords).values({
       studentId: parseInt(studentId),
@@ -1239,7 +1421,9 @@ app.post('/api/behavior', async (c) => {
       points: parseInt(points),
       category,
       description,
-      date
+      date,
+      subject: subject || null,
+      recordedBy: user?.id || null,
     }).returning();
     return c.json({ 
       success: true, 
@@ -1258,6 +1442,16 @@ app.post('/api/behavior', async (c) => {
 app.delete('/api/behavior/:id', async (c) => {
   try {
     const id = parseInt(c.req.param('id'));
+    const user = getAuthenticatedUser(c);
+    const record = await db.select().from(behaviorRecords).where(eq(behaviorRecords.id, id)).limit(1);
+    if (!record[0]) return c.json({ error: 'Catatan sikap tidak ditemukan.' }, 404);
+    const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, record[0].studentId)).limit(1);
+    if (!student[0]?.classId || !(await mayAccessClass(user, student[0].classId))) return c.json({ error: 'Anda tidak memiliki akses ke catatan ini.' }, 403);
+    if (user?.roles.includes('teacher') && !canManageClass(user)) {
+      const subjectRow = record[0].subject ? await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, record[0].subject)).limit(1) : [];
+      const assignment = subjectRow[0] && await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, user.id), eq(teachingAssignments.classId, student[0].classId), eq(teachingAssignments.subjectId, subjectRow[0].id))).limit(1);
+      if (!assignment?.length) return c.json({ error: 'Catatan ini bukan bagian dari mata pelajaran Anda.' }, 403);
+    }
     await db.delete(behaviorRecords).where(eq(behaviorRecords.id, id));
     return c.json({ success: true });
   } catch (err: any) {

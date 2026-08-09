@@ -39,6 +39,7 @@ export interface BehaviorRecord {
   category: string;
   description: string;
   date: string;
+  subject?: string;
 }
 
 export interface Achievement {

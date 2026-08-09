@@ -1018,7 +1018,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   }, [activeTab, teachingAttendanceDate, activeTeachingSubject, classData.classId, classData.students]);
 
   const handleSaveTeachingAttendance = async () => {
-    if (!classData.classId || !activeTeachingSubject) return;
+    if (!classData.classId || !activeTeachingSubject) return alert('Pilih kartu kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
     const res = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
       records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
@@ -1116,9 +1116,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             { id: 'students', label: 'Siswa', icon: Users },
             ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
             { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
-            ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
+            ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
             ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
-            ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : []),
+            ...(workspaceMode === 'teaching' ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : []),
             ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan Halaman', icon: Settings }] : []),
           ].map((item) => (
             <button
@@ -3227,7 +3227,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
             <div className="grid grid-cols-3 gap-3">{[
-              ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
+              ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
               ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
               ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
             ].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>

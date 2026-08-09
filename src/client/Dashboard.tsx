@@ -1870,7 +1870,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
               </div>
 
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
+                <div className="overflow-x-auto overscroll-x-contain touch-pan-x">
+                <table className="w-full min-w-[640px] text-left text-sm text-slate-600 dark:text-slate-300">
                   <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="px-6 py-4">Nama Lengkap</th>
@@ -1892,7 +1893,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                           <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200">{student.name}</td>
                           <td className="px-6 py-4 font-mono text-xs">{student.gender}</td>
                           <td className="px-6 py-4">
-                            <div className="flex justify-center gap-2">
+                            <div className="flex min-w-max justify-center gap-2">
                               {attendanceType === 'harian' ? (
                                 (['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((status) => (
                                   <button
@@ -1951,6 +1952,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   )}
                   </tbody>
                 </table>
+                </div>
               </div>
 
               <div className="flex justify-end">
@@ -2920,7 +2922,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   </div>
 
                   {/* Right Column: Detailed Logs for Selected Student (1/3 width) */}
-                  <div className="space-y-6">
+                  <div className="hidden space-y-6 lg:block">
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                       {selectedStudentForDetails ? (() => {
                         const student = classData.students.find(s => s.id === selectedStudentForDetails);
@@ -3067,6 +3069,35 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'behavior' && behaviorSubTab === 'sikap' && selectedStudentForDetails && (
+            <div className="lg:hidden fixed inset-0 z-50 flex items-end bg-slate-950/60" onClick={() => setSelectedStudentForDetails(null)}>
+              <div className="max-h-[82vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-800" onClick={(event) => event.stopPropagation()}>
+                {(() => {
+                  const student = classData.students.find((item) => item.id === selectedStudentForDetails);
+                  const records = visibleBehaviorRecords
+                    .filter((record) => record.studentId === selectedStudentForDetails)
+                    .sort((a, b) => b.date.localeCompare(a.date));
+                  if (!student) return null;
+                  return <>
+                    <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+                      <div><h4 className="font-bold text-slate-800 dark:text-slate-100">{student.name}</h4><p className="mt-1 text-xs text-slate-400">Daftar riwayat sikap & tindakan</p></div>
+                      <button onClick={() => setSelectedStudentForDetails(null)} aria-label="Tutup detail log" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100"><X className="h-5 w-5" /></button>
+                    </div>
+                    <div className="max-h-[64vh] space-y-3 overflow-y-auto p-5">
+                      {records.length === 0 ? <p className="py-8 text-center text-sm italic text-slate-400">Belum ada catatan sikap untuk siswa ini.</p> : records.map((record) => (
+                        <div key={record.id} className={`relative rounded-xl border p-4 pr-11 ${record.type === 'positif' ? 'border-emerald-100 bg-emerald-50/40 dark:border-emerald-900/30 dark:bg-emerald-950/10' : 'border-rose-100 bg-rose-50/40 dark:border-rose-900/30 dark:bg-rose-950/10'}`}>
+                          <div className="mb-1.5 flex items-start justify-between gap-2"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${record.type === 'positif' ? 'border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-400' : 'border-rose-200 bg-rose-100 text-rose-800 dark:border-rose-800 dark:bg-rose-900/50 dark:text-rose-400'}`}>{record.category} ({record.type === 'positif' ? `+${record.points}` : `-${record.points}`}){record.subject ? ` · ${record.subject}` : ''}</span><span className="shrink-0 font-mono text-[10px] text-slate-400">{record.date}</span></div>
+                          <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{record.description}</p>
+                          <button onClick={async () => { if (confirm('Hapus catatan sikap ini?')) await classData.removeBehaviorRecord(record.id); }} aria-label="Hapus catatan sikap" className="absolute bottom-3 right-3 rounded p-1 text-red-500 hover:bg-white/70 hover:text-red-700 dark:hover:bg-slate-700"><Trash2 className="h-4 w-4" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </>;
+                })()}
+              </div>
             </div>
           )}
 

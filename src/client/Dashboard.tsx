@@ -728,7 +728,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
     if (!dates.length) return alert('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
     const statusCode: Record<string, string> = { Hadir: 'H', Sakit: 'S', Izin: 'I', Alfa: 'A' };
-    const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</th>`).join('');
+    const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).getDate()}</th>`).join('');
     const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
     printReportDocument(`Presensi ${activeTeachingSubject}`, `
       <h1>REKAP PRESENSI PEMBELAJARAN</h1><p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>

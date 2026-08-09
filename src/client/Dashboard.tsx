@@ -116,6 +116,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur'>('harian');
   const [attendanceMap, setAttendanceMap] = useState<Record<string, string>>({});
+  const [teachingAttendanceDate, setTeachingAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [teachingAttendanceMap, setTeachingAttendanceMap] = useState<Record<string, string>>({});
+  const [teachingAttendanceMonth, setTeachingAttendanceMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [teachingAttendanceReport, setTeachingAttendanceReport] = useState<any[]>([]);
   const [mobileDashboardPanel, setMobileDashboardPanel] = useState<'schedule' | 'agenda'>('schedule');
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
 
@@ -126,7 +130,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [reportData, setReportData] = useState<any[]>([]);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [reportCategory, setReportCategory] = useState<'attendance' | 'grades' | 'behavior'>('attendance');
-  const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior'>('grades');
+  const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior' | 'attendance'>('grades');
   const [teachingReportPeriod, setTeachingReportPeriod] = useState('Semester Ganjil');
   const [dashboardSummary, setDashboardSummary] = useState<any[]>([]);
 
@@ -719,6 +723,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     printWindow.document.close();
   };
 
+  const handlePrintTeachingAttendancePDF = () => {
+    if (!activeTeachingSubject || !teachingAttendanceReport.length) return alert('Belum ada data presensi pembelajaran pada periode ini.');
+    const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td><td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
+    printReportDocument(`Presensi ${activeTeachingSubject}`, `
+      <h1>REKAP PRESENSI PEMBELAJARAN</h1><p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
+      <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Bulan: ${teachingAttendanceMonth} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear}</p>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alfa</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
+    `);
+  };
+
   const handlePrintGradesPDF = () => {
     if (sessionAssessments.length === 0) {
       alert('Belum ada data penilaian untuk mata pelajaran ini.');
@@ -989,6 +1004,39 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     }
   };
 
+  useEffect(() => {
+    const fetchTeachingAttendance = async () => {
+      if (activeTab !== 'teaching-attendance' || !classData.classId || !activeTeachingSubject) return;
+      const res = await fetch(`/api/attendance?date=${teachingAttendanceDate}&type=mapel&subject=${encodeURIComponent(activeTeachingSubject)}&classId=${classData.classId}`);
+      if (!res.ok) return;
+      const map: Record<string, string> = {};
+      (await res.json()).forEach((record: any) => { map[record.studentId] = record.status; });
+      classData.students.forEach((student) => { if (!map[student.id]) map[student.id] = 'Hadir'; });
+      setTeachingAttendanceMap(map);
+    };
+    fetchTeachingAttendance().catch((error) => console.error('Error fetching teaching attendance:', error));
+  }, [activeTab, teachingAttendanceDate, activeTeachingSubject, classData.classId, classData.students]);
+
+  const handleSaveTeachingAttendance = async () => {
+    if (!classData.classId || !activeTeachingSubject) return;
+    const res = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
+      records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
+    }) });
+    if (res.ok) alert('Presensi pembelajaran berhasil disimpan.');
+    else alert((await res.json()).error || 'Gagal menyimpan presensi pembelajaran.');
+  };
+
+  const fetchTeachingAttendanceReport = useCallback(async () => {
+    if (!classData.classId || !activeTeachingSubject) return;
+    const res = await fetch(`/api/teaching-attendance/summary?month=${teachingAttendanceMonth}&subject=${encodeURIComponent(activeTeachingSubject)}&classId=${classData.classId}`);
+    if (res.ok) setTeachingAttendanceReport(await res.json());
+  }, [classData.classId, activeTeachingSubject, teachingAttendanceMonth]);
+
+  useEffect(() => {
+    if (activeTab === 'teaching-reports' && teachingReportCategory === 'attendance') fetchTeachingAttendanceReport();
+  }, [activeTab, teachingReportCategory, fetchTeachingAttendanceReport]);
+
   // Advanced filters implementation
   const filteredStudents = classData.students
     .filter(student => {
@@ -1068,6 +1116,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             { id: 'students', label: 'Siswa', icon: Users },
             ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
             { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
+            ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
             ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
             ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : []),
             ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan Halaman', icon: Settings }] : []),
@@ -1093,7 +1142,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         {/* Header */}
         <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate mr-2">
-            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : 'Manajemen Kelas'}
+            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
             <select
@@ -2038,6 +2087,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             </div>
           )}
           
+          {activeTab === 'teaching-attendance' && (
+            <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between">
+                <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Presensi Pembelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activeTeachingSubject} · {classData.selectedClass}</p></div>
+                <input type="date" value={teachingAttendanceDate} onChange={(event) => setTeachingAttendanceDate(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="min-w-[620px] w-full text-left text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4">Nama Siswa</th><th className="px-5 py-4">L/P</th><th className="px-5 py-4 text-center">Status Kehadiran</th></tr></thead><tbody>{classData.students.map((student) => { const status = teachingAttendanceMap[student.id] || 'Hadir'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-xs">{student.gender}</td><td className="px-5 py-3"><div className="flex min-w-max justify-center gap-2">{(['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((option) => <button key={option} onClick={() => setTeachingAttendanceMap((current) => ({ ...current, [student.id]: option }))} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${status === option ? option === 'Hadir' ? 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : option === 'Sakit' ? 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400' : option === 'Izin' ? 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400' : 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'}`}>{option}</button>)}</div></td></tr>; })}</tbody></table></div></div>
+              <div className="flex justify-end"><button onClick={handleSaveTeachingAttendance} className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"><Save className="h-5 w-5" /> Simpan Presensi</button></div>
+            </div>
+          )}
+
           {activeTab === 'teaching-reports' && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm dark:border-blue-900/50 dark:from-slate-800 dark:to-slate-800">
@@ -2056,7 +2116,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
-                  {([['grades', 'Rekap Nilai'], ['behavior', 'Sikap & Karakter']] as const).map(([category, label]) => (
+                  {([['grades', 'Rekap Nilai'], ['attendance', 'Presensi Mapel'], ['behavior', 'Sikap & Karakter']] as const).map(([category, label]) => (
                     <button key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>{label}</button>
                   ))}
                 </div>
@@ -2075,10 +2135,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   </div>
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th>{teachingAssessments.map((assessment) => <th key={`${assessment.type}-${assessment.name}`} className="px-5 py-4 text-center whitespace-nowrap">{assessment.name}</th>)}<th className="px-5 py-4 text-center">Rata-rata</th></tr></thead><tbody>{classData.students.map((student) => { const scores: (number | undefined)[] = teachingAssessments.map((assessment) => gradesList.find((grade: any) => grade.userId === Number(student.id) && grade.subject === activeTeachingSubject && grade.type === assessment.type && grade.name === assessment.name)?.score); const filled = scores.filter((score): score is number => score !== undefined); const average = filled.length ? Math.round(filled.reduce((sum, score) => sum + score, 0) / filled.length) : '-'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td>{scores.map((score, index) => <td key={index} className="px-5 py-3 text-center">{score ?? '-'}</td>)}<td className="px-5 py-3 text-center font-bold">{average}</td></tr>; })}</tbody></table></div></div>
                 </div>
-              ) : (
+              ) : teachingReportCategory === 'behavior' ? (
                 <div className="space-y-5">
                   <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Laporan Sikap & Karakter Mapel</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hanya menggunakan catatan observasi {activeTeachingSubject || 'mata pelajaran aktif'} pada kelas ini.</p></div><button onClick={handlePrintTeachingBehaviorPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button></div>
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th><th className="px-5 py-4 text-center">Positif</th><th className="px-5 py-4 text-center">Negatif</th><th className="px-5 py-4 text-center">Skor Akhir</th><th className="px-5 py-4 text-center">Predikat</th></tr></thead><tbody>{classData.students.map((student) => { const records = (classData.behaviorRecords || []).filter((record) => record.studentId === student.id && record.subject === activeTeachingSubject); const positive = records.filter((record) => record.type === 'positif').reduce((sum, record) => sum + record.points, 0); const negative = records.filter((record) => record.type === 'negatif').reduce((sum, record) => sum + record.points, 0); const score = 100 + positive - negative; const predicate = score >= 100 ? 'Sangat Baik' : score >= 85 ? 'Baik' : score >= 75 ? 'Cukup' : 'Perlu Pembinaan'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-center text-emerald-600">+{positive}</td><td className="px-5 py-3 text-center text-rose-600">-{negative}</td><td className="px-5 py-3 text-center font-bold">{score}</td><td className="px-5 py-3 text-center">{predicate}</td></tr>; })}</tbody></table></div></div>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rekap Presensi Pembelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Kehadiran {activeTeachingSubject} pada {classData.selectedClass}.</p></div><div className="flex gap-2"><input type="month" value={teachingAttendanceMonth} onChange={(event) => setTeachingAttendanceMonth(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button onClick={handlePrintTeachingAttendancePDF} className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak PDF</button></div></div>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="min-w-[620px] w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th><th className="px-5 py-4 text-center">L/P</th><th className="px-5 py-4 text-center">Hadir</th><th className="px-5 py-4 text-center">Sakit</th><th className="px-5 py-4 text-center">Izin</th><th className="px-5 py-4 text-center">Alfa</th></tr></thead><tbody>{teachingAttendanceReport.map((student) => <tr key={student.studentId} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-center">{student.gender}</td><td className="px-5 py-3 text-center text-emerald-600">{student.Hadir}</td><td className="px-5 py-3 text-center text-amber-600">{student.Sakit}</td><td className="px-5 py-3 text-center text-blue-600">{student.Izin}</td><td className="px-5 py-3 text-center text-rose-600">{student.Alfa}</td></tr>)}</tbody></table></div></div>
                 </div>
               )}
             </div>
@@ -3119,7 +3184,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             </div>
           )}
 
-          {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'teaching-reports' && activeTab !== 'academic' && activeTab !== 'behavior' && (
+          {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'teaching-reports' && activeTab !== 'teaching-attendance' && activeTab !== 'academic' && activeTab !== 'behavior' && (
             <div className="flex items-center justify-center h-full text-slate-500 animate-in fade-in">
               <div className="text-center">
                 <Settings className="h-12 w-12 mx-auto mb-4 text-slate-300 animate-spin-slow" />
@@ -3162,7 +3227,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
             <div className="grid grid-cols-3 gap-3">{[
-              ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
+              ...(workspaceMode === 'teaching' && activeTeachingSubject ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : workspaceMode !== 'teaching' && userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
               ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
               ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
             ].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>

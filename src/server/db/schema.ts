@@ -42,6 +42,7 @@ export const attendance = sqliteTable('attendance', {
   userId: integer('user_id').notNull().references(() => users.id),
   date: text('date').notNull(), // YYYY-MM-DD
   type: text('type').notNull().default('harian'), // harian, dhuha, dzuhur
+  subject: text('subject'), // required for type: mapel
   status: text('status').notNull(), // Hadir, Sakit, Izin, Alfa, Berjamaah, Munfarid, Berhalangan
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });

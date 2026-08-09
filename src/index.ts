@@ -42,6 +42,19 @@ async function mayAccessClass(user: AuthUser | null, classId: number) {
   return ids === null || ids.includes(classId);
 }
 
+async function mayTeachSubject(user: AuthUser, classId: number, subject: string) {
+  if (canManageClass(user)) return true;
+  if (!user.roles.includes('teacher')) return false;
+  const subjectRow = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject)).limit(1);
+  if (!subjectRow[0]) return false;
+  const assignment = await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(and(
+    eq(teachingAssignments.teacherId, user.id),
+    eq(teachingAssignments.classId, classId),
+    eq(teachingAssignments.subjectId, subjectRow[0].id),
+  )).limit(1);
+  return Boolean(assignment[0]);
+}
+
 // Helper to seed data if database is empty
 async function seedIfNeeded() {
   try {
@@ -251,7 +264,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
   }
@@ -839,14 +852,18 @@ app.get('/api/attendance', async (c) => {
     const date = c.req.query('date');
     const type = c.req.query('type');
     const classId = Number(c.req.query('classId'));
+    const subject = c.req.query('subject');
     if (!date || !type) {
       return c.json({ error: 'Missing date or type' }, 400);
     }
     if (!Number.isInteger(classId)) return c.json({ error: 'Missing classId' }, 400);
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (authenticatedUser && !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    if (type === 'mapel' && (!subject || !authenticatedUser || !(await mayTeachSubject(authenticatedUser, classId, subject)))) return c.json({ error: 'Mata pelajaran ini tidak ada dalam penugasan Anda.' }, 403);
     const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
     const records = studentIds.length ? await db.select().from(attendance).where(
-      and(eq(attendance.date, date), eq(attendance.type, type), inArray(attendance.userId, studentIds))
+      and(eq(attendance.date, date), eq(attendance.type, type), ...(type === 'mapel' ? [eq(attendance.subject, subject!)] : []), inArray(attendance.userId, studentIds))
     ) : [];
     return c.json(records.map(r => ({
       id: r.id.toString(),
@@ -863,14 +880,21 @@ app.post('/api/attendance', async (c) => {
   try {
     const body = await c.req.json();
     const { date, type, records } = body;
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
     const classId = Number(body.classId);
     if (!date || !type || !Array.isArray(records) || !Number.isInteger(classId)) {
       return c.json({ error: 'Invalid payload' }, 400);
     }
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role === 'student') return c.json({ error: 'Silakan masuk sebagai guru.' }, 401);
+    if (!(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    if (!canManageClass(authenticatedUser)) {
+      if (type !== 'mapel' || !subject || !(await mayTeachSubject(authenticatedUser, classId, subject))) return c.json({ error: 'Presensi hanya dapat dicatat untuk mata pelajaran yang Anda ampu.' }, 403);
+    }
     
     const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
-    if (studentIds.length) await db.delete(attendance).where(and(eq(attendance.date, date), eq(attendance.type, type), inArray(attendance.userId, studentIds)));
+    if (studentIds.length) await db.delete(attendance).where(and(eq(attendance.date, date), eq(attendance.type, type), ...(type === 'mapel' ? [eq(attendance.subject, subject)] : []), inArray(attendance.userId, studentIds)));
     
     // Insert new ones
     if (records.length > 0) {
@@ -880,6 +904,7 @@ app.post('/api/attendance', async (c) => {
           userId: parseInt(r.studentId),
           date,
           type,
+          subject: type === 'mapel' ? subject : null,
           status: r.status
         }))
       );
@@ -888,6 +913,28 @@ app.post('/api/attendance', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+app.get('/api/teaching-attendance/summary', async (c) => {
+  try {
+    const month = c.req.query('month');
+    const subject = c.req.query('subject');
+    const classId = Number(c.req.query('classId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!month || !subject || !Number.isInteger(classId)) return c.json({ error: 'Missing month, subject, or classId' }, 400);
+    if (!authenticatedUser || !(await mayTeachSubject(authenticatedUser, classId, subject))) return c.json({ error: 'Anda tidak memiliki akses ke laporan ini.' }, 403);
+    const studentsList = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const studentIds = studentsList.map((student) => student.id);
+    const records = studentIds.length ? await db.select().from(attendance).where(and(
+      eq(attendance.type, 'mapel'), eq(attendance.subject, subject), like(attendance.date, `${month}-%`), inArray(attendance.userId, studentIds),
+    )) : [];
+    return c.json(studentsList.map((student) => {
+      const studentRecords = records.filter((record) => record.userId === student.id);
+      const totals = { Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0 };
+      studentRecords.forEach((record) => { if (record.status in totals) totals[record.status as keyof typeof totals]++; });
+      return { studentId: student.id.toString(), name: student.name, gender: student.gender, ...totals };
+    }));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 // Get monthly attendance summary

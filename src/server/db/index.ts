@@ -43,6 +43,7 @@ sqlite.run(`
     user_id INTEGER NOT NULL REFERENCES users(id),
     date TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'harian',
+    subject TEXT,
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
@@ -181,6 +182,7 @@ function addColumnIfMissing(table: string, column: string, definition: string) {
 addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
 addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
+addColumnIfMissing('attendance', 'subject', 'subject TEXT');
 
 const configuredClassName = (sqlite.query("SELECT value FROM page_settings WHERE key = 'class_name' LIMIT 1").get() as { value?: string } | null)?.value || 'X TKJ A';
 const configuredAcademicYear = (sqlite.query("SELECT value FROM page_settings WHERE key = 'academic_year' LIMIT 1").get() as { value?: string } | null)?.value || '2026-2027';

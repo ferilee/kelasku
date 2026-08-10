@@ -860,7 +860,7 @@ app.get('/api/attendance', async (c) => {
     const authenticatedUser = getAuthenticatedUser(c);
     if (authenticatedUser && !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
     if (type === 'mapel' && (!subject || !authenticatedUser || !(await mayTeachSubject(authenticatedUser, classId, subject)))) return c.json({ error: 'Mata pelajaran ini tidak ada dalam penugasan Anda.' }, 403);
-    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const classStudents = await db.select({ id: users.id, gender: users.gender }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
     const records = studentIds.length ? await db.select().from(attendance).where(
       and(eq(attendance.date, date), eq(attendance.type, type), ...(type === 'mapel' ? [eq(attendance.subject, subject!)] : []), inArray(attendance.userId, studentIds))
@@ -892,13 +892,17 @@ app.post('/api/attendance', async (c) => {
       if (type !== 'mapel' || !subject || !(await mayTeachSubject(authenticatedUser, classId, subject))) return c.json({ error: 'Presensi hanya dapat dicatat untuk mata pelajaran yang Anda ampu.' }, 403);
     }
     
-    const classStudents = await db.select({ id: users.id }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const classStudents = await db.select({ id: users.id, gender: users.gender }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
     if (studentIds.length) await db.delete(attendance).where(and(eq(attendance.date, date), eq(attendance.type, type), ...(type === 'mapel' ? [eq(attendance.subject, subject)] : []), inArray(attendance.userId, studentIds)));
     
     // Insert new ones
     if (records.length > 0) {
       if (records.some((record: any) => !studentIds.includes(Number(record.studentId)))) return c.json({ error: 'Siswa harus berasal dari kelas aktif.' }, 400);
+      if (type === 'jumat') {
+        const maleStudentIds = new Set(classStudents.filter((student) => student.gender === 'L').map((student) => student.id));
+        if (records.some((record: any) => !maleStudentIds.has(Number(record.studentId)))) return c.json({ error: 'Presensi Sholat Jumat hanya untuk siswa laki-laki.' }, 400);
+      }
       await db.insert(attendance).values(
         records.map((r: any) => ({
           userId: parseInt(r.studentId),

@@ -518,21 +518,22 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const handleExportCSV = () => {
     if (reportData.length === 0) return;
+    const printableRows = reportSubTab === 'jumat' ? reportData.filter((row) => row.gender === 'L') : reportData;
     let csvContent = "data:text/csv;charset=utf-8,";
     
     if (reportSubTab === 'harian') {
       csvContent += "No,Nama,L/P,Hadir (H),Sakit (S),Izin (I),Alfa (A)\n";
-      reportData.forEach((row, index) => {
+      printableRows.forEach((row, index) => {
         csvContent += `${index + 1},"${row.name}",${row.gender},${row.harian.Hadir},${row.harian.Sakit},${row.harian.Izin},${row.harian.Alfa}\n`;
       });
     } else if (reportSubTab === 'dhuha') {
       csvContent += "No,Nama,L/P,Sholat (S),Berhalangan (BH),Alfa (A)\n";
-      reportData.forEach((row, index) => {
+      printableRows.forEach((row, index) => {
         csvContent += `${index + 1},"${row.name}",${row.gender},${getSholatCount(row.dhuha)},${row.dhuha.Berhalangan || 0},${row.dhuha.Alfa}\n`;
       });
     } else {
       csvContent += "No,Nama,L/P,Sholat (S),Berhalangan (BH),Alfa (A)\n";
-      reportData.forEach((row, index) => {
+      printableRows.forEach((row, index) => {
         const prayer = reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
         csvContent += `${index + 1},"${row.name}",${row.gender},${getSholatCount(prayer)},${prayer.Berhalangan || 0},${prayer.Alfa}\n`;
       });
@@ -549,6 +550,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const handlePrintPDF = () => {
     if (reportData.length === 0) return;
+    const printableRows = reportSubTab === 'jumat' ? reportData.filter((row) => row.gender === 'L') : reportData;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     const monthNames = [
@@ -601,7 +603,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     `;
 
     let tableRows = '';
-    reportData.forEach((row, index) => {
+    printableRows.forEach((row, index) => {
       const statusCodesByDate = dateColumns.map(({ date }) => {
         const status = row.attendanceByDate?.[date]?.[reportSubTab];
         return status ? statusCodes[status] ?? status : '';
@@ -966,7 +968,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
               : r.status;
           });
           
-          classData.students.forEach(s => {
+          classData.students.filter((student) => attendanceType !== 'jumat' || student.gender === 'L').forEach(s => {
             if (!map[s.id]) {
               map[s.id] = attendanceType === 'harian' ? 'Hadir' : 'Sholat';
             }
@@ -985,7 +987,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const handleSaveAttendance = async () => {
     try {
-      const records = Object.entries(attendanceMap).map(([studentId, status]) => ({
+      const records = Object.entries(attendanceMap).filter(([studentId]) => attendanceType !== 'jumat' || classData.students.find((student) => student.id === studentId)?.gender === 'L').map(([studentId, status]) => ({
         studentId,
         status
       }));
@@ -1064,6 +1066,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const filteredAttendanceStudents = classData.students
     .filter(student => {
+      if (attendanceType === 'jumat' && student.gender !== 'L') return false;
       const matchSearch = student.name.toLowerCase().includes(attendanceSearch.toLowerCase()) || student.nisn.includes(attendanceSearch);
       const matchGender = attendanceGenderFilter === 'all' || student.gender === attendanceGenderFilter;
       
@@ -1077,6 +1080,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     .filter(row => {
       const matchSearch = row.name.toLowerCase().includes(reportSearch.toLowerCase()) || row.studentId.includes(reportSearch);
       const matchGender = reportGenderFilter === 'all' || row.gender === reportGenderFilter;
+      const matchFriday = reportSubTab !== 'jumat' || row.gender === 'L';
       
       let matchAlfa = true;
       if (reportAlfaFilter === 'alfa-only') {
@@ -1087,7 +1091,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         matchAlfa = item.Alfa === 0;
       }
       
-      return matchSearch && matchGender && matchAlfa;
+      return matchSearch && matchGender && matchFriday && matchAlfa;
     });
 
   const filteredAcademicStudents = classData.students
@@ -1988,7 +1992,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                   </button>
                                 ))
                               ) : (
-                                (['Sholat', 'Berhalangan', 'Alfa'] as const).map((status) => {
+                                (attendanceType === 'jumat' ? ['Sholat', 'Alfa'] : ['Sholat', 'Berhalangan', 'Alfa']).map((status) => {
                                   const isDisabled = status === 'Berhalangan' && student.gender === 'L';
                                   
                                   return (

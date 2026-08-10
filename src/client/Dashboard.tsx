@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
@@ -229,6 +229,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [academicSearch, setAcademicSearch] = useState('');
   const [tempScores, setTempScores] = useState<Record<string, number>>({});
   const [sessionAssessments, setSessionAssessments] = useState<{ name: string; type: string }[]>([]);
+
+  useEffect(() => {
+    if (workspaceMode === 'teaching' && activeTeachingSubject) {
+      setSelectedSubject(activeTeachingSubject);
+    }
+  }, [workspaceMode, activeTeachingSubject]);
 
   const fetchGrades = useCallback(async () => {
     setIsLoadingGrades(true);
@@ -2502,7 +2508,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Mata Pelajaran:</span>
-                        <select
+                        {workspaceMode === 'teaching' ? (
+                          <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-bold text-violet-700 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-300" title="Mata pelajaran mengikuti penugasan guru">
+                            <Lock className="h-4 w-4" /> {activeTeachingSubject || selectedSubject}
+                          </div>
+                        ) : (<><select
                           value={selectedSubject}
                           onChange={(e) => setSelectedSubject(e.target.value)}
                           className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium"
@@ -2513,7 +2523,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                         </select>
                         <button onClick={() => { setShowSubjectManager(!showSubjectManager); setSubjectName(''); setEditingSubjectId(null); }} className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg" title="Kelola Mata Pelajaran" aria-label="Kelola Mata Pelajaran">
                           <Settings className="h-4 w-4" />
-                        </button>
+                        </button></>)}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto">

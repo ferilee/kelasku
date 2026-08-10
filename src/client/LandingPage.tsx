@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
 
 const LandingPage = ({ 
@@ -12,7 +12,7 @@ const LandingPage = ({
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(true);
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -20,6 +20,16 @@ const LandingPage = ({
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [showAllGallery, setShowAllGallery] = useState(false);
+  const [selectedOfficerDuty, setSelectedOfficerDuty] = useState<{ role: string; description: string } | null>(null);
+
+  const getOfficerDutyKey = (role: string) => {
+    const normalized = role.toLowerCase();
+    if (normalized.includes('wakil')) return 'wakil';
+    if (normalized.includes('ketua')) return 'ketua';
+    if (normalized.includes('sekretaris')) return 'sekretaris';
+    if (normalized.includes('bendahara')) return 'bendahara';
+    return null;
+  };
 
   const tabClass = (tabName: string) => {
     return activeMobileTab === tabName ? 'block' : 'hidden md:block';
@@ -371,12 +381,15 @@ const LandingPage = ({
                     Pengurus Kelas
                   </h3>
                   <div className="space-y-3">
-                    {officers.map((person) => (
-                      <div key={person.id} className="flex justify-between items-center bg-white dark:bg-[#0A1118] px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{person.role}</span>
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors">{person.name}</span>
+                    {officers.map((person) => {
+                      const duty = officerDuties.find((item) => item.key === getOfficerDutyKey(person.role));
+                      return (
+                      <div key={person.id} className="flex items-center gap-2 bg-white dark:bg-[#0A1118] px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
+                        <span className="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">{person.role}</span>
+                        <span className="text-right text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors">{person.name}</span>
+                        {duty && <button onClick={() => setSelectedOfficerDuty({ role: person.role, description: duty.description })} className="shrink-0 rounded-lg p-1.5 text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:text-indigo-400 dark:hover:bg-indigo-950/40" title={`Lihat tugas ${person.role}`} aria-label={`Lihat tugas ${person.role}`}><Info className="h-4 w-4" /></button>}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
                 </div>
@@ -461,6 +474,15 @@ const LandingPage = ({
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-[#121C28]" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="gallery-title">
             <div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-pink-500">Dokumentasi</p><h2 id="gallery-title" className="text-xl font-bold text-slate-900 dark:text-white">Galeri Momen Kelas</h2></div><button onClick={() => setShowAllGallery(false)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup galeri"><X className="h-5 w-5" /></button></div>
             {galleryItems.length === 0 ? <p className="py-12 text-center text-slate-500">Belum ada foto galeri.</p> : <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">{galleryItems.map((item) => <figure key={item.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><figcaption className="p-3"><p className="font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>{item.description && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.description}</p>}</figcaption></figure>)}</div>}
+          </div>
+        </div>
+      )}
+
+      {selectedOfficerDuty && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={() => setSelectedOfficerDuty(null)}>
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-[#121C28]" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="officer-duty-title">
+            <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-500">Pengurus Kelas</p><h2 id="officer-duty-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Tugas {selectedOfficerDuty.role}</h2></div><button onClick={() => setSelectedOfficerDuty(null)} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup penjelasan tugas"><X className="h-5 w-5" /></button></div>
+            <ul className="mt-5 space-y-3">{selectedOfficerDuty.description.split('\n').filter(Boolean).map((item, index) => <li key={index} className="flex gap-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />{item}</li>)}</ul>
           </div>
         </div>
       )}

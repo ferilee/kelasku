@@ -72,6 +72,7 @@ export interface GradeTrendEntry {
 
 export interface GalleryItem { id: string; title: string; imageUrl: string; description: string; }
 export interface ClassRoom { id: string; name: string; academicYear: string; status: 'Aktif' | 'Nonaktif'; }
+export interface OfficerDuty { key: 'ketua' | 'wakil' | 'sekretaris' | 'bendahara'; label: string; description: string; }
 
 export interface ClassData {
   announcements: Announcement[];
@@ -81,6 +82,7 @@ export interface ClassData {
   behaviorRecords: BehaviorRecord[];
   achievements: Achievement[];
   officers: ClassOfficer[];
+  officerDuties: OfficerDuty[];
   academicLeaderboard: AcademicLeaderboardEntry[];
   gradeTrend: GradeTrendEntry[];
   galleryItems: GalleryItem[];
@@ -103,6 +105,7 @@ export interface ClassData {
   updateClassProfile: (className: string, academicYear: string) => Promise<void>;
   saveClassOfficer: (userId: string, role: string) => Promise<void>;
   removeClassOfficer: (id: string) => Promise<void>;
+  updateOfficerDuties: (duties: OfficerDuty[]) => Promise<void>;
   addGalleryItem: (item: Omit<GalleryItem, 'id'>) => Promise<void>;
   removeGalleryItem: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
@@ -155,6 +158,12 @@ const defaultData = {
     { id: '3', userId: '3', role: 'Sekretaris', name: 'Budi Santoso' },
     { id: '4', userId: '4', role: 'Bendahara', name: 'Dewi Lestari' },
   ],
+  officerDuties: [
+    { key: 'ketua' as const, label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
+    { key: 'wakil' as const, label: 'Wakil Ketua Kelas', description: 'Mendampingi ketua kelas dalam menjalankan tugas.\nMenggantikan ketua kelas saat berhalangan.\nMembantu menjaga koordinasi dan ketertiban kelas.' },
+    { key: 'sekretaris' as const, label: 'Sekretaris', description: 'Mencatat hasil rapat dan administrasi kelas.\nMembantu pencatatan kehadiran serta informasi kelas.\nMenyimpan dokumen penting kelas dengan rapi.' },
+    { key: 'bendahara' as const, label: 'Bendahara', description: 'Mencatat pemasukan dan pengeluaran kas kelas.\nMenyampaikan laporan kas secara terbuka dan berkala.\nMenjaga bukti transaksi serta saldo kas kelas.' },
+  ],
   academicLeaderboard: [],
   gradeTrend: [],
   galleryItems: [],
@@ -193,6 +202,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
           behaviorRecords: json.behaviorRecords || [],
           achievements: json.achievements || [],
           officers: json.officers || [],
+          officerDuties: json.officerDuties || defaultData.officerDuties,
           academicLeaderboard: json.academicLeaderboard || [],
           gradeTrend: json.gradeTrend || [],
           galleryItems: json.galleryItems || [],
@@ -283,6 +293,14 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const removeClassOfficer = async (id: string) => {
     const response = await fetch(`/api/class-officers/${id}`, { method: 'DELETE' });
     if (!response.ok) throw new Error('Gagal menghapus pengurus kelas');
+    await fetchClassData();
+  };
+
+  const updateOfficerDuties = async (duties: OfficerDuty[]) => {
+    const response = await fetch('/api/page-settings/officer-duties', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ duties })
+    });
+    if (!response.ok) throw new Error((await response.json()).error || 'Gagal menyimpan tugas pengurus kelas');
     await fetchClassData();
   };
 
@@ -481,7 +499,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       resetHomeroomTeacherPhoto,
       updateClassProfile,
       saveClassOfficer,
-      removeClassOfficer,
+    removeClassOfficer, updateOfficerDuties,
       addGalleryItem,
       removeGalleryItem,
       addAnnouncement,

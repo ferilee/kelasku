@@ -10,6 +10,27 @@ const app = new Hono();
 type AuthUser = { id: number; name: string; role: 'admin' | 'teacher' | 'student'; roles: Array<'admin' | 'homeroom' | 'teacher'> };
 const activeSessions = new Map<string, { user: AuthUser; expiresAt: number }>();
 
+const DEFAULT_OFFICER_DUTIES = [
+  { key: 'ketua', label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
+  { key: 'wakil', label: 'Wakil Ketua Kelas', description: 'Mendampingi ketua kelas dalam menjalankan tugas.\nMenggantikan ketua kelas saat berhalangan.\nMembantu menjaga koordinasi dan ketertiban kelas.' },
+  { key: 'sekretaris', label: 'Sekretaris', description: 'Mencatat hasil rapat dan administrasi kelas.\nMembantu pencatatan kehadiran serta informasi kelas.\nMenyimpan dokumen penting kelas dengan rapi.' },
+  { key: 'bendahara', label: 'Bendahara', description: 'Mencatat pemasukan dan pengeluaran kas kelas.\nMenyampaikan laporan kas secara terbuka dan berkala.\nMenjaga bukti transaksi serta saldo kas kelas.' },
+];
+
+function parseOfficerDuties(value?: string) {
+  if (!value) return DEFAULT_OFFICER_DUTIES;
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return DEFAULT_OFFICER_DUTIES;
+    return DEFAULT_OFFICER_DUTIES.map((defaultDuty) => {
+      const saved = parsed.find((item: unknown) => typeof item === 'object' && item !== null && (item as { key?: unknown }).key === defaultDuty.key) as { description?: unknown } | undefined;
+      return { ...defaultDuty, description: typeof saved?.description === 'string' && saved.description.trim() ? saved.description.trim() : defaultDuty.description };
+    });
+  } catch {
+    return DEFAULT_OFFICER_DUTIES;
+  }
+}
+
 function getAuthenticatedUser(c: { req: { raw: Request } }): AuthUser | null {
   const token = getCookie(c as any, 'webkelas_session');
   if (!token) return null;
@@ -453,6 +474,7 @@ app.get('/api/class-data', async (c) => {
     const allGalleryItems = await db.select().from(galleryItems).orderBy(galleryItems.createdAt);
     const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
     const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
+    const officerDutiesSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'officer_duties')).limit(1);
     const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
     const allGrades = await db.select().from(grades);
 
@@ -551,6 +573,7 @@ app.get('/api/class-data', async (c) => {
       gradeTrend,
       heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
       homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
+      officerDuties: parseOfficerDuties(officerDutiesSetting[0]?.value),
       classId: currentClass.id.toString(),
       className: currentClass.name,
       academicYear: currentClass.academicYear,
@@ -694,6 +717,26 @@ app.delete('/api/page-settings/homeroom-teacher-photo', async (c) => {
     return c.json({ success: true, homeroomTeacherPhoto: '/wali-kelas-placeholder.svg' });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
+  }
+});
+
+app.put('/api/page-settings/officer-duties', async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!Array.isArray(body.duties)) return c.json({ error: 'Daftar tugas pengurus tidak valid.' }, 400);
+    const duties = DEFAULT_OFFICER_DUTIES.map((defaultDuty) => {
+      const submitted = body.duties.find((item: unknown) => typeof item === 'object' && item !== null && (item as { key?: unknown }).key === defaultDuty.key) as { description?: unknown } | undefined;
+      const description = typeof submitted?.description === 'string' ? submitted.description.trim() : '';
+      if (!description || description.length > 1500) throw new Error(`Tugas ${defaultDuty.label} wajib diisi (maksimal 1500 karakter).`);
+      return { ...defaultDuty, description };
+    });
+    const value = JSON.stringify(duties);
+    const existing = await db.select().from(pageSettings).where(eq(pageSettings.key, 'officer_duties')).limit(1);
+    if (existing.length) await db.update(pageSettings).set({ value, updatedAt: new Date() }).where(eq(pageSettings.key, 'officer_duties'));
+    else await db.insert(pageSettings).values({ key: 'officer_duties', value });
+    return c.json({ success: true, duties });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 400);
   }
 });
 

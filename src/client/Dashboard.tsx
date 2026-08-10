@@ -2094,6 +2094,30 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   </button>
                 </form>
               </div>
+
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Tugas Pengurus Kelas</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Tugas ini tampil melalui ikon informasi pada kartu Pengurus Kelas. Tulis satu poin tugas pada setiap baris.</p>
+                <form onSubmit={async (event) => {
+                  event.preventDefault();
+                  const formData = new FormData(event.currentTarget);
+                  const duties = classData.officerDuties.map((duty) => ({ ...duty, description: String(formData.get(`officer-duty-${duty.key}`) || '').trim() }));
+                  try {
+                    await classData.updateOfficerDuties(duties);
+                    alert('Tugas pengurus kelas berhasil disimpan.');
+                  } catch (error) {
+                    alert(error instanceof Error ? error.message : 'Gagal menyimpan tugas pengurus kelas.');
+                  }
+                }} className="space-y-5">
+                  {classData.officerDuties.map((duty) => (
+                    <div key={duty.key}>
+                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">{duty.label}</label>
+                      <textarea name={`officer-duty-${duty.key}`} defaultValue={duty.description} rows={4} maxLength={1500} required className="w-full resize-y bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm leading-relaxed focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                    </div>
+                  ))}
+                  <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl transition-all">Simpan Tugas Pengurus</button>
+                </form>
+              </div>
             </div>
           )}
           

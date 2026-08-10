@@ -11,7 +11,7 @@ const LandingPage = ({
   userSession: 'admin' | 'teacher' | 'student' | null;
   onLogout: () => void;
 }) => {
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');

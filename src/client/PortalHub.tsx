@@ -8,7 +8,7 @@ interface PortalHubProps {
 const PortalHub = ({ onSelectClass }: PortalHubProps) => {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
 
   const classes = [
     'X TKJ A',

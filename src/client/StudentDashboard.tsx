@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key } from 'lucide-react';
 import { useClassData } from './ClassContext';
 
 type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
@@ -49,6 +49,10 @@ const StudentDashboard = () => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null);
   const [submitFilePath, setSubmitFilePath] = useState('');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const fetchAssignments = useCallback(async () => {
     if (!currentStudentId) return;
@@ -97,11 +101,22 @@ const StudentDashboard = () => {
     }
   };
 
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) return alert('Konfirmasi password baru tidak sama.');
+    try {
+      const response = await fetch('/api/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const data = await response.json();
+      if (!response.ok) return alert(data.error || 'Gagal mengubah password.');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(false);
+      alert('Password berhasil diubah.');
+    } catch (error) { console.error('Error changing password:', error); alert('Terjadi kesalahan saat mengubah password.'); }
+  };
+
   // Dark mode state with persistence
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return document.documentElement.classList.contains('dark') || 
-             localStorage.getItem('theme') === 'dark';
+      return localStorage.getItem('theme') === 'dark';
     }
     return false;
   });
@@ -215,6 +230,7 @@ const StudentDashboard = () => {
             >
               {isDarkMode ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5" />}
             </button>
+            <button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); }} className="p-2 text-slate-500 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-full transition-colors" title="Ubah password"><Key className="h-5 w-5" /></button>
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-700 dark:text-emerald-300 font-bold shrink-0">
                 {(authenticatedStudent?.name || 'S').charAt(0).toUpperCase()}
@@ -286,9 +302,9 @@ const StudentDashboard = () => {
                     <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{item.label}</p>
                     <p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">{item.value?.Hadir ?? 0} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Hadir</span></p>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] font-semibold">
-                      <span className="rounded-md bg-amber-50 dark:bg-amber-950/30 py-1 text-amber-700 dark:text-amber-300">S {item.value?.Sakit ?? 0}</span>
-                      <span className="rounded-md bg-blue-50 dark:bg-blue-950/30 py-1 text-blue-700 dark:text-blue-300">I {item.value?.Izin ?? 0}</span>
-                      <span className="rounded-md bg-rose-50 dark:bg-rose-950/30 py-1 text-rose-700 dark:text-rose-300">A {item.value?.Alfa ?? 0}</span>
+                      <span className="rounded-md bg-amber-50 dark:bg-amber-950/30 py-1 text-amber-700 dark:text-amber-300">Sakit {item.value?.Sakit ?? 0}</span>
+                      <span className="rounded-md bg-blue-50 dark:bg-blue-950/30 py-1 text-blue-700 dark:text-blue-300">Izin {item.value?.Izin ?? 0}</span>
+                      <span className="rounded-md bg-rose-50 dark:bg-rose-950/30 py-1 text-rose-700 dark:text-rose-300">Alfa {item.value?.Alfa ?? 0}</span>
                     </div>
                   </div>
                 ))}
@@ -740,21 +756,21 @@ const StudentDashboard = () => {
                 {/* Left side: Behavior Log (2/3 width) */}
                 <div className="lg:col-span-2 space-y-6">
                   {/* Score overview */}
-                  <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/30">
-                      <span className="text-xs text-slate-400 block mb-1">Skor Sikap Anda</span>
-                      <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400">{behaviorScore}</span>
-                      <span className="text-[10px] text-slate-500 block mt-1">Standar Awal: 100</span>
+                  <div className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-white p-2 text-center shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-4">
+                    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/30 sm:p-4">
+                      <span className="mb-1 block text-[10px] text-slate-400 sm:text-xs">Skor Sikap</span>
+                      <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 sm:text-3xl">{behaviorScore}</span>
+                      <span className="mt-1 block text-[9px] text-slate-500 sm:text-[10px]">Dasar 100</span>
                     </div>
-                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/30">
-                      <span className="text-xs text-slate-400 block mb-1">Poin Positif</span>
-                      <span className="text-3xl font-black text-emerald-650">+{posPoints}</span>
-                      <span className="text-[10px] text-slate-500 block mt-1">Apresiasi Karakter</span>
+                    <div className="rounded-xl border-l border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/30 sm:p-4">
+                      <span className="mb-1 block text-[10px] text-slate-400 sm:text-xs">Positif</span>
+                      <span className="text-2xl font-black text-emerald-650 sm:text-3xl">+{posPoints}</span>
+                      <span className="mt-1 block text-[9px] text-slate-500 sm:text-[10px]">Apresiasi</span>
                     </div>
-                    <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/30">
-                      <span className="text-xs text-slate-400 block mb-1">Poin Negatif</span>
-                      <span className="text-3xl font-black text-rose-500">-{negPoints}</span>
-                      <span className="text-[10px] text-slate-500 block mt-1">Pelanggaran/Evaluasi</span>
+                    <div className="rounded-xl border-l border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/30 sm:p-4">
+                      <span className="mb-1 block text-[10px] text-slate-400 sm:text-xs">Negatif</span>
+                      <span className="text-2xl font-black text-rose-500 sm:text-3xl">-{negPoints}</span>
+                      <span className="mt-1 block text-[9px] text-slate-500 sm:text-[10px]">Evaluasi</span>
                     </div>
                   </div>
 
@@ -900,6 +916,7 @@ const StudentDashboard = () => {
       </main>
 
       {/* Bottom Navigation for Mobile */}
+      {showPasswordModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600">Keamanan Akun</p><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Ubah Password</h3></div><button onClick={() => setShowPasswordModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup"><X className="h-5 w-5" /></button></div><form onSubmit={handleChangePassword} className="space-y-4"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password saat ini</label><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password baru</label><input type="password" autoComplete="new-password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /><p className="mt-1 text-[11px] text-slate-400">Minimal 6 karakter.</p></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Konfirmasi password baru</label><input type="password" autoComplete="new-password" minLength={6} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><button type="submit" className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700">Simpan Password Baru</button></form></div></div>}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 flex justify-around items-center py-2 px-1 shadow-lg">
         {[
           { id: 'dashboard', label: 'Dashboard', icon: User },

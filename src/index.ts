@@ -274,6 +274,30 @@ app.get('/api/auth/me', (c) => {
   return c.json({ user });
 });
 
+app.put('/api/auth/password', async (c) => {
+  try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+    const body = await c.req.json();
+    const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+    const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+    if (!currentPassword || newPassword.length < 6 || newPassword.length > 128) {
+      return c.json({ error: 'Password baru harus terdiri dari 6–128 karakter.' }, 400);
+    }
+    if (currentPassword === newPassword) return c.json({ error: 'Password baru harus berbeda dari password saat ini.' }, 400);
+    const account = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, authenticatedUser.id)).limit(1);
+    if (!account[0]) return c.json({ error: 'Akun tidak ditemukan.' }, 404);
+    const validPassword = account[0].passwordHash.startsWith('$')
+      ? await Bun.password.verify(currentPassword, account[0].passwordHash)
+      : currentPassword === account[0].passwordHash;
+    if (!validPassword) return c.json({ error: 'Password saat ini tidak sesuai.' }, 401);
+    await db.update(users).set({ passwordHash: await Bun.password.hash(newPassword) }).where(eq(users.id, authenticatedUser.id));
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 app.post('/api/auth/logout', (c) => {
   const token = getCookie(c, 'webkelas_session');
   if (token) activeSessions.delete(token);

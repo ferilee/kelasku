@@ -114,7 +114,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [manualStatus, setManualStatus] = useState<'Aktif' | 'Nonaktif'>('Aktif');
 
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur'>('harian');
+  const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
   const [attendanceMap, setAttendanceMap] = useState<Record<string, string>>({});
   const [teachingAttendanceDate, setTeachingAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [teachingAttendanceMap, setTeachingAttendanceMap] = useState<Record<string, string>>({});
@@ -173,7 +173,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     }
   }, [activeTab, reportCategory, fetchReportData]);
 
-  const [reportSubTab, setReportSubTab] = useState<'harian' | 'dhuha' | 'dzuhur'>('harian');
+  const [reportSubTab, setReportSubTab] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
   const [statsTab, setStatsTab] = useState<'harian' | 'mingguan' | 'bulanan'>('bulanan');
   const [classStats, setClassStats] = useState<any>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
@@ -533,7 +533,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     } else {
       csvContent += "No,Nama,L/P,Sholat (S),Berhalangan (BH),Alfa (A)\n";
       reportData.forEach((row, index) => {
-        csvContent += `${index + 1},"${row.name}",${row.gender},${getSholatCount(row.dzuhur)},${row.dzuhur.Berhalangan || 0},${row.dzuhur.Alfa}\n`;
+        const prayer = reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
+        csvContent += `${index + 1},"${row.name}",${row.gender},${getSholatCount(prayer)},${prayer.Berhalangan || 0},${prayer.Alfa}\n`;
       });
     }
     
@@ -561,13 +562,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       ? 'LAPORAN PRESENSI HARIAN SISWA' 
       : reportSubTab === 'dhuha'
         ? 'LAPORAN PRESENSI SHOLAT DHUHA SISWA'
-        : 'LAPORAN PRESENSI SHOLAT DZUHUR SISWA';
+        : reportSubTab === 'dzuhur' ? 'LAPORAN PRESENSI SHOLAT DZUHUR SISWA' : 'LAPORAN PRESENSI SHOLAT JUMAT SISWA';
 
     const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
     const dateColumns = Array.from({ length: daysInMonth }, (_, index) => index + 1)
       .filter((day) => {
         const dayOfWeek = new Date(Number(year), Number(month) - 1, day).getDay();
-        return dayOfWeek !== 0 && dayOfWeek !== 6;
+        return reportSubTab === 'jumat' ? dayOfWeek === 5 : dayOfWeek !== 0 && dayOfWeek !== 6;
       })
       .map((day) => {
         const label = String(day).padStart(2, '0');
@@ -1079,10 +1080,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       
       let matchAlfa = true;
       if (reportAlfaFilter === 'alfa-only') {
-        const item = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : row.dzuhur;
+        const item = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
         matchAlfa = item.Alfa > 0;
       } else if (reportAlfaFilter === 'no-alfa') {
-        const item = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : row.dzuhur;
+        const item = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
         matchAlfa = item.Alfa === 0;
       }
       
@@ -1868,7 +1869,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   />
                   
                   <div className="flex bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl">
-                    {(['harian', 'dhuha', 'dzuhur'] as const).map((type) => (
+                    {(['harian', 'dhuha', 'dzuhur', 'jumat'] as const).map((type) => (
                       <button
                         key={type}
                         onClick={() => setAttendanceType(type)}
@@ -1878,7 +1879,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                             : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                         }`}
                       >
-                        {type === 'harian' ? 'Harian' : type === 'dhuha' ? 'Dhuha' : 'Dzuhur'}
+                        {type === 'harian' ? 'Harian' : type === 'dhuha' ? 'Dhuha' : type === 'dzuhur' ? 'Dzuhur' : 'Jumat'}
                       </button>
                     ))}
                   </div>
@@ -2204,7 +2205,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex bg-slate-100 dark:bg-slate-700/50 p-1.5 rounded-xl w-fit">
-                  {(['harian', 'dhuha', 'dzuhur'] as const).map((tab) => (
+                  {(['harian', 'dhuha', 'dzuhur', 'jumat'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setReportSubTab(tab)}
@@ -2214,7 +2215,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                       }`}
                     >
-                      {tab === 'harian' ? 'Presensi Harian' : tab === 'dhuha' ? 'Sholat Dhuha' : 'Sholat Dzuhur'}
+                      {tab === 'harian' ? 'Presensi Harian' : tab === 'dhuha' ? 'Sholat Dhuha' : tab === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat'}
                     </button>
                   ))}
                 </div>
@@ -2319,11 +2320,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                 <td className="px-6 py-4 text-center text-purple-500">{row.dhuha.Berhalangan}</td>
                                 <td className={`px-6 py-4 text-center ${row.dhuha.Alfa > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>{row.dhuha.Alfa}</td>
                               </>
-                            ) : (
+                            ) : reportSubTab === 'dzuhur' ? (
                               <>
                                 <td className="px-6 py-4 text-center font-semibold text-emerald-600">{getSholatCount(row.dzuhur)}</td>
                                 <td className="px-6 py-4 text-center text-purple-500">{row.dzuhur.Berhalangan}</td>
                                 <td className={`px-6 py-4 text-center ${row.dzuhur.Alfa > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>{row.dzuhur.Alfa}</td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-6 py-4 text-center font-semibold text-emerald-600">{getSholatCount(row.jumat)}</td>
+                                <td className="px-6 py-4 text-center text-purple-500">{row.jumat.Berhalangan}</td>
+                                <td className={`px-6 py-4 text-center ${row.jumat.Alfa > 0 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>{row.jumat.Alfa}</td>
                               </>
                             )}
                           </tr>

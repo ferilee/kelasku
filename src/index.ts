@@ -963,6 +963,7 @@ app.get('/api/attendance/summary', async (c) => {
       const harian = { Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0, total: 0 };
       const dhuha = { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 };
       const dzuhur = { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 };
+      const jumat = { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 };
       
       studentRecords.forEach(r => {
         if (r.type === 'harian') {
@@ -983,6 +984,12 @@ app.get('/api/attendance/summary', async (c) => {
           else if (r.status === 'Berhalangan') dzuhur.Berhalangan++;
           else if (r.status === 'Alfa') dzuhur.Alfa++;
           dzuhur.total++;
+        } else if (r.type === 'jumat') {
+          if (r.status === 'Berjamaah' || r.status === 'Sholat') jumat.Berjamaah++;
+          else if (r.status === 'Munfarid') jumat.Munfarid++;
+          else if (r.status === 'Berhalangan') jumat.Berhalangan++;
+          else if (r.status === 'Alfa') jumat.Alfa++;
+          jumat.total++;
         }
       });
       
@@ -997,7 +1004,8 @@ app.get('/api/attendance/summary', async (c) => {
         }, {}),
         harian,
         dhuha,
-        dzuhur
+        dzuhur,
+        jumat
       };
     });
     
@@ -1030,7 +1038,8 @@ app.get('/api/attendance/stats', async (c) => {
     const createEmptyStats = () => ({
       harian: { Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0, total: 0 },
       dhuha: { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 },
-      dzuhur: { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 }
+      dzuhur: { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 },
+      jumat: { Berjamaah: 0, Munfarid: 0, Berhalangan: 0, Alfa: 0, total: 0 }
     });
 
     const daily = createEmptyStats();
@@ -1038,7 +1047,7 @@ app.get('/api/attendance/stats', async (c) => {
     const monthly = createEmptyStats();
 
     const processRecord = (r: any, target: any) => {
-      const t = r.type as 'harian' | 'dhuha' | 'dzuhur';
+      const t = r.type as 'harian' | 'dhuha' | 'dzuhur' | 'jumat';
       if (!target[t]) return;
       
       const s = r.status;

@@ -1,15 +1,47 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, Plus, X, Save, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck } from 'lucide-react';
 import { useClassData } from './ClassContext';
+
+type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
+type StudentAttendanceSummary = {
+  today: string;
+  gender: 'L' | 'P';
+  todayStatus: { harian: string | null; dhuha: string | null; dzuhur: string | null; jumat: string | null };
+  daily: DailyAttendanceStats;
+  weekly: DailyAttendanceStats;
+  monthly: DailyAttendanceStats;
+};
 
 const StudentDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { selectedClass, selectedYear, students, schedules, agenda, announcements, behaviorRecords, achievements } = useClassData();
-  
-  // Find database studentId matching Andi/Ahmad Fauzi
-  const studentObj = (students || []).find(s => s.name.toLowerCase().includes('ahmad') || s.name.toLowerCase().includes('andi')) || students[0];
-  const dbStudentId = studentObj ? studentObj.id : '2';
-  const currentStudentId = '1'; // Andi/Ahmad Fauzi is first student (id: 1)
+  const [authenticatedStudent, setAuthenticatedStudent] = useState<{ id: number; name: string } | null>(null);
+  const [attendanceSummary, setAttendanceSummary] = useState<StudentAttendanceSummary | null>(null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
+  const currentStudentId = authenticatedStudent?.id.toString() || '';
+  const dbStudentId = currentStudentId;
+
+  useEffect(() => {
+    const loadStudentDashboard = async () => {
+      setIsLoadingAttendance(true);
+      try {
+        const [authResponse, attendanceResponse] = await Promise.all([
+          fetch('/api/auth/me'),
+          fetch('/api/student/attendance-summary'),
+        ]);
+        if (authResponse.ok) {
+          const authData = await authResponse.json();
+          if (authData.user?.role === 'student') setAuthenticatedStudent(authData.user);
+        }
+        if (attendanceResponse.ok) setAttendanceSummary(await attendanceResponse.json());
+      } catch (error) {
+        console.error('Error fetching student attendance:', error);
+      } finally {
+        setIsLoadingAttendance(false);
+      }
+    };
+    loadStudentDashboard();
+  }, []);
 
   // Assignments & submissions state
   const [assignments, setAssignments] = useState<any[]>([]);
@@ -19,6 +51,7 @@ const StudentDashboard = () => {
   const [submitFilePath, setSubmitFilePath] = useState('');
 
   const fetchAssignments = useCallback(async () => {
+    if (!currentStudentId) return;
     setIsLoading(true);
     try {
       const res = await fetch(`/api/student/${currentStudentId}/assignments`);
@@ -39,7 +72,7 @@ const StudentDashboard = () => {
 
   const handleSubmitTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAssignmentId || !submitFilePath.trim()) return;
+    if (!currentStudentId || !selectedAssignmentId || !submitFilePath.trim()) return;
 
     try {
       const res = await fetch(`/api/student/${currentStudentId}/submissions`, {
@@ -99,6 +132,19 @@ const StudentDashboard = () => {
     { title: "Skor Sikap", value: `${behaviorScore} Poin`, icon: Award, color: behaviorScore >= 100 ? "text-emerald-500" : "text-amber-500" },
   ];
 
+  const attendanceStatusLabel = (status: string | null, prayer = false) => {
+    if (!status) return 'Belum dicatat';
+    if (prayer && (status === 'Berjamaah' || status === 'Munfarid')) return 'Sholat';
+    return status;
+  };
+
+  const attendanceStatusClass = (status: string | null) => {
+    if (status === 'Hadir' || status === 'Sholat' || status === 'Berjamaah' || status === 'Munfarid') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+    if (status === 'Sakit' || status === 'Izin' || status === 'Berhalangan') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+    if (status === 'Alfa') return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300';
+    return 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400';
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
       {/* Sidebar */}
@@ -151,10 +197,10 @@ const StudentDashboard = () => {
             </button>
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-700 dark:text-emerald-300 font-bold shrink-0">
-                A
+                {(authenticatedStudent?.name || 'S').charAt(0).toUpperCase()}
               </div>
               <div className="hidden sm:flex flex-col">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Andi (Siswa)</span>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{authenticatedStudent?.name || 'Siswa'} (Siswa)</span>
                 <span className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">{selectedClass} ({selectedYear})</span>
               </div>
             </div>
@@ -165,6 +211,62 @@ const StudentDashboard = () => {
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* Personal attendance: this endpoint is scoped to the logged-in student. */}
+              <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                <div className="xl:col-span-2 bg-white dark:bg-slate-800 p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-start justify-between gap-4 mb-5">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                        <ClipboardCheck className="h-5 w-5 text-emerald-500" /> Status Presensi Hari Ini
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        {attendanceSummary ? new Date(`${attendanceSummary.today}T12:00:00`).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Memuat data presensi...'}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${attendanceStatusClass(attendanceSummary?.todayStatus.harian || null)}`}>
+                      {isLoadingAttendance ? 'Memuat...' : attendanceStatusLabel(attendanceSummary?.todayStatus.harian || null)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: 'Presensi Kelas', status: attendanceSummary?.todayStatus.harian || null, prayer: false },
+                      { label: 'Sholat Dhuha', status: attendanceSummary?.todayStatus.dhuha || null, prayer: true },
+                      { label: 'Sholat Dzuhur', status: attendanceSummary?.todayStatus.dzuhur || null, prayer: true },
+                      ...(attendanceSummary?.gender === 'L' ? [{ label: 'Sholat Jumat', status: attendanceSummary.todayStatus.jumat, prayer: true }] : []),
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 px-3 py-3">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.label}</p>
+                        <p className={`mt-1 text-sm font-bold ${item.status ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{attendanceStatusLabel(item.status, item.prayer)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-5 sm:p-6 rounded-2xl shadow-sm text-white">
+                  <p className="text-sm font-semibold text-emerald-50">Kehadiran Bulan Ini</p>
+                  <p className="text-4xl font-black mt-2">{attendanceSummary?.monthly.Hadir ?? 0}<span className="text-lg font-bold text-emerald-100"> hari</span></p>
+                  <p className="text-xs text-emerald-100 mt-2">Dari {attendanceSummary?.monthly.total ?? 0} presensi yang telah dicatat.</p>
+                </div>
+              </section>
+
+              <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[
+                  { label: 'Hari Ini', value: attendanceSummary?.daily },
+                  { label: 'Minggu Ini', value: attendanceSummary?.weekly },
+                  { label: 'Bulan Ini', value: attendanceSummary?.monthly },
+                ].map((item) => (
+                  <div key={item.label} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{item.label}</p>
+                    <p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">{item.value?.Hadir ?? 0} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Hadir</span></p>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] font-semibold">
+                      <span className="rounded-md bg-amber-50 dark:bg-amber-950/30 py-1 text-amber-700 dark:text-amber-300">S {item.value?.Sakit ?? 0}</span>
+                      <span className="rounded-md bg-blue-50 dark:bg-blue-950/30 py-1 text-blue-700 dark:text-blue-300">I {item.value?.Izin ?? 0}</span>
+                      <span className="rounded-md bg-rose-50 dark:bg-rose-950/30 py-1 text-rose-700 dark:text-rose-300">A {item.value?.Alfa ?? 0}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {stats.map((stat, i) => (

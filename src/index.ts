@@ -919,6 +919,58 @@ app.post('/api/attendance', async (c) => {
   }
 });
 
+// Attendance recap for the currently signed-in student.  The student id is
+// intentionally taken from the session, never from a query parameter, so a
+// student cannot inspect another student's attendance history.
+app.get('/api/student/attendance-summary', async (c) => {
+  try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role !== 'student') {
+      return c.json({ error: 'Fitur ini hanya tersedia untuk akun siswa.' }, 403);
+    }
+
+    const student = await db.select({ gender: users.gender }).from(users).where(eq(users.id, authenticatedUser.id)).limit(1);
+    if (!student[0]) return c.json({ error: 'Data siswa tidak ditemukan.' }, 404);
+
+    const dateParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date());
+    const part = (type: string) => dateParts.find((item) => item.type === type)?.value || '';
+    const today = `${part('year')}-${part('month')}-${part('day')}`;
+    const todayDate = new Date(`${today}T12:00:00+07:00`);
+    const daysSinceMonday = (todayDate.getUTCDay() + 6) % 7;
+    const weekStartDate = new Date(todayDate);
+    weekStartDate.setUTCDate(todayDate.getUTCDate() - daysSinceMonday);
+    const weekStart = weekStartDate.toISOString().slice(0, 10);
+
+    const records = await db.select().from(attendance).where(eq(attendance.userId, authenticatedUser.id));
+    const createDailyCounts = () => ({ Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0, total: 0 });
+    const countDailyAttendance = (source: typeof records) => source.reduce((totals, record) => {
+      if (record.type !== 'harian') return totals;
+      if (record.status in totals && record.status !== 'total') totals[record.status as 'Hadir' | 'Sakit' | 'Izin' | 'Alfa']++;
+      totals.total++;
+      return totals;
+    }, createDailyCounts());
+    const todayRecord = (type: string) => records.find((record) => record.date === today && record.type === type)?.status || null;
+
+    return c.json({
+      today,
+      gender: student[0].gender,
+      todayStatus: {
+        harian: todayRecord('harian'),
+        dhuha: todayRecord('dhuha'),
+        dzuhur: todayRecord('dzuhur'),
+        jumat: student[0].gender === 'L' ? todayRecord('jumat') : null,
+      },
+      daily: countDailyAttendance(records.filter((record) => record.date === today)),
+      weekly: countDailyAttendance(records.filter((record) => record.date >= weekStart && record.date <= today)),
+      monthly: countDailyAttendance(records.filter((record) => record.date.startsWith(today.slice(0, 7)))),
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 app.get('/api/teaching-attendance/summary', async (c) => {
   try {
     const month = c.req.query('month');

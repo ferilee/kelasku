@@ -1322,13 +1322,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                         const harianAlfaPct = harianTotal > 0 ? Math.round((data.harian.Alfa / harianTotal) * 100) : 0;
 
                         const dhuhaTotal = data.dhuha.total;
-                        const dhuhaBjpPct = dhuhaTotal > 0 ? Math.round((data.dhuha.Berjamaah / dhuhaTotal) * 100) : 0;
+                        const dhuhaSholat = data.dhuha.Berjamaah + data.dhuha.Munfarid;
+                        const dhuhaSholatPct = dhuhaTotal > 0 ? Math.round((dhuhaSholat / dhuhaTotal) * 100) : 0;
 
                         const dzuhurTotal = data.dzuhur.total;
-                        const dzuhurBjpPct = dzuhurTotal > 0 ? Math.round((data.dzuhur.Berjamaah / dzuhurTotal) * 100) : 0;
+                        const dzuhurSholat = data.dzuhur.Berjamaah + data.dzuhur.Munfarid;
+                        const dzuhurSholatPct = dzuhurTotal > 0 ? Math.round((dzuhurSholat / dzuhurTotal) * 100) : 0;
+
+                        const jumatTotal = data.jumat.total;
+                        const jumatSholat = data.jumat.Berjamaah + data.jumat.Munfarid;
+                        const jumatSholatPct = jumatTotal > 0 ? Math.round((jumatSholat / jumatTotal) * 100) : 0;
 
                         return (
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                             {/* Harian Card */}
                             <div className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50 space-y-3">
                               <h4 className="font-semibold text-sm text-slate-700 dark:text-slate-300 flex items-center justify-between">
@@ -1389,12 +1395,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                               
                               <div className="space-y-2">
                                 <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Berjamaah</span>
-                                  <span className="font-semibold text-emerald-600">{data.dhuha.Berjamaah}</span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Munfarid</span>
-                                  <span className="font-semibold text-blue-500">{data.dhuha.Munfarid}</span>
+                                  <span className="text-slate-500">Sholat</span>
+                                  <span className="font-semibold text-emerald-600">{dhuhaSholat}</span>
                                 </div>
                                 <div className="flex justify-between text-xs">
                                   <span className="text-slate-500">Berhalangan</span>
@@ -1407,11 +1409,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                 
                                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-slate-400 font-medium">Tingkat Berjamaah</span>
-                                    <span className="font-bold text-emerald-600">{dhuhaBjpPct}%</span>
+                                    <span className="text-slate-400 font-medium">Tingkat Sholat</span>
+                                    <span className="font-bold text-emerald-600">{dhuhaSholatPct}%</span>
                                   </div>
                                   <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${dhuhaBjpPct}%` }} />
+                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${dhuhaSholatPct}%` }} />
                                   </div>
                                 </div>
                               </div>
@@ -1426,12 +1428,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                               
                               <div className="space-y-2">
                                 <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Berjamaah</span>
-                                  <span className="font-semibold text-emerald-600">{data.dzuhur.Berjamaah}</span>
-                                </div>
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-slate-500">Munfarid</span>
-                                  <span className="font-semibold text-blue-500">{data.dzuhur.Munfarid}</span>
+                                  <span className="text-slate-500">Sholat</span>
+                                  <span className="font-semibold text-emerald-600">{dzuhurSholat}</span>
                                 </div>
                                 <div className="flex justify-between text-xs">
                                   <span className="text-slate-500">Berhalangan</span>
@@ -1444,13 +1442,26 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                 
                                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-slate-400 font-medium">Tingkat Berjamaah</span>
-                                    <span className="font-bold text-purple-600">{dzuhurBjpPct}%</span>
+                                    <span className="text-slate-400 font-medium">Tingkat Sholat</span>
+                                    <span className="font-bold text-purple-600">{dzuhurSholatPct}%</span>
                                   </div>
                                   <div className="h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${dzuhurBjpPct}%` }} />
+                                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${dzuhurSholatPct}%` }} />
                                   </div>
                                 </div>
+                              </div>
+                            </div>
+
+                            {/* Sholat Jumat Card (siswa laki-laki) */}
+                            <div className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50 space-y-3">
+                              <h4 className="font-semibold text-sm text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                                <span>Sholat Jumat</span>
+                                <span className="text-xs text-slate-400 font-normal">Tot: {jumatTotal}</span>
+                              </h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-xs"><span className="text-slate-500">Sholat</span><span className="font-semibold text-emerald-600">{jumatSholat}</span></div>
+                                <div className="flex justify-between text-xs"><span className="text-slate-500">Alfa</span><span className="font-semibold text-red-500">{data.jumat.Alfa}</span></div>
+                                <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50 space-y-1"><div className="flex justify-between text-[11px]"><span className="text-slate-400 font-medium">Tingkat Sholat</span><span className="font-bold text-sky-600">{jumatSholatPct}%</span></div><div className="h-1 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-sky-500 rounded-full" style={{ width: `${jumatSholatPct}%` }} /></div></div>
                               </div>
                             </div>
                           </div>

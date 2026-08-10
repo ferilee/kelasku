@@ -145,6 +145,26 @@ const StudentDashboard = () => {
     return 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400';
   };
 
+  const todayDay = new Date().getDay();
+  const isSchoolDay = todayDay >= 1 && todayDay <= 5;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const nearestPendingAssignment = assignments
+    .filter((assignment) => assignment.type === 'tugas' && !assignment.submission && assignment.dueDate)
+    .sort((first, second) => new Date(first.dueDate).getTime() - new Date(second.dueDate).getTime())[0];
+  const attentionItems = [
+    ...(!isLoading && nearestPendingAssignment ? [{
+      id: 'assignment', icon: FileText, action: () => setActiveTab('assignments'),
+      title: new Date(nearestPendingAssignment.dueDate).getTime() < startOfToday.getTime() ? 'Tugas melewati tenggat' : 'Ada tugas yang perlu dikerjakan',
+      description: nearestPendingAssignment.title, tone: new Date(nearestPendingAssignment.dueDate).getTime() < startOfToday.getTime() ? 'rose' : 'amber'
+    }] : []),
+    ...(isSchoolDay && attendanceSummary?.todayStatus.harian === null ? [{ id: 'daily', icon: CheckSquare, title: 'Presensi kelas belum dicatat', description: 'Status kehadiran hari ini masih menunggu pencatatan wali kelas.', tone: 'amber' }] : []),
+    ...(isSchoolDay && attendanceSummary?.todayStatus.dhuha === null ? [{ id: 'dhuha', icon: Clock, title: 'Status Sholat Dhuha belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
+    ...(isSchoolDay && attendanceSummary?.todayStatus.dzuhur === null ? [{ id: 'dzuhur', icon: Clock, title: 'Status Sholat Dzuhur belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
+    ...(todayDay === 5 && attendanceSummary?.gender === 'L' && attendanceSummary.todayStatus.jumat === null ? [{ id: 'jumat', icon: Clock, title: 'Status Sholat Jumat belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
+    ...(announcements.length ? [{ id: 'announcement', icon: Bell, title: 'Informasi kelas', description: announcements[0].text, tone: 'slate' }] : []),
+  ].slice(0, 3);
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
       {/* Sidebar */}
@@ -211,6 +231,13 @@ const StudentDashboard = () => {
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">
+                <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Pusat Perhatian Hari Ini</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Informasi pribadi yang perlu Anda cek hari ini.</p></div><Bell className="h-5 w-5 text-emerald-500" /></div>
+                {attentionItems.length ? <div className="space-y-3">{attentionItems.map((item) => <button key={item.id} onClick={item.action} className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition hover:shadow-sm ${item.tone === 'rose' ? 'border-rose-100 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/15' : item.tone === 'amber' ? 'border-amber-100 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/15' : item.tone === 'blue' ? 'border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-950/15' : 'border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50'}`}>
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${item.tone === 'rose' ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' : item.tone === 'amber' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300' : item.tone === 'blue' ? 'bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}><item.icon className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-800 dark:text-slate-100">{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.description}</span></span>{item.action && <span className="self-center text-xs font-bold text-emerald-600 dark:text-emerald-400">Buka →</span>}
+                </button>)}</div> : <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:text-emerald-300"><CheckSquare className="h-5 w-5 shrink-0" />Tidak ada hal mendesak. Terus pertahankan kebiasaan baik hari ini.</div>}
+              </section>
+
               {/* Personal attendance: this endpoint is scoped to the logged-in student. */}
               <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <div className="xl:col-span-2 bg-white dark:bg-slate-800 p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">

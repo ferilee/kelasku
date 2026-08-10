@@ -133,6 +133,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior' | 'attendance'>('grades');
   const [teachingReportPeriod, setTeachingReportPeriod] = useState('Semester Ganjil');
   const [dashboardSummary, setDashboardSummary] = useState<any[]>([]);
+  const [classInsights, setClassInsights] = useState<any | null>(null);
 
   useEffect(() => {
     const fetchDashboardSummary = async () => {
@@ -150,6 +151,22 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     };
     fetchDashboardSummary();
   }, [classData.students, classData.classId]);
+
+  useEffect(() => {
+    const fetchClassInsights = async () => {
+      if (!classData.classId || userRole !== 'admin') return;
+      try {
+        const month = new Date().toISOString().slice(0, 7);
+        const response = await fetch(`/api/class-insights?classId=${classData.classId}&month=${month}`);
+        if (response.ok) setClassInsights(await response.json());
+        else setClassInsights(null);
+      } catch (error) {
+        console.error('Error fetching class insights:', error);
+        setClassInsights(null);
+      }
+    };
+    fetchClassInsights();
+  }, [classData.classId, userRole]);
 
   const fetchReportData = useCallback(async () => {
     setIsLoadingReport(true);
@@ -1222,6 +1239,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                   </div>
                 ))}
               </div>
+
+              {userRole === 'admin' && classInsights && (
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">
+                  <div className="mb-5 flex items-start justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Ringkasan Pembinaan Bulan Ini</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Data membantu menentukan siswa yang perlu ditindaklanjuti dan diapresiasi.</p></div><span className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">{classInsights.month}</span></div>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      { label: 'Perlu Tindak Lanjut: Alfa', item: classInsights.followUp.dailyAlfa, suffix: 'Alfa presensi harian', tone: 'rose', tab: 'attendance' },
+                      { label: 'Perlu Tindak Lanjut: Ibadah', item: classInsights.followUp.prayerAlfa, suffix: 'Alfa sholat', tone: 'amber', tab: 'attendance' },
+                      { label: 'Rajin Hadir', item: classInsights.appreciation.mostDiligent, suffix: 'kehadiran', tone: 'emerald', tab: 'attendance', format: (item: any) => `${item.attendanceRate}%` },
+                      { label: 'Aktif & Positif', item: classInsights.appreciation.mostActive, suffix: 'poin sikap positif', tone: 'blue', tab: 'behavior', format: (item: any) => `${item.positivePoints} poin` },
+                    ].map((card) => <button key={card.label} onClick={() => setActiveTab(card.tab)} className={`rounded-xl border p-4 text-left transition hover:shadow-sm ${card.tone === 'rose' ? 'border-rose-100 bg-rose-50/50 dark:border-rose-900/40 dark:bg-rose-950/15' : card.tone === 'amber' ? 'border-amber-100 bg-amber-50/50 dark:border-amber-900/40 dark:bg-amber-950/15' : card.tone === 'emerald' ? 'border-emerald-100 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/15' : 'border-blue-100 bg-blue-50/50 dark:border-blue-900/40 dark:bg-blue-950/15'}`}>
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{card.label}</p>
+                      {card.item ? <><p className="mt-2 truncate text-base font-bold text-slate-800 dark:text-slate-100">{card.item.name}</p><p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">{card.format ? card.format(card.item) : `${card.item[card.label.includes('Ibadah') ? 'prayerAlfa' : 'dailyAlfa']} ${card.suffix}`}</p></> : <p className="mt-2 text-sm font-medium text-slate-400">Belum ada data pembeda</p>}
+                    </button>)}
+                  </div>
+                </section>
+              )}
 
               <div className="md:hidden bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div className="flex items-center justify-between mb-4"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Hari Ini</h3><p className="text-xs text-slate-400">Informasi kelas terkini</p></div><span className="text-xs font-bold px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg">{['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][new Date().getDay()]}</span></div>

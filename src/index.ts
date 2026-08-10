@@ -1186,6 +1186,60 @@ app.get('/api/attendance/stats', async (c) => {
   }
 });
 
+// Personal names in this recap are limited to the homeroom/admin view. It is
+// intended as a concise monthly follow-up aid, not a public ranking.
+app.get('/api/class-insights', async (c) => {
+  try {
+    const classId = Number(c.req.query('classId'));
+    const month = c.req.query('month') || new Date().toISOString().slice(0, 7);
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!Number.isInteger(classId) || !/^\d{4}-\d{2}$/.test(month)) return c.json({ error: 'Kelas atau periode tidak valid.' }, 400);
+    if (!authenticatedUser || !canManageClass(authenticatedUser) || !(await mayAccessClass(authenticatedUser, classId))) {
+      return c.json({ error: 'Anda tidak memiliki akses ke ringkasan tindak lanjut kelas ini.' }, 403);
+    }
+
+    const studentsList = await db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId), eq(users.status, 'Aktif')));
+    const studentIds = studentsList.map((student) => student.id);
+    const [attendanceRecords, behaviorRows] = studentIds.length ? await Promise.all([
+      db.select().from(attendance).where(and(like(attendance.date, `${month}-%`), inArray(attendance.userId, studentIds))),
+      db.select().from(behaviorRecords).where(and(like(behaviorRecords.date, `${month}-%`), inArray(behaviorRecords.studentId, studentIds))),
+    ]) : [[], []];
+
+    const metrics = studentsList.map((student) => {
+      const records = attendanceRecords.filter((record) => record.userId === student.id);
+      const daily = records.filter((record) => record.type === 'harian');
+      const positivePoints = behaviorRows.filter((record) => record.studentId === student.id && record.type === 'positif').reduce((total, record) => total + record.points, 0);
+      return {
+        studentId: student.id.toString(), name: student.name,
+        dailyAlfa: daily.filter((record) => record.status === 'Alfa').length,
+        prayerAlfa: records.filter((record) => ['dhuha', 'dzuhur', 'jumat'].includes(record.type) && record.status === 'Alfa').length,
+        dailyRecords: daily.length,
+        attendanceRate: daily.length ? Math.round((daily.filter((record) => record.status === 'Hadir').length / daily.length) * 100) : 0,
+        positivePoints,
+      };
+    });
+    const highest = (items: typeof metrics, value: (item: (typeof metrics)[number]) => number, minimum = 1) => {
+      const sorted = [...items].sort((first, second) => value(second) - value(first) || first.name.localeCompare(second.name, 'id'));
+      return sorted.length && value(sorted[0]) >= minimum ? sorted[0] : null;
+    };
+    const mostDiligentCandidates = metrics.filter((item) => item.dailyRecords >= 10);
+
+    return c.json({
+      month,
+      followUp: {
+        dailyAlfa: highest(metrics, (item) => item.dailyAlfa),
+        prayerAlfa: highest(metrics, (item) => item.prayerAlfa),
+      },
+      appreciation: {
+        mostDiligent: highest(mostDiligentCandidates, (item) => item.attendanceRate),
+        mostActive: highest(metrics, (item) => item.positivePoints),
+      },
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // GET all grades
 app.get('/api/subjects', async (c) => {
   try {

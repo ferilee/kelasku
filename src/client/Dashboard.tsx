@@ -438,6 +438,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [submissionsList, setSubmissionsList] = useState<any[]>([]);
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
   const [tempSubGrades, setTempSubGrades] = useState<Record<number, number>>({});
+  const [submissionSearch, setSubmissionSearch] = useState('');
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | 'submitted' | 'pending'>('all');
+
+  const filteredSubmissions = submissionsList.filter((submission) => {
+    const query = submissionSearch.trim().toLowerCase();
+    const matchesSearch = !query || submission.studentName.toLowerCase().includes(query) || String(submission.studentNisn || '').includes(query);
+    const matchesStatus = submissionStatusFilter === 'all'
+      || (submissionStatusFilter === 'submitted' && submission.hasSubmitted)
+      || (submissionStatusFilter === 'pending' && !submission.hasSubmitted);
+    return matchesSearch && matchesStatus;
+  });
 
   const fetchAssignments = useCallback(async () => {
     setIsLoadingAssignments(true);
@@ -506,9 +517,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   };
 
   const fetchSubmissions = useCallback(async (assignmentId: number) => {
+    if (!classData.classId) {
+      setSubmissionsList([]);
+      return;
+    }
     setIsLoadingSubmissions(true);
     try {
-      const res = await fetch(`/api/assignments/${assignmentId}/submissions`);
+      const res = await fetch(`/api/assignments/${assignmentId}/submissions?classId=${encodeURIComponent(classData.classId)}`);
       if (res.ok) {
         const data = await res.json();
         setSubmissionsList(data);
@@ -527,7 +542,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     } finally {
       setIsLoadingSubmissions(false);
     }
-  }, []);
+  }, [classData.classId]);
 
   const handleSaveSubmissionGrade = async (studentId: number, gradeVal: number) => {
     if (viewSubmissionsAssignmentId === null) return;
@@ -2818,7 +2833,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                   </span>
                                 </div>
                                 <button
-                                  onClick={() => setViewSubmissionsAssignmentId(item.id)}
+                                  onClick={() => { setSubmissionSearch(''); setSubmissionStatusFilter('all'); setViewSubmissionsAssignmentId(item.id); }}
                                   className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-lg transition-all"
                                 >
                                   Lihat Pengumpulan
@@ -3698,11 +3713,34 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
               Berikut adalah daftar pengumpulan tugas oleh siswa kelas ini beserta status penilaiannya.
             </p>
 
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={submissionSearch}
+                  onChange={(event) => setSubmissionSearch(event.target.value)}
+                  placeholder="Cari nama atau NISN siswa..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                />
+              </div>
+              <select
+                value={submissionStatusFilter}
+                onChange={(event) => setSubmissionStatusFilter(event.target.value as 'all' | 'submitted' | 'pending')}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                <option value="all">Semua Status</option>
+                <option value="submitted">Sudah Mengumpulkan</option>
+                <option value="pending">Belum Mengumpulkan</option>
+              </select>
+            </div>
+
             <div className="overflow-y-auto flex-1 pr-1">
               {isLoadingSubmissions ? (
                 <div className="text-center py-12 text-slate-450">Memuat data pengumpulan...</div>
               ) : submissionsList.length === 0 ? (
                 <div className="text-center py-12 text-slate-455">Belum ada siswa terdaftar di kelas ini.</div>
+              ) : filteredSubmissions.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">Tidak ada siswa yang sesuai dengan pencarian atau filter.</div>
               ) : (
                 <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
                   <table className="w-full text-left text-sm text-slate-600 dark:text-slate-350">
@@ -3716,7 +3754,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                      {submissionsList.map((sub) => {
+                      {filteredSubmissions.map((sub) => {
                         const studentGrade = tempSubGrades[sub.studentId] ?? '';
 
                         return (

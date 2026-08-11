@@ -1463,7 +1463,12 @@ app.delete('/api/assignments/:id', async (c) => {
 app.get('/api/assignments/:id/submissions', async (c) => {
   try {
     const id = parseInt(c.req.param('id'));
-    const allStudents = await db.select().from(users).where(eq(users.role, 'student'));
+    const classId = Number(c.req.query('classId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas wajib dipilih.' }, 400);
+    if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+
+    const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const allSubmissions = await db.select().from(submissions).where(eq(submissions.assignmentId, id));
     
     const result = allStudents.map(student => {

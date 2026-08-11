@@ -184,6 +184,43 @@ addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 addColumnIfMissing('attendance', 'subject', 'subject TEXT');
 
+// Older installations created `assignments` before material types existed and
+// required a due date for every item. Rebuild only that legacy table so both
+// assignments and downloadable materials can be saved without losing rows.
+const assignmentColumns = sqlite.query("PRAGMA table_info('assignments')").all() as Array<{ name: string; notnull: number }>;
+const assignmentHasType = assignmentColumns.some((column) => column.name === 'type');
+const legacyDueDate = assignmentColumns.find((column) => column.name === 'due_date')?.notnull === 1;
+if (!assignmentHasType || legacyDueDate) {
+  sqlite.run('PRAGMA foreign_keys = OFF');
+  sqlite.run('BEGIN');
+  try {
+    sqlite.run(`
+      CREATE TABLE assignments_migrated (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        type TEXT NOT NULL DEFAULT 'tugas',
+        file_path TEXT,
+        due_date INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+      )
+    `);
+    sqlite.run(`
+      INSERT INTO assignments_migrated (id, title, description, type, file_path, due_date, created_at)
+      SELECT id, title, description, ${assignmentHasType ? 'type' : "'tugas'"}, file_path, due_date, created_at
+      FROM assignments
+    `);
+    sqlite.run('DROP TABLE assignments');
+    sqlite.run('ALTER TABLE assignments_migrated RENAME TO assignments');
+    sqlite.run('COMMIT');
+  } catch (error) {
+    sqlite.run('ROLLBACK');
+    throw error;
+  } finally {
+    sqlite.run('PRAGMA foreign_keys = ON');
+  }
+}
+
 const configuredClassName = (sqlite.query("SELECT value FROM page_settings WHERE key = 'class_name' LIMIT 1").get() as { value?: string } | null)?.value || 'X TKJ A';
 const configuredAcademicYear = (sqlite.query("SELECT value FROM page_settings WHERE key = 'academic_year' LIMIT 1").get() as { value?: string } | null)?.value || '2026-2027';
 let initialClass = sqlite.query('SELECT id FROM classes ORDER BY id LIMIT 1').get() as { id: number } | null;

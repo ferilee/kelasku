@@ -479,7 +479,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         setShowAddAssignmentModal(false);
         fetchAssignments();
       } else {
-        alert('Gagal menyimpan.');
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        alert(payload?.error || 'Gagal menyimpan.');
       }
     } catch (err) {
       console.error('Error creating assignment:', err);

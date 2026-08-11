@@ -309,7 +309,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
   }

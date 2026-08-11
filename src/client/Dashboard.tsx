@@ -102,6 +102,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [assignmentTeacherId, setAssignmentTeacherId] = useState('');
   const [assignmentClassId, setAssignmentClassId] = useState('');
   const [assignmentSubjectId, setAssignmentSubjectId] = useState('');
+  const [settingsView, setSettingsView] = useState<'overview' | 'detail'>('overview');
+
+  const openSettingsSection = (sectionId: string) => {
+    setSettingsView('detail');
+    window.setTimeout(() => document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   useEffect(() => {
     setHeroImageUrl(classData.heroImage);
@@ -1182,7 +1188,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           ].map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => { if (item.id === 'settings') setSettingsView('overview'); setActiveTab(item.id); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
                 activeTab === item.id 
                 ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-semibold shadow-sm' 
@@ -1590,7 +1596,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
           {activeTab === 'settings' && (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6">
+              {settingsView === 'overview' ? <div className="space-y-6"><div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-600 to-indigo-700 p-6 text-white shadow-lg dark:border-violet-900"><p className="text-xs font-bold uppercase tracking-wider text-violet-100">Pengaturan</p><h3 className="mt-1 text-2xl font-black">Aksi Cepat</h3><p className="mt-2 text-sm text-violet-100">Pilih bagian yang ingin dikelola tanpa memuat seluruh pengaturan sekaligus.</p></div><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[
+                { title: 'Kelas & Guru', description: `${classData.classes.length} kelas · ${teachers.length} guru`, icon: Users, color: 'text-blue-600', action: () => openSettingsSection('settings-teaching') },
+                { title: 'Penugasan Mengajar', description: `${teachingAssignments.length} penugasan aktif`, icon: BookOpen, color: 'text-violet-600', action: () => openSettingsSection('settings-teaching') },
+                { title: 'Konten Landing Page', description: 'Hero, foto wali, kutipan, mading, agenda', icon: ImageIcon, color: 'text-cyan-600', action: () => openSettingsSection('settings-hero') },
+                { title: 'Galeri Kelas', description: `${classData.galleryItems.length} momen kelas`, icon: ImageIcon, color: 'text-pink-600', action: () => openSettingsSection('settings-gallery') },
+                { title: 'Pengurus Kelas', description: `${classData.officers.length} jabatan terisi`, icon: Award, color: 'text-emerald-600', action: () => openSettingsSection('settings-officers') },
+                { title: 'Profil & Tugas Pengurus', description: 'Nama kelas, tahun ajaran, dan tugas jabatan', icon: Settings, color: 'text-indigo-600', action: () => openSettingsSection('settings-profile') },
+              ].map((item) => <button key={item.title} onClick={item.action} className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800"><item.icon className={`h-6 w-6 ${item.color}`} /><h4 className="mt-4 font-bold text-slate-800 dark:text-slate-100">{item.title}</h4><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{item.description}</p><span className="mt-4 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka pengaturan →</span></button>)}</div></div> : <><div className="flex items-center justify-between"><div><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Pengaturan Detail</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola konfigurasi yang dipilih, lalu kembali ke aksi cepat.</p></div><button onClick={() => setSettingsView('overview')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">← Aksi Cepat</button></div><div id="settings-teaching" className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6 scroll-mt-6">
                 <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Kelas & Penugasan Mengajar</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola rombel, guru pengajar, dan akses mata pelajaran per kelas.</p></div>
                 <div className="grid gap-6 lg:grid-cols-2">
                   <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Master Kelas</h4><div className="grid grid-cols-2 gap-2"><input value={newClassName} onChange={(event) => setNewClassName(event.target.value)} placeholder="Contoh: XI TKJ B" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newClassYear} onChange={(event) => setNewClassYear(event.target.value)} placeholder={classData.selectedYear || '2026-2027'} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { const name = newClassName.trim(), academicYear = newClassYear.trim() || classData.selectedYear || ''; if (!name || !academicYear) return; const response = await fetch('/api/classes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah kelas.'); setNewClassName(''); setNewClassYear(''); await classData.selectClass(classData.classId || ''); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Kelas</button><div className="space-y-2">{classData.classes.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><button onClick={() => classData.selectClass(item.id)} className="text-left"><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></button>{item.id !== classData.classId && <button onClick={async () => { if (!confirm(`Hapus kelas ${item.name}?`)) return; const response = await fetch(`/api/classes/${item.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus kelas.'); await classData.selectClass(classData.classId || ''); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></section>
@@ -1598,7 +1611,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
                 <section className="border-t border-slate-100 pt-5 dark:border-slate-700"><h4 className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Penugasan Mengajar</h4><div className="grid gap-2 md:grid-cols-4"><select value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih guru</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select><select value={assignmentClassId} onChange={(event) => setAssignmentClassId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih mapel</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select><button onClick={async () => { const currentClass = classData.classes.find((item) => item.id === assignmentClassId); if (!assignmentTeacherId || !assignmentClassId || !assignmentSubjectId || !currentClass) return; const response = await fetch('/api/teaching-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: assignmentTeacherId, classId: assignmentClassId, subjectId: assignmentSubjectId, academicYear: currentClass.academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menyimpan penugasan.'); setAssignmentTeacherId(''); setAssignmentClassId(''); setAssignmentSubjectId(''); fetchTeachingSetup(); }} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white"><Save className="mr-1 inline h-4 w-4" />Tetapkan</button></div><div className="mt-3 space-y-2">{teachingAssignments.length ? teachingAssignments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-700"><span className="text-slate-700 dark:text-slate-200"><b>{item.teacherName}</b> · {item.subjectName} · {item.className} <span className="text-xs text-slate-400">({item.academicYear})</span></span><button onClick={async () => { if (!confirm('Hapus penugasan ini?')) return; await fetch(`/api/teaching-assignments/${item.id}`, { method: 'DELETE' }); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada penugasan mengajar.</p>}</div></section>
               </div>
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+              <div id="settings-hero" className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6">
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
                   <span className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"><ImageIcon className="h-5 w-5" /></span>
                   <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Gambar Hero Landing Page</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Gunakan URL gambar HTTPS atau path aset internal, misalnya <code>/gambar-kelas.jpg</code>.</p></div>
@@ -1618,14 +1631,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+              <div id="settings-gallery" className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6">
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3"><span className="p-2 rounded-lg bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400"><ImageIcon className="h-5 w-5" /></span><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Galeri Momen Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Tambahkan dokumentasi kegiatan kelas melalui URL gambar.</p></div></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-xs font-medium text-slate-500">Judul</label><input value={galleryTitle} onChange={(event) => setGalleryTitle(event.target.value)} placeholder="Contoh: Kegiatan Projek P5" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div><label className="mb-1 block text-xs font-medium text-slate-500">URL Gambar</label><input value={galleryImageUrl} onChange={(event) => setGalleryImageUrl(event.target.value)} placeholder="https://contoh.sch.id/kegiatan.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div className="sm:col-span-2"><label className="mb-1 block text-xs font-medium text-slate-500">Keterangan (opsional)</label><input value={galleryDescription} onChange={(event) => setGalleryDescription(event.target.value)} placeholder="Deskripsi singkat kegiatan" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div></div>
                 <div className="mt-3 flex flex-wrap gap-3"><button disabled={!galleryTitle.trim() || !galleryImageUrl.trim()} onClick={async () => { try { await classData.addGalleryItem({ title: galleryTitle, imageUrl: galleryImageUrl, description: galleryDescription }); setGalleryTitle(''); setGalleryImageUrl(''); setGalleryDescription(''); alert('Foto galeri berhasil ditambahkan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menambah foto galeri.'); } }} className="flex items-center gap-2 rounded-lg bg-pink-600 px-4 py-2 font-medium text-white transition-colors hover:bg-pink-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah Foto</button>{galleryImageUrl && <img src={galleryImageUrl} alt="Pratinjau galeri" className="h-10 w-10 rounded-lg object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
                 <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{classData.galleryItems.length === 0 ? <p className="col-span-full py-3 text-center text-sm text-slate-400">Belum ada foto galeri.</p> : classData.galleryItems.map((item) => <div key={item.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><div className="p-2"><p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.title}</p></div><button onClick={async () => { if (!confirm(`Hapus foto "${item.title}"?`)) return; try { await classData.removeGalleryItem(item.id); } catch { alert('Gagal menghapus foto galeri.'); } }} className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 text-red-500 opacity-0 shadow transition-opacity group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></div>)}</div>
               </div>
 
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+              <div id="settings-officers" className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6">
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
                   <span className="p-2 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400"><ImageIcon className="h-5 w-5" /></span>
                   <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Foto Wali Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Foto ini tampil pada card wali kelas di landing page.</p></div>
@@ -1755,7 +1768,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
               </div>
 
-            </div>
+            </>}</div>
           )}
 
           {activeTab === 'students' && (
@@ -2130,8 +2143,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             </div>
           )}
 
-          {activeTab === 'settings' && (
-            <div className="max-w-xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+          {activeTab === 'settings' && settingsView === 'detail' && (
+            <div id="settings-profile" className="max-w-xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12 scroll-mt-6">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">Pengaturan Halaman Kelas</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Sesuaikan nama kelas dan tahun ajaran aktif untuk kelas Anda.</p>
@@ -3337,7 +3350,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         ].map((item) => (
           <button
             key={item.id}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => { if (item.id === 'settings') setSettingsView('overview'); setActiveTab(item.id); }}
             className={`min-h-11 flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-all duration-200 ${
               activeTab === item.id 
               ? 'text-blue-600 dark:text-blue-400 font-medium' 

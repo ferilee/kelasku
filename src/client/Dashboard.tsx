@@ -663,6 +663,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     `;
 
     let tableRows = '';
+    const studentsNeedingAttention: Array<{ name: string; sakit: number; izin: number; alfa: number }> = [];
     printableRows.forEach((row, index) => {
       const statusCodesByDate = dateColumns.map(({ date }) => {
         const status = row.attendanceByDate?.[date]?.[reportSubTab];
@@ -671,8 +672,18 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       const statusCells = statusCodesByDate
         .map((statusCode) => `<td class="status ${statusCode === 'A' ? 'alfa' : ''}">${statusCode}</td>`)
         .join('');
+      const summaryCounts = Object.fromEntries(summaryColumns.map((summaryCode) => [summaryCode, statusCodesByDate.filter((statusCode) => statusCode === summaryCode).length]));
+      if (reportSubTab === 'harian' && (summaryCounts.S > 3 || summaryCounts.I > 3 || summaryCounts.A > 3)) {
+        studentsNeedingAttention.push({ name: row.name, sakit: summaryCounts.S, izin: summaryCounts.I, alfa: summaryCounts.A });
+      }
       const summaryCells = summaryColumns
-        .map((summaryCode) => `<td class="total ${summaryCode === 'A' ? 'alfa' : ''}">${statusCodesByDate.filter((statusCode) => statusCode === summaryCode).length}</td>`)
+        .map((summaryCode) => {
+          const count = summaryCounts[summaryCode];
+          const attentionClass = reportSubTab === 'harian' && count > 3
+            ? summaryCode === 'A' ? 'attention-alfa' : 'attention-absence'
+            : '';
+          return `<td class="total ${summaryCode === 'A' ? 'alfa' : ''} ${attentionClass}">${count}</td>`;
+        })
         .join('');
       tableRows += `
         <tr>
@@ -684,6 +695,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         </tr>
       `;
     });
+    const attentionSection = reportSubTab === 'harian' ? `
+      <section class="attention-section">
+        <h2>Perlu Perhatian Guru</h2>
+        ${studentsNeedingAttention.length
+          ? `<p>Siswa berikut memiliki total Sakit, Izin, atau Alfa lebih dari 3 kali pada bulan ini.</p>
+             <ul>${studentsNeedingAttention.map((student) => `<li><strong>${student.name}</strong> — Sakit: ${student.sakit}, Izin: ${student.izin}, Alfa: ${student.alfa}</li>`).join('')}</ul>`
+          : '<p>Tidak ada siswa dengan total Sakit, Izin, atau Alfa lebih dari 3 kali pada bulan ini.</p>'}
+      </section>
+    ` : '';
 
     let html = `
       <html>
@@ -706,8 +726,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             .data-table th.date, .data-table td.status { width: 17px; }
             .data-table th.total, .data-table td.total { width: 28px; font-weight: bold; }
             .data-table td.alfa { color: #dc2626; font-weight: bold; }
+            .data-table td.attention-absence { background: #fef3c7; color: #92400e; }
+            .data-table td.attention-alfa { background: #fee2e2; color: #b91c1c; }
             .status-legend { margin-top: 8px; font-size: 9px; color: #475569; }
             .status-legend strong { color: #1e293b; }
+            .attention-section { margin-top: 12px; border: 1px solid #f59e0b; background: #fffbeb; padding: 8px 10px; font-size: 9px; }
+            .attention-section h2 { margin: 0 0 4px; font-size: 10px; color: #92400e; }
+            .attention-section p { margin: 0; color: #78350f; }
+            .attention-section ul { margin: 5px 0 0; padding-left: 16px; color: #78350f; }
+            .attention-section li { margin: 2px 0; }
             .footer-sig { margin-top: 28px; float: right; text-align: center; font-size: 11px; width: 220px; }
             .footer-sig-space { height: 50px; }
           </style>
@@ -747,6 +774,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           </table>
 
           <p class="status-legend"><strong>Keterangan:</strong> ${statusLegend}</p>
+          ${attentionSection}
           
           <div class="footer-sig">
             <p>Wali Kelas,</p>

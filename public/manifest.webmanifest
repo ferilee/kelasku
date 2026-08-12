@@ -1,11 +1,14 @@
 {
   "name": "WebKelas — Manajemen Kelas",
   "short_name": "WebKelas",
+  "id": "/",
   "description": "Manajemen presensi, nilai, jadwal, dan informasi kelas dalam satu aplikasi.",
   "lang": "id-ID",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["education", "productivity"],
   "background_color": "#f8fafc",
   "theme_color": "#2563eb",
   "icons": [

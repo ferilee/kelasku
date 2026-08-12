@@ -1,5 +1,5 @@
-const CACHE_NAME = 'webkelas-v1';
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/icon-192.svg', '/icon-512.svg'];
+const CACHE_NAME = 'webkelas-v2';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/icon-192.svg', '/icon-512.svg', '/og-image.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));

@@ -127,6 +127,7 @@ export const classOfficers = sqliteTable('class_officers', {
 
 export const schedules = sqliteTable('schedules', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  classId: integer('class_id').notNull().references(() => classes.id),
   day: text('day').notNull(), // 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'
   subject: text('subject').notNull(),
   timeStart: text('time_start').notNull(), // e.g. "07:00"

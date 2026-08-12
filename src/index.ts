@@ -152,7 +152,8 @@ async function seedIfNeeded() {
       ]);
     }
     const existingSchedules = await db.select().from(schedules);
-    if (existingSchedules.length === 0) {
+    const defaultClass = await db.select({ id: classes.id }).from(classes).orderBy(classes.id).limit(1);
+    if (existingSchedules.length === 0 && defaultClass[0]) {
       await db.insert(schedules).values([
         { day: 'Senin', subject: 'Upacara & Wali Kelas', timeStart: '07:00', timeEnd: '08:30', teacherName: 'Feri Dwi Hermawan, S.Pd.', color: 'blue' },
         { day: 'Senin', subject: 'Matematika', timeStart: '08:30', timeEnd: '10:00', teacherName: 'Budi Santoso, M.Pd.', color: 'indigo' },
@@ -165,7 +166,7 @@ async function seedIfNeeded() {
         { day: 'Kamis', subject: 'PAI / Keagamaan', timeStart: '09:45', timeEnd: '11:45', teacherName: 'Syukur, S.Ag.', color: 'emerald' },
         { day: 'Jumat', subject: 'Olahraga', timeStart: '07:30', timeEnd: '09:00', teacherName: 'Anto, S.Pd.', color: 'rose' },
         { day: 'Jumat', subject: 'Sejarah Indonesia', timeStart: '09:00', timeEnd: '10:30', teacherName: 'Retno, S.Pd.', color: 'amber' },
-      ]);
+      ].map((schedule) => ({ ...schedule, classId: defaultClass[0].id })));
     }
 
     const existingBehavior = await db.select().from(behaviorRecords);
@@ -484,7 +485,7 @@ app.get('/api/class-data', async (c) => {
     const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id)));
     const classStudentIds = new Set(allStudents.map((student) => student.id));
     const currentQuote = await db.select().from(quotes).limit(1);
-    const allSchedules = await db.select().from(schedules);
+    const allSchedules = await db.select().from(schedules).where(eq(schedules.classId, currentClass.id));
     let allBehavior = (await db.select().from(behaviorRecords)).filter((record) => classStudentIds.has(record.studentId));
     if (authenticatedUser?.roles.includes('teacher') && !canManageClass(authenticatedUser)) {
       const assignmentsForTeacher = await db.select({ subjectId: teachingAssignments.subjectId }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, authenticatedUser.id), eq(teachingAssignments.classId, currentClass.id)));
@@ -1588,7 +1589,11 @@ app.post('/api/student/:studentId/submissions', async (c) => {
 // GET all schedules
 app.get('/api/schedules', async (c) => {
   try {
-    const list = await db.select().from(schedules);
+    const classId = Number(c.req.query('classId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas wajib dipilih.' }, 400);
+    if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const list = await db.select().from(schedules).where(eq(schedules.classId, classId));
     return c.json(list);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -1599,10 +1604,13 @@ app.get('/api/schedules', async (c) => {
 app.post('/api/schedules', async (c) => {
   try {
     const body = await c.req.json();
-    const { id, day, subject, timeStart, timeEnd, teacherName, color } = body;
-    if (!day || !subject || !timeStart || !timeEnd) {
-      return c.json({ error: 'day, subject, timeStart, timeEnd are required' }, 400);
+    const { id, classId, day, subject, timeStart, timeEnd, teacherName, color } = body;
+    const normalizedClassId = Number(classId);
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!Number.isInteger(normalizedClassId) || normalizedClassId <= 0 || !day || !subject || !timeStart || !timeEnd) {
+      return c.json({ error: 'classId, day, subject, timeStart, timeEnd wajib diisi.' }, 400);
     }
+    if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, normalizedClassId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
 
     if (id) {
       // Update
@@ -1613,11 +1621,12 @@ app.post('/api/schedules', async (c) => {
         timeEnd,
         teacherName: teacherName || null,
         color: color || 'blue'
-      }).where(eq(schedules.id, id));
+      }).where(and(eq(schedules.id, id), eq(schedules.classId, normalizedClassId)));
       return c.json({ success: true, id });
     } else {
       // Insert
       const inserted = await db.insert(schedules).values({
+        classId: normalizedClassId,
         day,
         subject,
         timeStart,
@@ -1636,7 +1645,11 @@ app.post('/api/schedules', async (c) => {
 app.delete('/api/schedules/:id', async (c) => {
   try {
     const id = parseInt(c.req.param('id'));
-    await db.delete(schedules).where(eq(schedules.id, id));
+    const classId = Number(c.req.query('classId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas wajib dipilih.' }, 400);
+    if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    await db.delete(schedules).where(and(eq(schedules.id, id), eq(schedules.classId, classId)));
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

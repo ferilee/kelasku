@@ -138,6 +138,7 @@ sqlite.run(`
 
   CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_id INTEGER REFERENCES classes(id),
     day TEXT NOT NULL,
     subject TEXT NOT NULL,
     time_start TEXT NOT NULL,
@@ -183,6 +184,7 @@ addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)
 addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 addColumnIfMissing('attendance', 'subject', 'subject TEXT');
+addColumnIfMissing('schedules', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
 
 // Older installations created `assignments` before material types existed and
 // required a due date for every item. Rebuild only that legacy table so both
@@ -230,5 +232,6 @@ if (!initialClass) {
 }
 if (initialClass) {
   sqlite.query("UPDATE users SET class_id = ? WHERE role = 'student' AND class_id IS NULL").run(initialClass.id);
+  sqlite.query('UPDATE schedules SET class_id = ? WHERE class_id IS NULL').run(initialClass.id);
 }
 export const db = drizzle(sqlite, { schema });

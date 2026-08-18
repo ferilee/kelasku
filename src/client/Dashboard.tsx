@@ -1290,7 +1290,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         </header>
 
         {/* Content Scrollable Area */}
-        <div className="min-w-0 flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
+        <div className="min-w-0 flex-1 overflow-auto p-4 md:p-8 pb-40 md:pb-8">
           {activeTab === 'workspace' && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>

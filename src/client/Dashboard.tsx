@@ -1109,10 +1109,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   };
 
   const handleMarkAllPrayerAbsent = () => {
-    if (attendanceType === 'harian') return;
     const targetStudents = classData.students.filter((student) => attendanceType !== 'jumat' || student.gender === 'L');
     const targetLabel = attendanceType === 'jumat' ? 'semua siswa laki-laki' : 'semua siswa';
-    if (!targetStudents.length || !window.confirm(`Jadikan ${targetLabel} berstatus Alfa untuk presensi ${attendanceType === 'dhuha' ? 'Sholat Dhuha' : attendanceType === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat'}? Perubahan baru tersimpan setelah Anda menekan Simpan Presensi.`)) return;
+    const attendanceLabel = attendanceType === 'harian' ? 'presensi harian' : attendanceType === 'dhuha' ? 'Sholat Dhuha' : attendanceType === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat';
+    if (!targetStudents.length || !window.confirm(`Jadikan ${targetLabel} berstatus Alfa untuk ${attendanceLabel}? Perubahan baru tersimpan setelah Anda menekan Simpan Presensi.`)) return;
     setAttendanceMap((current) => ({
       ...current,
       ...Object.fromEntries(targetStudents.map((student) => [student.id, 'Alfa']))
@@ -2031,15 +2031,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                       </button>
                     ))}
                   </div>
-                  {attendanceType !== 'harian' && (
-                    <button
-                      onClick={handleMarkAllPrayerAbsent}
-                      className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
-                      title={attendanceType === 'jumat' ? 'Jadikan seluruh siswa laki-laki Alfa' : 'Jadikan seluruh siswa Alfa'}
-                    >
-                      <X className="h-4 w-4" /> Alfa Semua
-                    </button>
-                  )}
+                  <button
+                    onClick={handleMarkAllPrayerAbsent}
+                    className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50"
+                    title={attendanceType === 'jumat' ? 'Jadikan seluruh siswa laki-laki Alfa' : 'Jadikan seluruh siswa Alfa'}
+                  >
+                    <X className="h-4 w-4" /> Alfa Semua
+                  </button>
                 </div>
               </div>
 

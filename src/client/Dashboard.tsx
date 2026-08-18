@@ -1909,8 +1909,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="block w-full max-w-full overflow-x-scroll overscroll-x-contain touch-pan-x">
+              <div className="min-w-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="block w-0 min-w-full max-w-full overflow-x-auto overflow-y-hidden overscroll-x-contain touch-pan-x [-webkit-overflow-scrolling:touch]">
                 <table className="w-max min-w-[720px] text-left text-sm text-slate-600 dark:text-slate-300">
                   <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>
@@ -2091,8 +2091,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="block w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-y md:h-auto md:overflow-visible">
+              <div className="min-w-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible">
                 <table className="w-max min-w-[640px] text-left text-sm text-slate-600 dark:text-slate-300">
                   <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>

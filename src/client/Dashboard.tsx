@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
@@ -18,6 +18,14 @@ const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string
     Ketertiban: ['Mengganggu proses pembelajaran di kelas.'],
     Kejujuran: ['Perlu pembinaan terkait kemandirian saat mengerjakan tugas.'],
   },
+};
+
+const attendanceStatusIcon = (status: string) => {
+  if (status === 'Hadir' || status === 'Sholat') return <CheckSquare className="h-5 w-5" aria-hidden="true" />;
+  if (status === 'Sakit') return <Thermometer className="h-5 w-5" aria-hidden="true" />;
+  if (status === 'Izin') return <CalendarDays className="h-5 w-5" aria-hidden="true" />;
+  if (status === 'Berhalangan') return <Ban className="h-5 w-5" aria-hidden="true" />;
+  return <X className="h-5 w-5" aria-hidden="true" />;
 };
 
 const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) => {
@@ -2093,7 +2101,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
               <div className="min-w-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible">
-                <table className="w-max min-w-[640px] text-left text-sm text-slate-600 dark:text-slate-300">
+                <table className="w-full min-w-0 text-left text-sm text-slate-600 dark:text-slate-300 md:min-w-[640px]">
                   <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="px-6 py-4">Nama Lengkap</th>
@@ -2121,7 +2129,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                   <button
                                     key={status}
                                     onClick={() => setAttendanceMap(prev => ({ ...prev, [student.id]: status }))}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                                    aria-label={status}
+                                    title={status}
+                                    className={`flex h-10 w-10 items-center justify-center rounded-lg text-xs font-semibold transition-all border sm:h-auto sm:w-auto sm:px-3 sm:py-1.5 ${
                                       currentStatus === status
                                         ? status === 'Hadir'
                                           ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
@@ -2133,7 +2143,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                                         : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                     }`}
                                   >
-                                    {status}
+                                    <span className="sm:hidden">{attendanceStatusIcon(status)}</span>
+                                    <span className="hidden sm:inline">{status}</span>
                                   </button>
                                 ))
                               ) : (
@@ -2272,7 +2283,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Presensi Pembelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activeTeachingSubject} · {classData.selectedClass}</p></div>
                 <input type="date" value={teachingAttendanceDate} onChange={(event) => setTeachingAttendanceDate(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible"><table className="w-max min-w-[620px] text-left text-sm text-slate-600 dark:text-slate-300"><thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95"><tr><th className="px-5 py-4">Nama Siswa</th><th className="px-5 py-4">L/P</th><th className="px-5 py-4 text-center">Status Kehadiran</th></tr></thead><tbody>{classData.students.map((student) => { const status = teachingAttendanceMap[student.id] || 'Hadir'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-xs">{student.gender}</td><td className="px-5 py-3"><div className="flex min-w-max justify-center gap-2">{(['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((option) => <button key={option} onClick={() => setTeachingAttendanceMap((current) => ({ ...current, [student.id]: option }))} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${status === option ? option === 'Hadir' ? 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : option === 'Sakit' ? 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400' : option === 'Izin' ? 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400' : 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'}`}>{option}</button>)}</div></td></tr>; })}</tbody></table></div></div>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible"><table className="w-full min-w-0 text-left text-sm text-slate-600 dark:text-slate-300 md:min-w-[620px]"><thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95"><tr><th className="px-5 py-4">Nama Siswa</th><th className="px-5 py-4">L/P</th><th className="px-5 py-4 text-center">Status Kehadiran</th></tr></thead><tbody>{classData.students.map((student) => { const status = teachingAttendanceMap[student.id] || 'Hadir'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-xs">{student.gender}</td><td className="px-5 py-3"><div className="flex min-w-max justify-center gap-2">{(['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((option) => <button key={option} onClick={() => setTeachingAttendanceMap((current) => ({ ...current, [student.id]: option }))} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${status === option ? option === 'Hadir' ? 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : option === 'Sakit' ? 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400' : option === 'Izin' ? 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400' : 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'}`}>{option}</button>)}</div></td></tr>; })}</tbody></table></div></div>
               <div className="flex justify-end"><button onClick={handleSaveTeachingAttendance} className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"><Save className="h-5 w-5" /> Simpan Presensi</button></div>
             </div>
           )}

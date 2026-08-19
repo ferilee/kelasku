@@ -643,7 +643,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       .map((day) => {
         const label = String(day).padStart(2, '0');
         return { label, date: `${selectedMonth}-${label}` };
-      });
+      })
+      .filter(({ date }) => printableRows.some((row) => Boolean(row.attendanceByDate?.[date]?.[reportSubTab])));
     const statusCodes: Record<string, string> = {
       Hadir: 'H',
       Sakit: 'S',

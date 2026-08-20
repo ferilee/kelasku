@@ -442,7 +442,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record)
       });
-      fetchClassData();
+      await fetchClassData(classId);
     } catch (err) {
       console.error('Error adding behavior record:', err);
     }
@@ -453,7 +453,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       await fetch(`/api/behavior/${id}`, {
         method: 'DELETE'
       });
-      fetchClassData();
+      await fetchClassData(classId);
     } catch (err) {
       console.error('Error removing behavior record:', err);
     }

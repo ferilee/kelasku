@@ -647,22 +647,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         return { label, date: `${selectedMonth}-${label}` };
       })
       .filter(({ date }) => printableRows.some((row) => Boolean(row.attendanceByDate?.[date]?.[reportSubTab])));
+    const isPrayerReport = reportSubTab !== 'harian';
     const statusCodes: Record<string, string> = {
-      Hadir: 'H',
+      Hadir: '✓',
       Sakit: 'S',
       Izin: 'I',
       Alfa: 'A',
-      Sholat: 'S',
-      Berjamaah: 'S',
-      Munfarid: 'S',
-      Berhalangan: 'BH',
+      Sholat: isPrayerReport ? '✓' : 'S',
+      Berjamaah: isPrayerReport ? '✓' : 'S',
+      Munfarid: isPrayerReport ? '✓' : 'S',
+      Berhalangan: isPrayerReport ? 'H' : 'BH',
     };
     const statusLegend = reportSubTab === 'harian'
-      ? 'H = Hadir &nbsp;&nbsp; S = Sakit &nbsp;&nbsp; I = Izin &nbsp;&nbsp; A = Alfa'
-      : 'S = Sholat (Berjamaah/Munfarid) &nbsp;&nbsp; BH = Berhalangan &nbsp;&nbsp; A = Alfa';
+      ? '✓ = Hadir &nbsp;&nbsp; S = Sakit &nbsp;&nbsp; I = Izin &nbsp;&nbsp; A = Alfa'
+      : '✓ = Sholat (Berjamaah/Munfarid) &nbsp;&nbsp; H = Halangan &nbsp;&nbsp; A = Alfa';
     const summaryColumns = reportSubTab === 'harian'
-      ? ['H', 'S', 'I', 'A']
-      : ['S', 'BH', 'A'];
+      ? ['S', 'I', 'A']
+      : ['H', 'A'];
     const tableHeaders = `
       <tr>
         <th class="number">No</th>

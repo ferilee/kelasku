@@ -950,8 +950,18 @@ app.post('/api/attendance', async (c) => {
     const { date, type, records } = body;
     const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
     const classId = Number(body.classId);
-    if (!date || !type || !Array.isArray(records) || !Number.isInteger(classId)) {
+    const validTypes = new Set(['harian', 'dhuha', 'dzuhur', 'jumat', 'mapel']);
+    const validStatuses = type === 'harian' || type === 'mapel'
+      ? new Set(['Hadir', 'Sakit', 'Izin', 'Alfa'])
+      : type === 'jumat'
+        ? new Set(['Sholat', 'Alfa'])
+        : new Set(['Sholat', 'Berhalangan', 'Alfa']);
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !validTypes.has(type) || !Array.isArray(records) || !Number.isInteger(classId) || classId <= 0) {
       return c.json({ error: 'Invalid payload' }, 400);
+    }
+    if (type === 'mapel' && !subject) return c.json({ error: 'Mata pelajaran wajib dipilih.' }, 400);
+    if (records.some((record: any) => !record || !Number.isInteger(Number(record.studentId)) || Number(record.studentId) <= 0 || typeof record.status !== 'string' || !validStatuses.has(record.status))) {
+      return c.json({ error: 'Data status presensi tidak valid.' }, 400);
     }
     const authenticatedUser = getAuthenticatedUser(c);
     if (!authenticatedUser || authenticatedUser.role === 'student') return c.json({ error: 'Silakan masuk sebagai guru.' }, 401);
@@ -962,15 +972,16 @@ app.post('/api/attendance', async (c) => {
     
     const classStudents = await db.select({ id: users.id, gender: users.gender }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const studentIds = classStudents.map((student) => student.id);
+    if (records.some((record: any) => !studentIds.includes(Number(record.studentId)))) return c.json({ error: 'Siswa harus berasal dari kelas aktif.' }, 400);
+    if (type === 'jumat') {
+      const maleStudentIds = new Set(classStudents.filter((student) => student.gender === 'L').map((student) => student.id));
+      if (records.some((record: any) => !maleStudentIds.has(Number(record.studentId)))) return c.json({ error: 'Presensi Sholat Jumat hanya untuk siswa laki-laki.' }, 400);
+    }
+
     if (studentIds.length) await db.delete(attendance).where(and(eq(attendance.date, date), eq(attendance.type, type), ...(type === 'mapel' ? [eq(attendance.subject, subject)] : []), inArray(attendance.userId, studentIds)));
-    
-    // Insert new ones
+
+    // Insert new ones after all validation has passed.
     if (records.length > 0) {
-      if (records.some((record: any) => !studentIds.includes(Number(record.studentId)))) return c.json({ error: 'Siswa harus berasal dari kelas aktif.' }, 400);
-      if (type === 'jumat') {
-        const maleStudentIds = new Set(classStudents.filter((student) => student.gender === 'L').map((student) => student.id));
-        if (records.some((record: any) => !maleStudentIds.has(Number(record.studentId)))) return c.json({ error: 'Presensi Sholat Jumat hanya untuk siswa laki-laki.' }, 400);
-      }
       await db.insert(attendance).values(
         records.map((r: any) => ({
           userId: parseInt(r.studentId),

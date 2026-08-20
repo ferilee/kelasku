@@ -145,6 +145,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
   const [attendanceMap, setAttendanceMap] = useState<Record<string, string>>({});
+  const [isSavingAttendance, setIsSavingAttendance] = useState(false);
+  const [isSavingTeachingAttendance, setIsSavingTeachingAttendance] = useState(false);
   const [teachingAttendanceDate, setTeachingAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [teachingAttendanceMap, setTeachingAttendanceMap] = useState<Record<string, string>>({});
   const [teachingAttendanceMonth, setTeachingAttendanceMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -1083,6 +1085,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   }, [attendanceDate, attendanceType, classData.students, classData.classId]);
 
   const handleSaveAttendance = async () => {
+    if (isSavingAttendance) return;
+    if (!classData.classId || !Object.keys(attendanceMap).length) {
+      return alert('Data kelas atau presensi belum siap. Muat ulang data lalu coba lagi.');
+    }
+    setIsSavingAttendance(true);
     try {
       const records = Object.entries(attendanceMap).filter(([studentId]) => attendanceType !== 'jumat' || classData.students.find((student) => student.id === studentId)?.gender === 'L').map(([studentId, status]) => ({
         studentId,
@@ -1101,11 +1108,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       if (res.ok) {
         alert('Presensi berhasil disimpan!');
       } else {
-        alert('Gagal menyimpan presensi.');
+        const result = await res.json().catch(() => null);
+        alert(result?.error || `Gagal menyimpan presensi (${res.status}).`);
       }
     } catch (err) {
       console.error('Error saving attendance:', err);
       alert('Terjadi kesalahan saat menyimpan presensi.');
+    } finally {
+      setIsSavingAttendance(false);
     }
   };
 
@@ -1135,12 +1145,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
 
   const handleSaveTeachingAttendance = async () => {
     if (!classData.classId || !activeTeachingSubject) return alert('Pilih kartu kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
-    const res = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
-      records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
-    }) });
-    if (res.ok) alert('Presensi pembelajaran berhasil disimpan.');
-    else alert((await res.json()).error || 'Gagal menyimpan presensi pembelajaran.');
+    if (isSavingTeachingAttendance) return;
+    if (!Object.keys(teachingAttendanceMap).length) return alert('Data siswa belum siap. Muat ulang data lalu coba lagi.');
+    setIsSavingTeachingAttendance(true);
+    try {
+      const res = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
+        records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
+      }) });
+      if (res.ok) alert('Presensi pembelajaran berhasil disimpan.');
+      else {
+        const result = await res.json().catch(() => null);
+        alert(result?.error || `Gagal menyimpan presensi pembelajaran (${res.status}).`);
+      }
+    } catch (error) {
+      console.error('Error saving teaching attendance:', error);
+      alert('Terjadi kesalahan saat menyimpan presensi pembelajaran.');
+    } finally {
+      setIsSavingTeachingAttendance(false);
+    }
   };
 
   const fetchTeachingAttendanceReport = useCallback(async () => {
@@ -1291,7 +1314,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         </header>
 
         {/* Content Scrollable Area */}
-        <div className="min-w-0 flex-1 overflow-auto p-4 md:p-8 pb-40 md:pb-8">
+        <div className="min-w-0 flex-1 overflow-auto p-4 pb-[calc(10rem+env(safe-area-inset-bottom))] md:p-8 md:pb-8">
           {activeTab === 'workspace' && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>
@@ -2187,12 +2210,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex justify-end scroll-mb-40">
                 <button
                   onClick={handleSaveAttendance}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] hover:shadow-[0_0_25px_rgba(37,99,235,0.3)]"
+                  disabled={isSavingAttendance}
+                  className="flex w-full items-center justify-center gap-2 bg-blue-600 px-6 py-3 rounded-xl font-bold text-white transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] hover:bg-blue-700 hover:shadow-[0_0_25px_rgba(37,99,235,0.3)] disabled:cursor-wait disabled:opacity-60 sm:w-auto"
                 >
-                  <Save className="h-5 w-5" /> Simpan Presensi
+                  <Save className="h-5 w-5" /> {isSavingAttendance ? 'Menyimpan…' : 'Simpan Presensi'}
                 </button>
               </div>
             </div>
@@ -2283,7 +2307,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 <input type="date" value={teachingAttendanceDate} onChange={(event) => setTeachingAttendanceDate(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible"><table className="w-full min-w-0 text-left text-sm text-slate-600 dark:text-slate-300 md:min-w-[620px]"><thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95"><tr><th className="px-5 py-4">Nama Siswa</th><th className="px-5 py-4">L/P</th><th className="px-5 py-4 text-center">Status Kehadiran</th></tr></thead><tbody>{classData.students.map((student) => { const status = teachingAttendanceMap[student.id] || 'Hadir'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-xs">{student.gender}</td><td className="px-5 py-3"><div className="flex min-w-max justify-center gap-2">{(['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((option) => <button key={option} onClick={() => setTeachingAttendanceMap((current) => ({ ...current, [student.id]: option }))} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${status === option ? option === 'Hadir' ? 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : option === 'Sakit' ? 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400' : option === 'Izin' ? 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400' : 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'}`}>{option}</button>)}</div></td></tr>; })}</tbody></table></div></div>
-              <div className="flex justify-end"><button onClick={handleSaveTeachingAttendance} className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"><Save className="h-5 w-5" /> Simpan Presensi</button></div>
+               <div className="flex justify-end scroll-mb-40"><button onClick={handleSaveTeachingAttendance} disabled={isSavingTeachingAttendance} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60 sm:w-auto"><Save className="h-5 w-5" /> {isSavingTeachingAttendance ? 'Menyimpan…' : 'Simpan Presensi'}</button></div>
             </div>
           )}
 
@@ -3396,7 +3420,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
       </main>
 
       {/* Bottom Navigation for Mobile */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 items-center py-2 px-2 shadow-lg">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 items-center px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-lg">
         {[
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'students', label: 'Siswa', icon: Users },

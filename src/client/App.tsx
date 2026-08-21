@@ -7,8 +7,8 @@ import { ClassProvider, useClassData } from './ClassContext';
 
 const AppContent = () => {
   // Simple state-based routing/role management for demo purposes
-  const [role, setRole] = useState<'landing' | 'login_admin' | 'admin' | 'teacher' | 'student'>('landing');
-  const [userSession, setUserSession] = useState<'admin' | 'teacher' | 'student' | null>(null);
+  const [role, setRole] = useState<'landing' | 'login_admin' | 'admin' | 'teacher' | 'counselor' | 'student'>('landing');
+  const [userSession, setUserSession] = useState<'admin' | 'teacher' | 'counselor' | 'student' | null>(null);
 
   useEffect(() => {
     fetch('/api/auth/me').then(async (response) => response.ok ? response.json() : null).then((result) => {
@@ -18,7 +18,7 @@ const AppContent = () => {
 
   const classData = useClassData();
 
-  const handleLoginSuccess = (newRole: 'admin' | 'teacher' | 'student') => {
+  const handleLoginSuccess = (newRole: 'admin' | 'teacher' | 'counselor' | 'student') => {
     setUserSession(newRole);
     setRole(newRole);
     classData.selectClass('').catch(() => undefined);
@@ -52,6 +52,9 @@ const AppContent = () => {
           {userSession === 'teacher' && (
             <button onClick={() => handleLoginSuccess('teacher')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors ${role === 'teacher' ? 'bg-violet-600 text-white' : 'hover:bg-slate-100 text-slate-600 dark:text-slate-300'}`}>Guru Pengajar</button>
           )}
+          {userSession === 'counselor' && (
+            <button onClick={() => handleLoginSuccess('counselor')} className={`px-4 py-2 rounded-full text-sm font-bold transition-colors ${role === 'counselor' ? 'bg-amber-600 text-white' : 'hover:bg-slate-100 text-slate-600 dark:text-slate-300'}`}>BK</button>
+          )}
           {userSession === 'student' && (
             <button 
               onClick={() => handleLoginSuccess('student')}
@@ -77,7 +80,7 @@ const AppContent = () => {
           onBack={() => setRole('landing')} 
         />
       )}
-      {(role === 'admin' || role === 'teacher') && <Dashboard userRole={role} />}
+      {(role === 'admin' || role === 'teacher' || role === 'counselor') && <Dashboard userRole={role} />}
       {role === 'student' && <StudentDashboard />}
     </div>
   );

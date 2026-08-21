@@ -7,8 +7,8 @@ const LandingPage = ({
   userSession,
   onLogout
 }: { 
-  onLoginSuccess: (role: 'admin' | 'teacher' | 'student') => void;
-  userSession: 'admin' | 'teacher' | 'student' | null;
+  onLoginSuccess: (role: 'admin' | 'teacher' | 'counselor' | 'student') => void;
+  userSession: 'admin' | 'teacher' | 'counselor' | 'student' | null;
   onLogout: () => void;
 }) => {
   const [isDark, setIsDark] = useState(false);

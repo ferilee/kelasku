@@ -2,12 +2,12 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles } from './server/db/schema';
+import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates } from './server/db/schema';
 import { eq, and, like, isNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
 
-type AuthUser = { id: number; name: string; role: 'admin' | 'teacher' | 'student'; roles: Array<'admin' | 'homeroom' | 'teacher'> };
+type AuthUser = { id: number; name: string; role: 'admin' | 'teacher' | 'counselor' | 'student'; roles: Array<'admin' | 'homeroom' | 'teacher' | 'counselor'> };
 const activeSessions = new Map<string, { user: AuthUser; expiresAt: number }>();
 
 const DEFAULT_OFFICER_DUTIES = [
@@ -44,6 +44,10 @@ function getAuthenticatedUser(c: { req: { raw: Request } }): AuthUser | null {
 
 async function accessibleClassIds(user: AuthUser) {
   if (user.roles.includes('admin')) return null;
+  if (user.roles.includes('counselor') || user.role === 'counselor') {
+    const rows = await db.select({ id: classes.id }).from(classes).where(eq(classes.status, 'Aktif'));
+    return rows.map((item) => item.id);
+  }
   if (user.role === 'student') {
     const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, user.id)).limit(1);
     return student[0]?.classId ? [student[0].classId] : [];
@@ -56,6 +60,7 @@ async function accessibleClassIds(user: AuthUser) {
 }
 
 const canManageClass = (user: AuthUser) => user.roles.includes('admin') || user.roles.includes('homeroom');
+const canManageStudentCases = (user: AuthUser) => canManageClass(user) || user.roles.includes('counselor') || user.role === 'counselor';
 
 async function mayAccessClass(user: AuthUser | null, classId: number) {
   if (!user) return true;
@@ -220,6 +225,9 @@ async function seedIfNeeded() {
       if (account.role === 'teacher') {
         await db.insert(userRoles).values({ userId: account.id, role: 'teacher' }).onConflictDoNothing();
       }
+      if (account.role === 'counselor') {
+        await db.insert(userRoles).values({ userId: account.id, role: 'counselor' }).onConflictDoNothing();
+      }
     }
     if (primaryClass[0]) {
       const admin = allAccounts.find((account) => account.role === 'admin');
@@ -261,7 +269,10 @@ app.post('/api/auth/login', async (c) => {
     const user = account[0];
     const token = crypto.randomUUID();
     const roleRows = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, user.id));
-    const roles = roleRows.map((item) => item.role as AuthUser['roles'][number]);
+    const roles = [...new Set([
+      ...roleRows.map((item) => item.role as AuthUser['roles'][number]),
+      ...(user.role === 'counselor' ? ['counselor' as const] : []),
+    ])];
     const sessionUser: AuthUser = { id: user.id, name: user.name, role: user.role as AuthUser['role'], roles };
     activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12 });
     setCookie(c, 'webkelas_session', token, { httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 12 });
@@ -412,9 +423,10 @@ app.post('/api/teachers', async (c) => {
     const body = await c.req.json();
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
-    if (!name || !identifier) return c.json({ error: 'Nama dan identitas guru wajib diisi.' }, 400);
-    const inserted = await db.insert(users).values({ name, role: 'teacher', identifier, passwordHash: await Bun.password.hash('123456'), gender: body.gender === 'P' ? 'P' : 'L', status: 'Aktif' }).returning();
-    await db.insert(userRoles).values({ userId: inserted[0].id, role: 'teacher' }).onConflictDoNothing();
+    const accountRole = body.accountRole === 'counselor' ? 'counselor' : 'teacher';
+    if (!name || !identifier) return c.json({ error: 'Nama dan identitas akun wajib diisi.' }, 400);
+    const inserted = await db.insert(users).values({ name, role: accountRole, identifier, passwordHash: await Bun.password.hash('123456'), gender: body.gender === 'P' ? 'P' : 'L', status: 'Aktif' }).returning();
+    await db.insert(userRoles).values({ userId: inserted[0].id, role: accountRole }).onConflictDoNothing();
     return c.json({ id: inserted[0].id.toString() }, 201);
   } catch (err: any) { return c.json({ error: 'Identitas guru sudah digunakan atau data tidak valid.' }, 400); }
 });
@@ -424,7 +436,7 @@ app.delete('/api/teachers/:id', async (c) => {
     const id = Number(c.req.param('id'));
     const linked = await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(eq(teachingAssignments.teacherId, id)).limit(1);
     if (linked.length) return c.json({ error: 'Guru masih memiliki penugasan mengajar.' }, 409);
-    await db.delete(users).where(and(eq(users.id, id), eq(users.role, 'teacher')));
+    await db.delete(users).where(and(eq(users.id, id), inArray(users.role, ['teacher', 'counselor'])));
     return c.json({ success: true });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
@@ -1274,6 +1286,190 @@ app.get('/api/class-insights', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+const CASE_CATEGORIES = ['akademik', 'presensi', 'sikap', 'sosial-emosional', 'kesehatan', 'keluarga-lingkungan', 'lainnya'] as const;
+const CASE_PRIORITIES = ['rendah', 'sedang', 'tinggi', 'mendesak'] as const;
+const CASE_STATUSES = ['terbuka', 'ditangani', 'selesai'] as const;
+const CASE_VISIBILITIES = ['ringkasan', 'sensitif'] as const;
+
+const canViewSensitiveCase = (user: AuthUser, item: { visibility: string; ownerId: number }) =>
+  user.roles.includes('admin') || user.roles.includes('counselor') || user.role === 'counselor' || item.ownerId === user.id;
+
+const formatCaseDate = (value: Date | null | undefined) => value instanceof Date ? value.toISOString() : value || null;
+
+async function serializeStudentCase(item: typeof studentCases.$inferSelect) {
+  const [student, classItem, owner, creator] = await Promise.all([
+    db.select({ id: users.id, name: users.name, identifier: users.identifier }).from(users).where(eq(users.id, item.studentId)).limit(1),
+    db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes).where(eq(classes.id, item.classId)).limit(1),
+    db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(eq(users.id, item.ownerId)).limit(1),
+    db.select({ id: users.id, name: users.name, role: users.role }).from(users).where(eq(users.id, item.createdBy)).limit(1),
+  ]);
+  return {
+    id: item.id.toString(), studentId: item.studentId.toString(), classId: item.classId.toString(),
+    title: item.title, category: item.category, priority: item.priority, status: item.status,
+    summary: item.summary, visibility: item.visibility, ownerId: item.ownerId.toString(),
+    dueDate: item.dueDate, closedAt: formatCaseDate(item.closedAt), createdAt: formatCaseDate(item.createdAt), updatedAt: formatCaseDate(item.updatedAt),
+    student: student[0] ? { id: student[0].id.toString(), name: student[0].name, identifier: student[0].identifier } : null,
+    class: classItem[0] ? { id: classItem[0].id.toString(), name: classItem[0].name, academicYear: classItem[0].academicYear } : null,
+    owner: owner[0] ? { id: owner[0].id.toString(), name: owner[0].name, role: owner[0].role } : null,
+    createdBy: creator[0] ? { id: creator[0].id.toString(), name: creator[0].name, role: creator[0].role } : null,
+  };
+}
+
+app.get('/api/student-cases', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageStudentCases(user)) return c.json({ error: 'Anda tidak memiliki akses ke pemantauan siswa.' }, 403);
+    const requestedClassId = c.req.query('classId');
+    const status = c.req.query('status');
+    const priority = c.req.query('priority');
+    const accessibleIds = await accessibleClassIds(user);
+    const requestedId = requestedClassId ? Number(requestedClassId) : null;
+    if (requestedId !== null && (!Number.isInteger(requestedId) || !(await mayAccessClass(user, requestedId)))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const rows = await db.select().from(studentCases);
+    const visible = rows.filter((item) =>
+      (requestedId === null || item.classId === requestedId) &&
+      (accessibleIds === null || accessibleIds.includes(item.classId)) &&
+      (!status || item.status === status) &&
+      (!priority || item.priority === priority) &&
+      (item.visibility !== 'sensitif' || canViewSensitiveCase(user, item))
+    );
+    const serialized = await Promise.all(visible.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).map(serializeStudentCase));
+    return c.json(serialized);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/student-cases/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageStudentCases(user) || !Number.isInteger(id)) return c.json({ error: 'Anda tidak memiliki akses ke kasus ini.' }, 403);
+    const item = (await db.select().from(studentCases).where(eq(studentCases.id, id)).limit(1))[0];
+    if (!item || !(await mayAccessClass(user, item.classId)) || (item.visibility === 'sensitif' && !canViewSensitiveCase(user, item))) return c.json({ error: 'Kasus tidak ditemukan.' }, 404);
+    const updates = await db.select().from(caseUpdates).where(eq(caseUpdates.caseId, id));
+    const visibleUpdates = updates
+      .filter((update) => update.visibility !== 'sensitif' || canViewSensitiveCase(user, item))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const authors = await db.select({ id: users.id, name: users.name, role: users.role }).from(users);
+    return c.json({
+      ...(await serializeStudentCase(item)),
+      updates: visibleUpdates.map((update) => ({
+        id: update.id.toString(), note: update.note, visibility: update.visibility,
+        nextFollowUpDate: update.nextFollowUpDate, createdAt: formatCaseDate(update.createdAt),
+        author: authors.find((author) => author.id === update.authorId) ? {
+          id: update.authorId.toString(), name: authors.find((author) => author.id === update.authorId)!.name,
+        } : null,
+      })),
+    });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/student-cases', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageStudentCases(user)) return c.json({ error: 'Anda tidak memiliki akses ke pemantauan siswa.' }, 403);
+    const body = await c.req.json();
+    const studentId = Number(body.studentId);
+    const classId = Number(body.classId);
+    const ownerId = body.ownerId ? Number(body.ownerId) : user.id;
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const summary = typeof body.summary === 'string' ? body.summary.trim() : '';
+    const category = typeof body.category === 'string' ? body.category : '';
+    const priority = typeof body.priority === 'string' ? body.priority : 'sedang';
+    const visibility = typeof body.visibility === 'string' ? body.visibility : 'ringkasan';
+    const dueDate = typeof body.dueDate === 'string' && body.dueDate ? body.dueDate : null;
+    if (!Number.isInteger(studentId) || !Number.isInteger(classId) || !Number.isInteger(ownerId) || !title || !summary || !CASE_CATEGORIES.includes(category as typeof CASE_CATEGORIES[number]) || !CASE_PRIORITIES.includes(priority as typeof CASE_PRIORITIES[number]) || !CASE_VISIBILITIES.includes(visibility as typeof CASE_VISIBILITIES[number]) || (dueDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) return c.json({ error: 'Data kasus belum lengkap atau tidak valid.' }, 400);
+    if (!(await mayAccessClass(user, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const student = (await db.select({ id: users.id, classId: users.classId }).from(users).where(and(eq(users.id, studentId), eq(users.role, 'student'), eq(users.status, 'Aktif'))).limit(1))[0];
+    if (!student || student.classId !== classId) return c.json({ error: 'Siswa tidak sesuai dengan kelas yang dipilih.' }, 400);
+    const owner = (await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, ownerId)).limit(1))[0];
+    if (!owner || owner.role === 'student') return c.json({ error: 'Penanggung jawab tidak valid.' }, 400);
+    const inserted = await db.insert(studentCases).values({ studentId, classId, title, category, priority: priority as typeof CASE_PRIORITIES[number], status: 'terbuka', summary, visibility: visibility as typeof CASE_VISIBILITIES[number], ownerId, dueDate, createdBy: user.id, updatedAt: new Date() }).returning();
+    return c.json(await serializeStudentCase(inserted[0]), 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.patch('/api/student-cases/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageStudentCases(user) || !Number.isInteger(id)) return c.json({ error: 'Anda tidak memiliki akses ke kasus ini.' }, 403);
+    const current = (await db.select().from(studentCases).where(eq(studentCases.id, id)).limit(1))[0];
+    if (!current || !(await mayAccessClass(user, current.classId))) return c.json({ error: 'Kasus tidak ditemukan.' }, 404);
+    const body = await c.req.json();
+    const updates: Partial<typeof studentCases.$inferInsert> = { updatedAt: new Date() };
+    if (typeof body.status === 'string' && CASE_STATUSES.includes(body.status as typeof CASE_STATUSES[number])) { updates.status = body.status as typeof CASE_STATUSES[number]; updates.closedAt = body.status === 'selesai' ? new Date() : null; }
+    if (typeof body.priority === 'string' && CASE_PRIORITIES.includes(body.priority as typeof CASE_PRIORITIES[number])) updates.priority = body.priority as typeof CASE_PRIORITIES[number];
+    if (typeof body.visibility === 'string' && CASE_VISIBILITIES.includes(body.visibility as typeof CASE_VISIBILITIES[number])) updates.visibility = body.visibility as typeof CASE_VISIBILITIES[number];
+    if (typeof body.dueDate === 'string' || body.dueDate === null) updates.dueDate = body.dueDate || null;
+    if (body.ownerId !== undefined) {
+      const ownerId = Number(body.ownerId);
+      const owner = (await db.select({ id: users.id, role: users.role }).from(users).where(eq(users.id, ownerId)).limit(1))[0];
+      if (!owner || owner.role === 'student') return c.json({ error: 'Penanggung jawab tidak valid.' }, 400);
+      updates.ownerId = ownerId;
+    }
+    const updated = (await db.update(studentCases).set(updates).where(eq(studentCases.id, id)).returning())[0];
+    return c.json(await serializeStudentCase(updated));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/student-cases/:id/updates', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageStudentCases(user) || !Number.isInteger(id)) return c.json({ error: 'Anda tidak memiliki akses ke kasus ini.' }, 403);
+    const item = (await db.select().from(studentCases).where(eq(studentCases.id, id)).limit(1))[0];
+    if (!item || !(await mayAccessClass(user, item.classId))) return c.json({ error: 'Kasus tidak ditemukan.' }, 404);
+    const body = await c.req.json();
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    const visibility = body.visibility === 'sensitif' ? 'sensitif' : 'ringkasan';
+    const nextFollowUpDate = typeof body.nextFollowUpDate === 'string' && body.nextFollowUpDate ? body.nextFollowUpDate : null;
+    if (!note || note.length > 5000 || (nextFollowUpDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(nextFollowUpDate))) return c.json({ error: 'Catatan tindak lanjut tidak valid.' }, 400);
+    const inserted = await db.insert(caseUpdates).values({ caseId: id, authorId: user.id, note, visibility, nextFollowUpDate }).returning();
+    await db.update(studentCases).set({ updatedAt: new Date(), dueDate: nextFollowUpDate || item.dueDate }).where(eq(studentCases.id, id));
+    return c.json({ id: inserted[0].id.toString(), success: true }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/student-case-warnings', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageStudentCases(user)) return c.json({ error: 'Anda tidak memiliki akses ke pemantauan siswa.' }, 403);
+    const requestedClassId = c.req.query('classId');
+    const classId = requestedClassId ? Number(requestedClassId) : null;
+    const accessibleIds = await accessibleClassIds(user);
+    if (classId !== null && (!Number.isInteger(classId) || !(await mayAccessClass(user, classId)))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const students = await db.select({ id: users.id, name: users.name, classId: users.classId }).from(users).where(and(eq(users.role, 'student'), eq(users.status, 'Aktif')));
+    const scopedStudents = students.filter((student) => (classId === null || student.classId === classId) && student.classId !== null && (accessibleIds === null || accessibleIds.includes(student.classId)));
+    const studentIds = scopedStudents.map((student) => student.id);
+    if (!studentIds.length) return c.json([]);
+    const month = new Date().toISOString().slice(0, 7);
+    const [attendanceRows, gradeRows, behaviorRows, assignmentRows, submissionRows] = await Promise.all([
+      db.select().from(attendance).where(and(like(attendance.date, `${month}-%`), inArray(attendance.userId, studentIds))),
+      db.select().from(grades).where(inArray(grades.userId, studentIds)),
+      db.select().from(behaviorRecords).where(and(like(behaviorRecords.date, `${month}-%`), inArray(behaviorRecords.studentId, studentIds))),
+      db.select({ id: assignments.id, dueDate: assignments.dueDate }).from(assignments),
+      db.select({ assignmentId: submissions.assignmentId, userId: submissions.userId }).from(submissions).where(inArray(submissions.userId, studentIds)),
+    ]);
+    const overdueAssignments = assignmentRows.filter((assignment) => assignment.dueDate && assignment.dueDate.getTime() < Date.now());
+    const warnings: Array<{ id: string; studentId: string; studentName: string; classId: string; kind: string; priority: string; reason: string; value: number }> = [];
+    for (const student of scopedStudents) {
+      const studentAttendance = attendanceRows.filter((record) => record.userId === student.id && record.type === 'harian');
+      const alfaCount = studentAttendance.filter((record) => record.status === 'Alfa').length;
+      const attendanceRate = studentAttendance.length ? Math.round((studentAttendance.filter((record) => record.status === 'Hadir').length / studentAttendance.length) * 100) : 100;
+      const studentGrades = gradeRows.filter((grade) => grade.userId === student.id);
+      const averageGrade = studentGrades.length ? Math.round(studentGrades.reduce((total, grade) => total + grade.score, 0) / studentGrades.length) : 100;
+      const negativeBehavior = behaviorRows.filter((record) => record.studentId === student.id && record.type === 'negatif').length;
+      const pendingAssignments = overdueAssignments.filter((assignment) => !submissionRows.some((submission) => submission.userId === student.id && submission.assignmentId === assignment.id)).length;
+      if (studentAttendance.length >= 5 && attendanceRate < 75) warnings.push({ id: `attendance-rate-${student.id}`, studentId: student.id.toString(), studentName: student.name, classId: student.classId!.toString(), kind: 'presensi', priority: 'tinggi', reason: `Tingkat hadir ${attendanceRate}% dari ${studentAttendance.length} catatan harian.`, value: attendanceRate });
+      if (alfaCount >= 3) warnings.push({ id: `alfa-${student.id}`, studentId: student.id.toString(), studentName: student.name, classId: student.classId!.toString(), kind: 'presensi', priority: 'tinggi', reason: `${alfaCount} kali Alfa pada bulan berjalan.`, value: alfaCount });
+      if (studentGrades.length >= 2 && averageGrade < 75) warnings.push({ id: `grade-${student.id}`, studentId: student.id.toString(), studentName: student.name, classId: student.classId!.toString(), kind: 'akademik', priority: 'sedang', reason: `Nilai rata-rata ${averageGrade} dari ${studentGrades.length} penilaian.`, value: averageGrade });
+      if (negativeBehavior >= 3) warnings.push({ id: `behavior-${student.id}`, studentId: student.id.toString(), studentName: student.name, classId: student.classId!.toString(), kind: 'sikap', priority: 'sedang', reason: `${negativeBehavior} catatan perilaku negatif bulan berjalan.`, value: negativeBehavior });
+      if (pendingAssignments >= 2) warnings.push({ id: `assignment-${student.id}`, studentId: student.id.toString(), studentName: student.name, classId: student.classId!.toString(), kind: 'akademik', priority: 'sedang', reason: `${pendingAssignments} tugas melewati tenggat dan belum dikumpulkan.`, value: pendingAssignments });
+    }
+    return c.json(warnings);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 // GET all grades

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BookOpen, AlertCircle, ArrowLeft } from 'lucide-react';
 
-const LoginPage = ({ onLoginSuccess, onBack }: { onLoginSuccess: (role: 'admin' | 'teacher' | 'student') => void, onBack: () => void }) => {
+const LoginPage = ({ onLoginSuccess, onBack }: { onLoginSuccess: (role: 'admin' | 'teacher' | 'counselor' | 'student') => void, onBack: () => void }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -12,7 +12,7 @@ const LoginPage = ({ onLoginSuccess, onBack }: { onLoginSuccess: (role: 'admin' 
     const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: username, password }) });
     const result = await response.json();
     if (!response.ok) return setError(result.error || 'Username atau password salah');
-    if (result.user.role !== 'admin' && result.user.role !== 'teacher') return setError('Akun ini tidak memiliki akses dashboard guru.');
+    if (!['admin', 'teacher', 'counselor'].includes(result.user.role)) return setError('Akun ini tidak memiliki akses dashboard guru.');
     onLoginSuccess(result.user.role);
   };
 

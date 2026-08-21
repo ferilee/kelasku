@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
@@ -28,7 +28,45 @@ const attendanceStatusIcon = (status: string) => {
   return <X className="h-5 w-5" aria-hidden="true" />;
 };
 
-const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) => {
+type DashboardRole = 'admin' | 'teacher' | 'counselor';
+type CaseStatus = 'terbuka' | 'ditangani' | 'selesai';
+type CasePriority = 'rendah' | 'sedang' | 'tinggi' | 'mendesak';
+type CaseVisibility = 'ringkasan' | 'sensitif';
+type CaseCategory = 'akademik' | 'presensi' | 'sikap' | 'sosial-emosional' | 'kesehatan' | 'keluarga-lingkungan' | 'lainnya';
+
+interface StudentCase {
+  id: string;
+  studentId: string;
+  classId: string;
+  title: string;
+  category: CaseCategory;
+  priority: CasePriority;
+  status: CaseStatus;
+  summary: string;
+  visibility: CaseVisibility;
+  ownerId: string;
+  dueDate: string | null;
+  student: { name: string } | null;
+  class: { name: string; academicYear: string } | null;
+  owner: { name: string; role: string } | null;
+}
+
+interface CaseDetail extends StudentCase {
+  updates: Array<{ id: string; note: string; visibility: CaseVisibility; nextFollowUpDate: string | null; createdAt: string | null; author: { name: string } | null }>;
+}
+
+interface StudentWarning {
+  id: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  kind: string;
+  priority: CasePriority;
+  reason: string;
+  value: number;
+}
+
+const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [activeTab, setActiveTab] = useState('workspace');
   const classData = useClassData();
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
@@ -101,7 +139,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [galleryDescription, setGalleryDescription] = useState('');
   const [officerRole, setOfficerRole] = useState('Ketua Kelas');
   const [officerStudentId, setOfficerStudentId] = useState('');
-  const [teachers, setTeachers] = useState<{ id: string; name: string; identifier: string; status: string }[]>([]);
+  const [teachers, setTeachers] = useState<{ id: string; name: string; identifier: string; status: string; primaryRole?: string }[]>([]);
+  const [newAccountRole, setNewAccountRole] = useState<'teacher' | 'counselor'>('teacher');
+  const [caseOwners, setCaseOwners] = useState<{ id: string; name: string; primaryRole?: string }[]>([]);
   const [teachingAssignments, setTeachingAssignments] = useState<{ id: string; teacherId: string; classId: string; subjectId: string; academicYear: string; teacherName: string; className: string; subjectName: string }[]>([]);
   const [newClassName, setNewClassName] = useState('');
   const [newClassYear, setNewClassYear] = useState('');
@@ -165,6 +205,28 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
   const [teachingReportPeriod, setTeachingReportPeriod] = useState('Semester Ganjil');
   const [dashboardSummary, setDashboardSummary] = useState<any[]>([]);
   const [classInsights, setClassInsights] = useState<any | null>(null);
+  const [studentCases, setStudentCases] = useState<StudentCase[]>([]);
+  const [studentWarnings, setStudentWarnings] = useState<StudentWarning[]>([]);
+  const [selectedCase, setSelectedCase] = useState<CaseDetail | null>(null);
+  const [monitoringClassFilter, setMonitoringClassFilter] = useState('all');
+  const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<'all' | CaseStatus>('all');
+  const [monitoringPriorityFilter, setMonitoringPriorityFilter] = useState<'all' | CasePriority>('all');
+  const [monitoringSearch, setMonitoringSearch] = useState('');
+  const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
+  const [showCaseModal, setShowCaseModal] = useState(false);
+  const [showCaseUpdateModal, setShowCaseUpdateModal] = useState(false);
+  const [caseTitle, setCaseTitle] = useState('');
+  const [caseCategory, setCaseCategory] = useState<CaseCategory>('akademik');
+  const [casePriority, setCasePriority] = useState<CasePriority>('sedang');
+  const [caseSummary, setCaseSummary] = useState('');
+  const [caseClassId, setCaseClassId] = useState('');
+  const [caseStudentId, setCaseStudentId] = useState('');
+  const [caseOwnerId, setCaseOwnerId] = useState('');
+  const [caseDueDate, setCaseDueDate] = useState('');
+  const [caseVisibility, setCaseVisibility] = useState<CaseVisibility>('ringkasan');
+  const [caseUpdateNote, setCaseUpdateNote] = useState('');
+  const [caseUpdateVisibility, setCaseUpdateVisibility] = useState<CaseVisibility>('ringkasan');
+  const [caseNextFollowUpDate, setCaseNextFollowUpDate] = useState('');
 
   useEffect(() => {
     const fetchDashboardSummary = async () => {
@@ -198,6 +260,102 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     };
     fetchClassInsights();
   }, [classData.classId, userRole]);
+
+  const fetchMonitoring = useCallback(async () => {
+    if (userRole !== 'admin' && userRole !== 'counselor') return;
+    setIsLoadingMonitoring(true);
+    try {
+      const query = monitoringClassFilter === 'all' ? '' : `?classId=${encodeURIComponent(monitoringClassFilter)}`;
+      const [casesResponse, warningsResponse, ownersResponse] = await Promise.all([
+        fetch(`/api/student-cases${query}`),
+        fetch(`/api/student-case-warnings${query}`),
+        fetch('/api/teachers'),
+      ]);
+      if (casesResponse.ok) setStudentCases(await casesResponse.json());
+      if (warningsResponse.ok) setStudentWarnings(await warningsResponse.json());
+      if (ownersResponse.ok) setCaseOwners(await ownersResponse.json());
+    } catch (error) {
+      console.error('Error fetching student monitoring:', error);
+    } finally {
+      setIsLoadingMonitoring(false);
+    }
+  }, [monitoringClassFilter, userRole]);
+
+  useEffect(() => {
+    if (activeTab === 'monitoring') fetchMonitoring();
+  }, [activeTab, fetchMonitoring]);
+
+  const openNewCaseModal = () => {
+    setCaseClassId(classData.classId || '');
+    setCaseStudentId(classData.students[0]?.id || '');
+    setCaseOwnerId(caseOwners[0]?.id || '');
+    setCaseTitle('');
+    setCaseCategory('akademik');
+    setCasePriority('sedang');
+    setCaseSummary('');
+    setCaseDueDate('');
+    setCaseVisibility('ringkasan');
+    setShowCaseModal(true);
+  };
+
+  const openCaseFromWarning = async (warning: StudentWarning) => {
+    await classData.selectClass(warning.classId);
+    setMonitoringClassFilter(warning.classId);
+    setCaseClassId(warning.classId);
+    setCaseStudentId(warning.studentId);
+    setCaseOwnerId(caseOwners[0]?.id || '');
+    setCaseTitle(`Perlu perhatian: ${warning.kind}`);
+    setCaseCategory(warning.kind === 'presensi' ? 'presensi' : warning.kind === 'sikap' ? 'sikap' : 'akademik');
+    setCasePriority(warning.priority);
+    setCaseSummary(warning.reason);
+    setCaseDueDate('');
+    setCaseVisibility('ringkasan');
+    setShowCaseModal(true);
+  };
+
+  const handleCreateStudentCase = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!caseClassId || !caseStudentId || !caseTitle.trim() || !caseSummary.trim()) return;
+    const response = await fetch('/api/student-cases', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId: caseStudentId, classId: caseClassId, title: caseTitle, category: caseCategory, priority: casePriority, summary: caseSummary, ownerId: caseOwnerId || undefined, dueDate: caseDueDate || null, visibility: caseVisibility }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return alert(result?.error || 'Gagal membuat kasus pembinaan.');
+    setShowCaseModal(false);
+    await fetchMonitoring();
+    alert('Kasus pembinaan berhasil dibuat.');
+  };
+
+  const openCaseDetail = async (caseId: string) => {
+    const response = await fetch(`/api/student-cases/${caseId}`);
+    if (!response.ok) return alert((await response.json().catch(() => null))?.error || 'Gagal memuat detail kasus.');
+    setSelectedCase(await response.json());
+  };
+
+  const updateStudentCase = async (caseId: string, payload: Record<string, unknown>) => {
+    const response = await fetch(`/api/student-cases/${caseId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return alert(result?.error || 'Gagal memperbarui kasus.');
+    setSelectedCase((current) => current ? { ...current, ...result } : current);
+    await fetchMonitoring();
+  };
+
+  const handleAddCaseUpdate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedCase || !caseUpdateNote.trim()) return;
+    const response = await fetch(`/api/student-cases/${selectedCase.id}/updates`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: caseUpdateNote, visibility: caseUpdateVisibility, nextFollowUpDate: caseNextFollowUpDate || null }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return alert(result?.error || 'Gagal menyimpan tindak lanjut.');
+    setCaseUpdateNote('');
+    setCaseNextFollowUpDate('');
+    setShowCaseUpdateModal(false);
+    await openCaseDetail(selectedCase.id);
+    await fetchMonitoring();
+  };
 
   const fetchReportData = useCallback(async () => {
     setIsLoadingReport(true);
@@ -1233,6 +1391,16 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
     });
 
   const visibleBehaviorRecords = (classData.behaviorRecords || []).filter((record) => workspaceMode !== 'teaching' || record.subject === activeTeachingSubject);
+  const filteredStudentCases = studentCases.filter((item) => {
+    const query = monitoringSearch.trim().toLowerCase();
+    const matchesSearch = !query || item.student?.name.toLowerCase().includes(query) || item.title.toLowerCase().includes(query) || item.summary.toLowerCase().includes(query);
+    const matchesStatus = monitoringStatusFilter === 'all' || item.status === monitoringStatusFilter;
+    const matchesPriority = monitoringPriorityFilter === 'all' || item.priority === monitoringPriorityFilter;
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+  const openStudentCases = studentCases.filter((item) => item.status !== 'selesai').length;
+  const urgentStudentCases = studentCases.filter((item) => item.status !== 'selesai' && (item.priority === 'tinggi' || item.priority === 'mendesak')).length;
+  const overdueStudentCases = studentCases.filter((item) => item.status !== 'selesai' && item.dueDate && item.dueDate < new Date().toISOString().slice(0, 10)).length;
   const teachingAssessments: { name: string; type: string }[] = gradesList
     .filter((grade: any) => grade.subject === activeTeachingSubject)
     .reduce((items: { name: string; type: string }[], grade: any) => (
@@ -1257,6 +1425,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
             { id: 'students', label: 'Siswa', icon: Users },
             ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
+            ...((userRole === 'admin' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
             { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
             ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
             ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
@@ -1284,7 +1453,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
         {/* Header */}
         <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate mr-2">
-            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
+            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
             <select
@@ -1307,7 +1476,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0">W</div>
               <div className="hidden sm:flex flex-col">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{userRole === 'admin' ? 'Wali Kelas' : 'Guru Pengajar'}</span>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{userRole === 'admin' ? 'Wali Kelas' : userRole === 'counselor' ? 'BK' : 'Guru Pengajar'}</span>
                 <span className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">{classData.selectedClass} ({classData.selectedYear})</span>
               </div>
             </div>
@@ -1683,7 +1852,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
                 <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Kelas & Penugasan Mengajar</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola rombel, guru pengajar, dan akses mata pelajaran per kelas.</p></div>
                 <div className="grid gap-6 lg:grid-cols-2">
                   <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Master Kelas</h4><div className="grid grid-cols-2 gap-2"><input value={newClassName} onChange={(event) => setNewClassName(event.target.value)} placeholder="Contoh: XI TKJ B" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newClassYear} onChange={(event) => setNewClassYear(event.target.value)} placeholder={classData.selectedYear || '2026-2027'} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { const name = newClassName.trim(), academicYear = newClassYear.trim() || classData.selectedYear || ''; if (!name || !academicYear) return; const response = await fetch('/api/classes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah kelas.'); setNewClassName(''); setNewClassYear(''); await classData.selectClass(classData.classId || ''); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Kelas</button><div className="space-y-2">{classData.classes.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><button onClick={() => classData.selectClass(item.id)} className="text-left"><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></button>{item.id !== classData.classId && <button onClick={async () => { if (!confirm(`Hapus kelas ${item.name}?`)) return; const response = await fetch(`/api/classes/${item.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus kelas.'); await classData.selectClass(classData.classId || ''); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></section>
-                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Guru Pengajar</h4><div className="grid grid-cols-2 gap-2"><input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="Nama guru" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newTeacherIdentifier} onChange={(event) => setNewTeacherIdentifier(event.target.value)} placeholder="NIP / username" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { if (!newTeacherName.trim() || !newTeacherIdentifier.trim()) return; const response = await fetch('/api/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeacherName, identifier: newTeacherIdentifier }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah guru.'); setNewTeacherName(''); setNewTeacherIdentifier(''); fetchTeachingSetup(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Guru</button><div className="space-y-2">{teachers.length ? teachers.map((teacher) => <div key={teacher.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><span><span className="font-medium text-slate-800 dark:text-slate-100">{teacher.name}</span><span className="ml-2 text-xs text-slate-400">{teacher.identifier}</span></span><button onClick={async () => { if (!confirm(`Hapus guru ${teacher.name}?`)) return; const response = await fetch(`/api/teachers/${teacher.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus guru.'); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada guru pengajar.</p>}</div></section>
+                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Guru & BK</h4><div className="grid gap-2 sm:grid-cols-3"><input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="Nama akun" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newTeacherIdentifier} onChange={(event) => setNewTeacherIdentifier(event.target.value)} placeholder="NIP / username" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value as 'teacher' | 'counselor')} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="teacher">Guru Pengajar</option><option value="counselor">BK</option></select></div><button onClick={async () => { if (!newTeacherName.trim() || !newTeacherIdentifier.trim()) return; const response = await fetch('/api/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeacherName, identifier: newTeacherIdentifier, accountRole: newAccountRole }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah akun.'); setNewTeacherName(''); setNewTeacherIdentifier(''); setNewAccountRole('teacher'); fetchTeachingSetup(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Akun</button><div className="space-y-2">{teachers.length ? teachers.map((teacher) => <div key={teacher.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><span><span className="font-medium text-slate-800 dark:text-slate-100">{teacher.name}</span><span className="ml-2 text-xs text-slate-400">{teacher.identifier}</span><span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.primaryRole === 'counselor' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'}`}>{teacher.primaryRole === 'counselor' ? 'BK' : 'Guru'}</span></span><button onClick={async () => { if (!confirm(`Hapus akun ${teacher.name}?`)) return; const response = await fetch(`/api/teachers/${teacher.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus akun.'); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada akun guru atau BK.</p>}</div></section>
                 </div>
                 <section className="border-t border-slate-100 pt-5 dark:border-slate-700"><h4 className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Penugasan Mengajar</h4><div className="grid gap-2 md:grid-cols-4"><select value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih guru</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select><select value={assignmentClassId} onChange={(event) => setAssignmentClassId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih mapel</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select><button onClick={async () => { const currentClass = classData.classes.find((item) => item.id === assignmentClassId); if (!assignmentTeacherId || !assignmentClassId || !assignmentSubjectId || !currentClass) return; const response = await fetch('/api/teaching-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: assignmentTeacherId, classId: assignmentClassId, subjectId: assignmentSubjectId, academicYear: currentClass.academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menyimpan penugasan.'); setAssignmentTeacherId(''); setAssignmentClassId(''); setAssignmentSubjectId(''); fetchTeachingSetup(); }} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white"><Save className="mr-1 inline h-4 w-4" />Tetapkan</button></div><div className="mt-3 space-y-2">{teachingAssignments.length ? teachingAssignments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-700"><span className="text-slate-700 dark:text-slate-200"><b>{item.teacherName}</b> · {item.subjectName} · {item.className} <span className="text-xs text-slate-400">({item.academicYear})</span></span><button onClick={async () => { if (!confirm('Hapus penugasan ini?')) return; await fetch(`/api/teaching-assignments/${item.id}`, { method: 'DELETE' }); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada penugasan mengajar.</p>}</div></section>
               </div>
@@ -3120,6 +3289,38 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             </div>
           )}
 
+          {activeTab === 'monitoring' && (userRole === 'admin' || userRole === 'counselor') && (
+            <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="flex flex-col gap-4 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-500 to-orange-600 p-6 text-white shadow-lg dark:border-amber-900">
+                <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                  <div><p className="text-xs font-bold uppercase tracking-wider text-amber-100">Pusat Pemantauan Siswa</p><h3 className="mt-1 text-2xl font-black">Kasus Pembinaan</h3><p className="mt-2 max-w-2xl text-sm text-amber-50">Pantau masalah, kebutuhan bantuan, dan tindak lanjut siswa secara terstruktur.</p></div>
+                  <button onClick={openNewCaseModal} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-bold text-amber-700 shadow-sm hover:bg-amber-50"><MessageSquare className="h-4 w-4" /> Buat Kasus</button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: 'Kasus Terbuka', value: openStudentCases, icon: ShieldAlert, tone: 'text-blue-600 bg-blue-50 dark:bg-blue-950/30' },
+                  { label: 'Prioritas Tinggi', value: urgentStudentCases, icon: AlertTriangle, tone: 'text-rose-600 bg-rose-50 dark:bg-rose-950/30' },
+                  { label: 'Tindak Lanjut Terlambat', value: overdueStudentCases, icon: CalendarDays, tone: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30' },
+                ].map((item) => <div key={item.label} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{item.label}</p><p className="mt-1 text-3xl font-black text-slate-800 dark:text-slate-100">{item.value}</p></div><span className={`rounded-xl p-3 ${item.tone}`}><item.icon className="h-6 w-6" /></span></div>)}
+              </div>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Peringatan Sistem</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Sinyal dari presensi, nilai, sikap, dan tugas. Tinjau konteks sebelum membuat kasus.</p></div><span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{studentWarnings.length} peringatan</span></div>
+                {studentWarnings.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-6 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada peringatan berdasarkan data saat ini.</p> : <div className="grid gap-3 md:grid-cols-2">{studentWarnings.map((warning) => <div key={warning.id} className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50/60 p-4 dark:border-amber-900/40 dark:bg-amber-950/20"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{warning.studentName}</p><span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">{warning.kind}</span></div><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{warning.reason}</p><button onClick={() => openCaseFromWarning(warning)} className="mt-2 text-xs font-bold text-amber-700 hover:underline dark:text-amber-300">Buat kasus dari peringatan →</button></div></div>)}</div>}
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Daftar Kasus Pembinaan</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Catatan kasus hanya dapat diakses oleh pihak yang berwenang.</p></div><div className="flex flex-wrap gap-2"><select value={monitoringClassFilter} onChange={(event) => setMonitoringClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={monitoringStatusFilter} onChange={(event) => setMonitoringStatusFilter(event.target.value as typeof monitoringStatusFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua status</option><option value="terbuka">Terbuka</option><option value="ditangani">Ditangani</option><option value="selesai">Selesai</option></select><select value={monitoringPriorityFilter} onChange={(event) => setMonitoringPriorityFilter(event.target.value as typeof monitoringPriorityFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua prioritas</option><option value="mendesak">Mendesak</option><option value="tinggi">Tinggi</option><option value="sedang">Sedang</option><option value="rendah">Rendah</option></select></div></div>
+                <div className="mb-4"><input value={monitoringSearch} onChange={(event) => setMonitoringSearch(event.target.value)} placeholder="Cari siswa atau judul kasus..." className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-amber-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+                {isLoadingMonitoring ? <p className="py-10 text-center text-sm text-slate-400">Memuat pemantauan siswa…</p> : filteredStudentCases.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada kasus yang sesuai filter.</p> : <div className="space-y-3">{filteredStudentCases.map((item) => <button key={item.id} onClick={() => openCaseDetail(item.id)} className="w-full rounded-xl border border-slate-200 p-4 text-left transition hover:border-amber-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-amber-700"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-800 dark:text-slate-100">{item.student?.name || 'Siswa'}</span><span className="text-xs text-slate-400">{item.class?.name || 'Kelas'}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${item.priority === 'mendesak' || item.priority === 'tinggi' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'}`}>{item.priority}</span></div><p className="mt-2 font-semibold text-slate-700 dark:text-slate-200">{item.title}</p><p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.summary}</p></div><div className="flex shrink-0 items-center gap-2 text-xs"><span className={`rounded-full px-2.5 py-1 font-bold ${item.status === 'selesai' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : item.status === 'ditangani' ? 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'}`}>{item.status}</span>{item.visibility === 'sensitif' && <span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">Sensitif</span>}</div></div><p className="mt-3 text-[11px] text-slate-400">Penanggung jawab: {item.owner?.name || 'Belum ditentukan'} {item.dueDate ? `· Tindak lanjut: ${item.dueDate}` : ''}</p></button>)}</div>}
+              </section>
+
+              {selectedCase && <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm dark:border-amber-900/50 dark:bg-slate-800"><div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-700 sm:flex-row sm:items-start"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Detail Kasus</p><h4 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{selectedCase.title}</h4><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{selectedCase.student?.name} · {selectedCase.class?.name}</p></div><button onClick={() => setSelectedCase(null)} className="self-end rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><div className="grid gap-4 py-4 sm:grid-cols-3"><div><p className="text-xs text-slate-400">Status</p><select value={selectedCase.status} onChange={(event) => updateStudentCase(selectedCase.id, { status: event.target.value })} className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="terbuka">Terbuka</option><option value="ditangani">Ditangani</option><option value="selesai">Selesai</option></select></div><div><p className="text-xs text-slate-400">Prioritas</p><select value={selectedCase.priority} onChange={(event) => updateStudentCase(selectedCase.id, { priority: event.target.value })} className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="mendesak">Mendesak</option><option value="tinggi">Tinggi</option><option value="sedang">Sedang</option><option value="rendah">Rendah</option></select></div><div><p className="text-xs text-slate-400">Penanggung jawab</p><select value={selectedCase.ownerId} onChange={(event) => updateStudentCase(selectedCase.id, { ownerId: event.target.value })} className="mt-1 max-w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">{caseOwners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select></div></div><div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 dark:bg-slate-900/50 dark:text-slate-300"><p className="font-semibold text-slate-700 dark:text-slate-200">Ringkasan</p><p className="mt-1 whitespace-pre-wrap">{selectedCase.summary}</p></div><div className="mt-5 flex items-center justify-between"><h5 className="font-bold text-slate-800 dark:text-slate-100">Riwayat Tindak Lanjut</h5><button onClick={() => { setCaseUpdateNote(''); setCaseNextFollowUpDate(''); setCaseUpdateVisibility('ringkasan'); setShowCaseUpdateModal(true); }} className="flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700"><Plus className="h-4 w-4" /> Tambah Catatan</button></div><div className="mt-3 space-y-3">{selectedCase.updates.length === 0 ? <p className="py-5 text-center text-sm text-slate-400">Belum ada catatan tindak lanjut.</p> : selectedCase.updates.map((update) => <div key={update.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap justify-between gap-2 text-xs text-slate-400"><span>{update.author?.name || 'Pengguna'} · {update.createdAt ? new Date(update.createdAt).toLocaleString('id-ID') : ''}</span>{update.nextFollowUpDate && <span className="font-semibold text-amber-600">Tindak lanjut: {update.nextFollowUpDate}</span>}</div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{update.note}</p></div>)}</div></section>}
+            </div>
+          )}
+
           {activeTab === 'behavior' && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               {/* Sub-tabs header */}
@@ -3408,7 +3609,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
             </div>
           )}
 
-          {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'teaching-reports' && activeTab !== 'teaching-attendance' && activeTab !== 'academic' && activeTab !== 'behavior' && (
+          {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'monitoring' && activeTab !== 'teaching-reports' && activeTab !== 'teaching-attendance' && activeTab !== 'academic' && activeTab !== 'behavior' && (
             <div className="flex items-center justify-center h-full text-slate-500 animate-in fade-in">
               <div className="text-center">
                 <Settings className="h-12 w-12 mx-auto mb-4 text-slate-300 animate-spin-slow" />
@@ -3451,6 +3652,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
             <div className="grid grid-cols-3 gap-3">{[
+              ...((userRole === 'admin' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
               ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
               ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
               ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
@@ -4050,6 +4252,29 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: 'admin' | 'teacher' }) =
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {showCaseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Pemantauan Siswa</p><h3 className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Buat Kasus Pembinaan</h3></div><button onClick={() => setShowCaseModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div>
+            <form onSubmit={handleCreateStudentCase} className="space-y-4 p-5">
+              <div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Siswa</label><select value={caseStudentId} onChange={(event) => setCaseStudentId(event.target.value)} required className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih siswa</option>{classData.students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Kelas</label><div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300">{classData.classes.find((item) => item.id === caseClassId)?.name || 'Kelas aktif'}</div></div></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-slate-500">Judul kasus</label><input value={caseTitle} onChange={(event) => setCaseTitle(event.target.value)} placeholder="Contoh: Penurunan kehadiran" required className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+              <div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Kategori</label><select value={caseCategory} onChange={(event) => setCaseCategory(event.target.value as CaseCategory)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="akademik">Akademik</option><option value="presensi">Presensi</option><option value="sikap">Sikap & perilaku</option><option value="sosial-emosional">Sosial-emosional</option><option value="kesehatan">Kesehatan</option><option value="keluarga-lingkungan">Keluarga/lingkungan</option><option value="lainnya">Lainnya</option></select></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Prioritas</label><select value={casePriority} onChange={(event) => setCasePriority(event.target.value as CasePriority)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="mendesak">Mendesak</option><option value="tinggi">Tinggi</option><option value="sedang">Sedang</option><option value="rendah">Rendah</option></select></div></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-slate-500">Ringkasan</label><textarea value={caseSummary} onChange={(event) => setCaseSummary(event.target.value)} rows={4} placeholder="Jelaskan masalah atau kebutuhan bantuan siswa..." required className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+              <div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Penanggung jawab</label><select value={caseOwnerId} onChange={(event) => setCaseOwnerId(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Saya sendiri</option>{caseOwners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}{owner.primaryRole === 'counselor' ? ' (BK)' : ''}</option>)}</select></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Tenggat tindak lanjut</label><input type="date" value={caseDueDate} onChange={(event) => setCaseDueDate(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-slate-500">Visibilitas</label><select value={caseVisibility} onChange={(event) => setCaseVisibility(event.target.value as CaseVisibility)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="ringkasan">Ringkasan untuk wali kelas, admin, dan BK</option><option value="sensitif">Sensitif untuk BK, admin, dan penanggung jawab</option></select></div>
+              <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setShowCaseModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 dark:border-slate-600 dark:text-slate-300">Batal</button><button type="submit" className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">Simpan Kasus</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showCaseUpdateModal && selectedCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Tindak Lanjut</p><h3 className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Tambah Catatan</h3></div><button onClick={() => setShowCaseUpdateModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><form onSubmit={handleAddCaseUpdate} className="space-y-4 p-5"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Catatan tindakan</label><textarea value={caseUpdateNote} onChange={(event) => setCaseUpdateNote(event.target.value)} rows={5} required placeholder="Tuliskan observasi, komunikasi, atau bantuan yang diberikan..." className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div><div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Tindak lanjut berikutnya</label><input type="date" value={caseNextFollowUpDate} onChange={(event) => setCaseNextFollowUpDate(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Visibilitas catatan</label><select value={caseUpdateVisibility} onChange={(event) => setCaseUpdateVisibility(event.target.value as CaseVisibility)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="ringkasan">Ringkasan</option><option value="sensitif">Sensitif</option></select></div></div><div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setShowCaseUpdateModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 dark:border-slate-600 dark:text-slate-300">Batal</button><button type="submit" className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">Simpan Catatan</button></div></form></div>
         </div>
       )}
 

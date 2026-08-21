@@ -3,7 +3,7 @@ import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
-  role: text('role', { enum: ['admin', 'teacher', 'student'] }).notNull().default('student'),
+  role: text('role', { enum: ['admin', 'teacher', 'counselor', 'student'] }).notNull().default('student'),
   identifier: text('identifier').notNull().unique(), // email for admin, NIS for student
   passwordHash: text('password_hash').notNull(),
   gender: text('gender', { enum: ['L', 'P'] }).notNull().default('L'),
@@ -24,7 +24,7 @@ export const classes = sqliteTable('classes', {
 export const userRoles = sqliteTable('user_roles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id),
-  role: text('role', { enum: ['admin', 'homeroom', 'teacher'] }).notNull(),
+  role: text('role', { enum: ['admin', 'homeroom', 'teacher', 'counselor'] }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
@@ -158,5 +158,33 @@ export const achievements = sqliteTable('achievements', {
   rank: text('rank').notNull(), // e.g. 'Juara 1', 'Juara 2', 'Juara 3'
   date: text('date').notNull(), // YYYY-MM-DD
   description: text('description'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const studentCases = sqliteTable('student_cases', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  title: text('title').notNull(),
+  category: text('category').notNull(),
+  priority: text('priority', { enum: ['rendah', 'sedang', 'tinggi', 'mendesak'] }).notNull().default('sedang'),
+  status: text('status', { enum: ['terbuka', 'ditangani', 'selesai'] }).notNull().default('terbuka'),
+  summary: text('summary').notNull(),
+  visibility: text('visibility', { enum: ['ringkasan', 'sensitif'] }).notNull().default('ringkasan'),
+  ownerId: integer('owner_id').notNull().references(() => users.id),
+  dueDate: text('due_date'),
+  createdBy: integer('created_by').notNull().references(() => users.id),
+  closedAt: integer('closed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const caseUpdates = sqliteTable('case_updates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  caseId: integer('case_id').notNull().references(() => studentCases.id),
+  authorId: integer('author_id').notNull().references(() => users.id),
+  note: text('note').notNull(),
+  visibility: text('visibility', { enum: ['ringkasan', 'sensitif'] }).notNull().default('ringkasan'),
+  nextFollowUpDate: text('next_follow_up_date'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });

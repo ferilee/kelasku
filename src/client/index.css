@@ -56,4 +56,27 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  select {
+    color-scheme: light;
+  }
+
+  select option {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  .dark select {
+    color-scheme: dark;
+  }
+
+  .dark select option {
+    background-color: #1e293b;
+    color: #f8fafc;
+  }
+
+  .dark select option:checked {
+    background-color: #2563eb;
+    color: #ffffff;
+  }
 }

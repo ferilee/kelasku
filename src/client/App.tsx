@@ -5,6 +5,7 @@ import LandingPage from './LandingPage';
 import LoginPage from './LoginPage';
 import { ClassProvider, useClassData } from './ClassContext';
 import { NotificationProvider } from './NotificationCenter';
+import { ThemeProvider } from './ThemeContext';
 
 const AppContent = () => {
   // Simple state-based routing/role management for demo purposes
@@ -89,11 +90,13 @@ const AppContent = () => {
 
 const App = () => {
   return (
-    <NotificationProvider>
-      <ClassProvider>
-        <AppContent />
-      </ClassProvider>
-    </NotificationProvider>
+    <ThemeProvider>
+      <NotificationProvider>
+        <ClassProvider>
+          <AppContent />
+        </ClassProvider>
+      </NotificationProvider>
+    </ThemeProvider>
   );
 };
 

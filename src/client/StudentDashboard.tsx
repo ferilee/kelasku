@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
+import { ThemePicker } from './ThemeContext';
 
 type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
 type StudentAttendanceSummary = {
@@ -115,25 +116,6 @@ const StudentDashboard = () => {
     } catch (error) { console.error('Error changing password:', error); notify('Terjadi kesalahan saat mengubah password.', 'error'); }
   };
 
-  // Dark mode state with persistence
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark';
-    }
-    return false;
-  });
-
-  // Apply dark mode theme
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDarkMode]);
-
   // Compute tasks summary
   const completedTasksCount = assignments.filter(a => a.type === 'tugas' && a.submission).length;
   const pendingTasksCount = assignments.filter(a => a.type === 'tugas' && !a.submission).length;
@@ -225,13 +207,7 @@ const StudentDashboard = () => {
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Dark Mode Toggle */}
-            <button 
-              onClick={() => setIsDarkMode(!isDarkMode)} 
-              className="p-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors"
-              title={isDarkMode ? "Aktifkan Mode Terang" : "Aktifkan Mode Gelap"}
-            >
-              {isDarkMode ? <Sun className="h-5 w-5 text-amber-500" /> : <Moon className="h-5 w-5" />}
-            </button>
+            <ThemePicker />
             <button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); }} className="p-2 text-slate-500 dark:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-full transition-colors" title="Ubah password"><Key className="h-5 w-5" /></button>
             <div className="flex items-center gap-2 sm:gap-3 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-700">
               <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-700 dark:text-emerald-300 font-bold shrink-0">

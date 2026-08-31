@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
+import { ThemePicker } from './ThemeContext';
 
 const LandingPage = ({ 
   onLoginSuccess,
@@ -12,7 +13,6 @@ const LandingPage = ({
   userSession: 'admin' | 'teacher' | 'counselor' | 'student' | null;
   onLogout: () => void;
 }) => {
-  const [isDark, setIsDark] = useState(false);
   const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
@@ -36,8 +36,6 @@ const LandingPage = ({
   const tabClass = (tabName: string) => {
     return activeMobileTab === tabName ? 'block' : 'hidden md:block';
   };
-
-  const toggleTheme = () => setIsDark(!isDark);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +72,7 @@ const LandingPage = ({
   };
 
   return (
-    <div className={`${isDark ? 'dark' : ''}`}>
+    <div>
       <div className="min-h-screen font-sans text-slate-600 dark:text-slate-300 selection:bg-cyan-200 selection:text-cyan-900 dark:selection:bg-cyan-900 dark:selection:text-cyan-100 bg-slate-50 dark:bg-[#0A1118] transition-colors duration-500 pb-24 md:pb-12">
         
         {/* 1. Mading Pengumuman Berjalan (Marquee Ticker) */}
@@ -135,9 +133,7 @@ const LandingPage = ({
                 </button>
               )}
               {/* Theme Toggle Button */}
-              <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
-                {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5 text-slate-600" />}
-              </button>
+              <ThemePicker />
             </div>
           </div>
         </nav>

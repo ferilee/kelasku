@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BookOpen, GraduationCap, Calendar, ArrowRight, Sun, Moon } from 'lucide-react';
+import { BookOpen, GraduationCap, Calendar, ArrowRight } from 'lucide-react';
+import { ThemePicker } from './ThemeContext';
 
 interface PortalHubProps {
   onSelectClass: (className: string, academicYear: string) => void;
@@ -8,7 +9,6 @@ interface PortalHubProps {
 const PortalHub = ({ onSelectClass }: PortalHubProps) => {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
-  const [isDark, setIsDark] = useState(false);
 
   const classes = [
     'X TKJ A',
@@ -34,7 +34,7 @@ const PortalHub = ({ onSelectClass }: PortalHubProps) => {
   };
 
   return (
-    <div className={isDark ? 'dark' : ''}>
+    <div>
       <div className="min-h-screen font-sans flex flex-col justify-between items-center relative overflow-hidden bg-slate-50 dark:bg-[#0A1118] text-slate-800 dark:text-slate-200 transition-colors duration-500 p-6">
         {/* Background Decorative Gradients */}
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-cyan-500/10 dark:bg-cyan-500/5 blur-[120px] pointer-events-none"></div>
@@ -46,12 +46,7 @@ const PortalHub = ({ onSelectClass }: PortalHubProps) => {
             <BookOpen className="h-8 w-8 text-cyan-600 dark:text-cyan-400 transition-colors" />
             <span className="font-extrabold text-xl tracking-wide">WEBKELAS</span>
           </div>
-          <button 
-            onClick={() => setIsDark(!isDark)} 
-            className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors border border-slate-200 dark:border-slate-700/50"
-          >
-            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5 text-slate-600" />}
-          </button>
+          <ThemePicker />
         </header>
 
         {/* Main Selection Card */}

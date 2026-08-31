@@ -74,6 +74,16 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS teaching_announcements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    subject_id INTEGER NOT NULL REFERENCES subjects(id),
+    type TEXT NOT NULL DEFAULT 'INFO',
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
   CREATE TABLE IF NOT EXISTS agenda (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL,

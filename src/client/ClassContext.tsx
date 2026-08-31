@@ -6,6 +6,14 @@ export interface Announcement {
   type: 'PENTING' | 'INFO' | 'SELAMAT';
 }
 
+export interface TeachingAnnouncement extends Announcement {
+  teacherId: string;
+  teacherName: string;
+  subjectId: string;
+  subjectName: string;
+  createdAt: string;
+}
+
 export interface AgendaItem {
   id: string;
   date: string;
@@ -76,6 +84,7 @@ export interface OfficerDuty { key: 'ketua' | 'wakil' | 'sekretaris' | 'bendahar
 
 export interface ClassData {
   announcements: Announcement[];
+  teachingAnnouncements: TeachingAnnouncement[];
   agenda: AgendaItem[];
   schedules: ScheduleItem[];
   students: Student[];
@@ -130,6 +139,7 @@ const defaultData = {
     { id: '2', type: 'INFO' as const, text: 'Jadwal Olahraga besok, jangan lupa membawa baju ganti dan air minum.' },
     { id: '3', type: 'SELAMAT' as const, text: 'Kepada Tim Futsal Kelas atas raihan Juara 1 Antar Kelas!' }
   ],
+  teachingAnnouncements: [],
   agenda: [
     { id: '1', date: "15 Okt", title: "Ujian Tengah Semester", type: "Ujian" },
     { id: '2', date: "20 Okt", title: "Tugas Praktikum", type: "Tugas" },
@@ -196,6 +206,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
         const json = await res.json();
         setData({
           announcements: json.announcements,
+          teachingAnnouncements: json.teachingAnnouncements || [],
           agenda: json.agenda,
           schedules: json.schedules || [],
           students: json.students,

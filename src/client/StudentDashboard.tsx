@@ -14,7 +14,7 @@ type StudentAttendanceSummary = {
 
 const StudentDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const { selectedClass, selectedYear, students, schedules, agenda, announcements, behaviorRecords, achievements } = useClassData();
+  const { selectedClass, selectedYear, students, schedules, agenda, announcements, teachingAnnouncements, behaviorRecords, achievements } = useClassData();
   const [authenticatedStudent, setAuthenticatedStudent] = useState<{ id: number; name: string } | null>(null);
   const [attendanceSummary, setAttendanceSummary] = useState<StudentAttendanceSummary | null>(null);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
@@ -245,6 +245,17 @@ const StudentDashboard = () => {
 
         {/* Content Scrollable Area */}
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
+          {teachingAnnouncements.length > 0 && (
+            <div className="mb-6 w-full overflow-hidden rounded-xl border border-cyan-200 bg-cyan-100/80 py-2.5 dark:border-cyan-900/50 dark:bg-cyan-950/30">
+              <style>{`@keyframes student-teaching-marquee { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } } .student-teaching-marquee { animation: student-teaching-marquee 25s linear infinite; }`}</style>
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="z-10 flex shrink-0 items-center gap-2 bg-gradient-to-r from-slate-50 via-slate-50 to-transparent px-4 text-xs font-bold uppercase tracking-wider text-cyan-700 dark:from-slate-900 dark:via-slate-900 dark:text-cyan-300"><Bell className="h-4 w-4" /> INFO GURU</div>
+                <div className="student-teaching-marquee flex min-w-max gap-16 whitespace-nowrap text-xs font-medium text-cyan-900 dark:text-cyan-100">
+                  {teachingAnnouncements.map((announcement) => <span key={announcement.id}><span className={`mr-2 font-bold ${announcement.type === 'PENTING' ? 'text-orange-600 dark:text-orange-400' : announcement.type === 'SELAMAT' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>{announcement.type === 'PENTING' ? '⚠️ PENTING:' : announcement.type === 'SELAMAT' ? '🏆 SELAMAT:' : '📢 INFO:'}</span>{announcement.text} <span className="ml-2 text-cyan-700/70 dark:text-cyan-300/70">— {announcement.teacherName} · {announcement.subjectName}</span></span>)}
+                </div>
+              </div>
+            </div>
+          )}
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">

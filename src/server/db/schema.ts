@@ -73,6 +73,16 @@ export const announcements = sqliteTable('announcements', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
+export const teachingAnnouncements = sqliteTable('teaching_announcements', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  teacherId: integer('teacher_id').notNull().references(() => users.id),
+  subjectId: integer('subject_id').notNull().references(() => subjects.id),
+  type: text('type', { enum: ['PENTING', 'INFO', 'SELAMAT'] }).notNull().default('INFO'),
+  text: text('text').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
 export const agenda = sqliteTable('agenda', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   date: text('date').notNull(), // e.g. "15 Okt"

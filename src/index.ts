@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates } from './server/db/schema';
 import { eq, and, like, isNull, inArray } from 'drizzle-orm';
 
 const app = new Hono();
@@ -321,7 +321,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments')) || (c.req.method === 'DELETE' && c.req.path.startsWith('/api/behavior/'));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/')));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
   }
@@ -479,6 +479,39 @@ app.delete('/api/teaching-assignments/:id', async (c) => {
   catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
+const ANNOUNCEMENT_TYPES = ['PENTING', 'INFO', 'SELAMAT'] as const;
+
+app.post('/api/teaching-announcements', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || user.role === 'student' || !user.roles.includes('teacher')) return c.json({ error: 'Hanya guru pengajar yang dapat membuat informasi.' }, 403);
+    const body = await c.req.json();
+    const classId = Number(body.classId);
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const type = ANNOUNCEMENT_TYPES.includes(body.type as typeof ANNOUNCEMENT_TYPES[number]) ? body.type as typeof ANNOUNCEMENT_TYPES[number] : 'INFO';
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!Number.isInteger(classId) || !subject || !text || text.length > 500) return c.json({ error: 'Kelas, mata pelajaran, dan isi informasi wajib diisi.' }, 400);
+    if (!(await mayTeachSubject(user, classId, subject))) return c.json({ error: 'Anda tidak memiliki penugasan pada kelas dan mata pelajaran ini.' }, 403);
+    const subjectRow = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject)).limit(1);
+    if (!subjectRow[0]) return c.json({ error: 'Mata pelajaran tidak ditemukan.' }, 400);
+    const inserted = await db.insert(teachingAnnouncements).values({ classId, teacherId: user.id, subjectId: subjectRow[0].id, type, text }).returning();
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: 'Informasi gagal disimpan.' }, 400); }
+});
+
+app.delete('/api/teaching-announcements/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !Number.isInteger(id)) return c.json({ error: 'Informasi tidak ditemukan.' }, 404);
+    const item = (await db.select({ teacherId: teachingAnnouncements.teacherId }).from(teachingAnnouncements).where(eq(teachingAnnouncements.id, id)).limit(1))[0];
+    if (!item) return c.json({ error: 'Informasi tidak ditemukan.' }, 404);
+    if (item.teacherId !== user.id && !canManageClass(user)) return c.json({ error: 'Anda tidak dapat menghapus informasi ini.' }, 403);
+    await db.delete(teachingAnnouncements).where(eq(teachingAnnouncements.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: 'Informasi gagal dihapus.' }, 500); }
+});
+
 // Get unified class data
 app.get('/api/class-data', async (c) => {
   try {
@@ -496,6 +529,13 @@ app.get('/api/class-data', async (c) => {
     const allAgenda = await db.select().from(agenda);
     const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id)));
     const classStudentIds = new Set(allStudents.map((student) => student.id));
+    const classTeachingAnnouncements = await db.select().from(teachingAnnouncements).where(eq(teachingAnnouncements.classId, currentClass.id));
+    const announcementTeacherIds = [...new Set(classTeachingAnnouncements.map((item) => item.teacherId))];
+    const announcementSubjectIds = [...new Set(classTeachingAnnouncements.map((item) => item.subjectId))];
+    const [announcementTeachers, announcementSubjects] = await Promise.all([
+      announcementTeacherIds.length ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, announcementTeacherIds)) : Promise.resolve([]),
+      announcementSubjectIds.length ? db.select({ id: subjects.id, name: subjects.name }).from(subjects).where(inArray(subjects.id, announcementSubjectIds)) : Promise.resolve([]),
+    ]);
     const currentQuote = await db.select().from(quotes).limit(1);
     const allSchedules = await db.select().from(schedules).where(eq(schedules.classId, currentClass.id));
     let allBehavior = (await db.select().from(behaviorRecords)).filter((record) => classStudentIds.has(record.studentId));
@@ -569,6 +609,12 @@ app.get('/api/class-data', async (c) => {
 
     return c.json({
       announcements: allAnnouncements.map(a => ({ id: a.id.toString(), type: a.type, text: a.text })),
+      teachingAnnouncements: authenticatedUser ? classTeachingAnnouncements.map((item) => ({
+        id: item.id.toString(), type: item.type, text: item.text, teacherId: item.teacherId.toString(),
+        teacherName: announcementTeachers.find((teacher) => teacher.id === item.teacherId)?.name || 'Guru Pengajar',
+        subjectId: item.subjectId.toString(), subjectName: announcementSubjects.find((subject) => subject.id === item.subjectId)?.name || 'Mata Pelajaran',
+        createdAt: item.createdAt.toISOString(),
+      })) : [],
       agenda: allAgenda.map(g => ({ id: g.id.toString(), date: g.date, title: g.title, type: g.type })),
       schedules: allSchedules.map(s => ({
         id: s.id.toString(),

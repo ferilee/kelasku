@@ -72,7 +72,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
   const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(null);
   const canManageStudents = userRole === 'admin';
-  const [workspace, setWorkspace] = useState<{ user: { name: string; roles: string[] }; homeroomClasses: { id: string; name: string; academicYear: string }[]; subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[] } | null>(null);
+  const [workspace, setWorkspace] = useState<{ user: { id: string; name: string; roles: string[] }; homeroomClasses: { id: string; name: string; academicYear: string }[]; subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[] } | null>(null);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -115,6 +115,28 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setBehaviorSubTab('sikap');
     setSelectedSubject(subjectName);
     setActiveTab('academic');
+  };
+
+  const handleAddTeachingAnnouncement = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!classData.classId || !activeTeachingSubject || !teachingAnnouncementText.trim()) return;
+    const response = await fetch('/api/teaching-announcements', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId: classData.classId, subject: activeTeachingSubject, type: teachingAnnouncementType, text: teachingAnnouncementText }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return alert(result?.error || 'Gagal menyimpan informasi untuk siswa.');
+    setTeachingAnnouncementText('');
+    await classData.selectClass(classData.classId);
+    alert('Informasi berhasil ditampilkan kepada siswa di kelas ini.');
+  };
+
+  const handleRemoveTeachingAnnouncement = async (id: string) => {
+    if (!window.confirm('Hapus informasi ini dari dashboard siswa?')) return;
+    const response = await fetch(`/api/teaching-announcements/${id}`, { method: 'DELETE' });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return alert(result?.error || 'Gagal menghapus informasi.');
+    if (classData.classId) await classData.selectClass(classData.classId);
   };
 
   const handleChangePassword = async (event: React.FormEvent) => {
@@ -174,6 +196,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   
   const [newAnnType, setNewAnnType] = useState<'PENTING' | 'INFO' | 'SELAMAT'>('INFO');
   const [newAnnText, setNewAnnText] = useState('');
+  const [teachingAnnouncementType, setTeachingAnnouncementType] = useState<'PENTING' | 'INFO' | 'SELAMAT'>('INFO');
+  const [teachingAnnouncementText, setTeachingAnnouncementText] = useState('');
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -1497,6 +1521,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {workspaceMode === 'teaching' && activeTeachingSubject && (
+                <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 sm:p-6">
+                  <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100"><Megaphone className="h-5 w-5 text-cyan-500" /> Informasi untuk Siswa</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Informasi akan berjalan di Dashboard Siswa kelas {classData.selectedClass} untuk mata pelajaran {activeTeachingSubject}.</p></div><span className="rounded-full bg-cyan-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">Mode Mengajar</span></div>
+                  <form onSubmit={handleAddTeachingAnnouncement} className="grid gap-3 md:grid-cols-[140px_1fr_auto] md:items-end">
+                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Jenis<select value={teachingAnnouncementType} onChange={(event) => setTeachingAnnouncementType(event.target.value as 'PENTING' | 'INFO' | 'SELAMAT')} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="INFO">INFO</option><option value="PENTING">PENTING</option><option value="SELAMAT">SELAMAT</option></select></label>
+                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Isi informasi<textarea value={teachingAnnouncementText} onChange={(event) => setTeachingAnnouncementText(event.target.value)} maxLength={500} rows={2} placeholder="Contoh: Materi untuk pertemuan berikutnya sudah tersedia." className="mt-1 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-normal text-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label>
+                    <button type="submit" disabled={!teachingAnnouncementText.trim()} className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="mr-1 inline h-4 w-4" />Tampilkan</button>
+                  </form>
+                  <div className="mt-5 space-y-2">{classData.teachingAnnouncements.length ? classData.teachingAnnouncements.map((announcement) => <div key={announcement.id} className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded px-2 py-0.5 text-[10px] font-bold ${announcement.type === 'PENTING' ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300' : announcement.type === 'SELAMAT' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'}`}>{announcement.type}</span><span className="text-[10px] text-slate-400">{announcement.teacherName} · {announcement.subjectName}</span></div><p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{announcement.text}</p></div>{announcement.teacherId === workspace?.user.id && <button type="button" onClick={() => handleRemoveTeachingAnnouncement(announcement.id)} className="shrink-0 rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" title="Hapus informasi"><Trash2 className="h-4 w-4" /></button>}</div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada informasi dari guru untuk kelas ini.</p>}</div>
+                </section>
+              )}
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {stats.map((stat, i) => (

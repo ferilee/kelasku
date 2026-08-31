@@ -988,14 +988,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (!activeTeachingSubject || !teachingAttendanceReport.length) return alert('Belum ada data presensi pembelajaran pada periode ini.');
     const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
     if (!dates.length) return alert('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
-    const statusCode: Record<string, string> = { Hadir: 'H', Sakit: 'S', Izin: 'I', Alfa: 'A' };
+    const statusCode: Record<string, string> = { Hadir: '✓', Sakit: 'S', Izin: 'I', Alfa: 'A' };
     const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).getDate()}</th>`).join('');
     const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
     printReportDocument(`Presensi ${activeTeachingSubject}`, `
       <h1>REKAP PRESENSI PEMBELAJARAN</h1><p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
       <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Bulan: ${teachingAttendanceMonth} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear}</p>
-      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>H</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="meta">Keterangan: H = Hadir, S = Sakit, I = Izin, A = Alfa.</p>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>✓</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="meta">Keterangan: ✓ = Hadir, S = Sakit, I = Izin, A = Alfa.</p>
       <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
     `, true);
   };

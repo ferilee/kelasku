@@ -897,7 +897,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             .info-table td { padding: 4px 0; }
             .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 7px; }
             .data-table th, .data-table td { border: 1px solid #94a3b8; padding: 4px 2px; text-align: center; }
-            .data-table th { background-color: #f1f5f9; font-weight: bold; color: #0f172a; }
+            .data-table th { background-color: #2563EB; border-color: #1d4ed8; font-weight: bold; color: #ffffff; }
             .data-table th.number { width: 18px; }
             .data-table th.name, .data-table td.name { width: 150px; text-align: left; font-weight: 500; }
             .data-table th.gender { width: 22px; }
@@ -974,7 +974,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     printWindow.document.close();
   };
 
-  const printReportDocument = (title: string, content: string, landscape = false) => {
+  const printReportDocument = (title: string, content: string, landscape = false, highlightHeaders = false) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     printWindow.document.write(`
@@ -985,7 +985,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         .subtitle { margin: 5px 0 16px; text-align: center; color: #64748b; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #94a3b8; padding: 6px 5px; text-align: center; }
-        th { background: #f1f5f9; } td.name { text-align: left; }
+        th { background: ${highlightHeaders ? '#2563EB' : '#f1f5f9'}; color: ${highlightHeaders ? '#ffffff' : '#1e293b'}; border-color: ${highlightHeaders ? '#1d4ed8' : '#94a3b8'}; } td.name { text-align: left; }
         .meta { margin: 0 0 12px; font-weight: 600; } .footer { margin-top: 28px; text-align: right; }
       </style></head><body>${content}<script>window.onload=()=>window.print()</script></body></html>
     `);
@@ -1005,7 +1005,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>✓</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="meta">Keterangan: ✓ = Hadir, S = Sakit, I = Izin, A = Alfa.</p>
       <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
-    `, true);
+    `, true, true);
   };
 
   const handlePrintGradesPDF = () => {

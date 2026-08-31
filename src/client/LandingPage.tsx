@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, Sun, Moon, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
+import { useNotifications } from './NotificationCenter';
 
 const LandingPage = ({ 
   onLoginSuccess,
@@ -21,6 +22,7 @@ const LandingPage = ({
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [showAllGallery, setShowAllGallery] = useState(false);
   const [selectedOfficerDuty, setSelectedOfficerDuty] = useState<{ role: string; description: string } | null>(null);
+  const { notify } = useNotifications();
 
   const getOfficerDutyKey = (role: string) => {
     const normalized = role.toLowerCase();
@@ -41,7 +43,7 @@ const LandingPage = ({
     e.preventDefault();
     const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: username, password }) });
     const result = await response.json();
-    if (!response.ok) return alert(result.error || 'Username atau password salah.');
+    if (!response.ok) return notify(result.error || 'Username atau password salah.', 'error');
     setShowLoginModal(false);
     onLoginSuccess(result.user.role);
   };

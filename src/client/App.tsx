@@ -4,6 +4,7 @@ import StudentDashboard from './StudentDashboard';
 import LandingPage from './LandingPage';
 import LoginPage from './LoginPage';
 import { ClassProvider, useClassData } from './ClassContext';
+import { NotificationProvider } from './NotificationCenter';
 
 const AppContent = () => {
   // Simple state-based routing/role management for demo purposes
@@ -88,9 +89,11 @@ const AppContent = () => {
 
 const App = () => {
   return (
-    <ClassProvider>
-      <AppContent />
-    </ClassProvider>
+    <NotificationProvider>
+      <ClassProvider>
+        <AppContent />
+      </ClassProvider>
+    </NotificationProvider>
   );
 };
 

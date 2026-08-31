@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, Sun, Moon, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key } from 'lucide-react';
 import { useClassData } from './ClassContext';
+import { useNotifications } from './NotificationCenter';
 
 type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
 type StudentAttendanceSummary = {
@@ -20,6 +21,7 @@ const StudentDashboard = () => {
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
   const currentStudentId = authenticatedStudent?.id.toString() || '';
   const dbStudentId = currentStudentId;
+  const { notify } = useNotifications();
 
   useEffect(() => {
     const loadStudentDashboard = async () => {
@@ -88,29 +90,29 @@ const StudentDashboard = () => {
         })
       });
       if (res.ok) {
-        alert('Tugas berhasil dikumpulkan!');
+        notify('Tugas berhasil dikumpulkan!', 'success');
         setShowSubmitModal(false);
         setSubmitFilePath('');
         fetchAssignments();
       } else {
-        alert('Gagal mengumpulkan tugas.');
+        notify('Gagal mengumpulkan tugas.', 'error');
       }
     } catch (err) {
       console.error('Error submitting task:', err);
-      alert('Terjadi kesalahan saat mengumpulkan tugas.');
+      notify('Terjadi kesalahan saat mengumpulkan tugas.', 'error');
     }
   };
 
   const handleChangePassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (newPassword !== confirmPassword) return alert('Konfirmasi password baru tidak sama.');
+    if (newPassword !== confirmPassword) return notify('Konfirmasi password baru tidak sama.', 'warning');
     try {
       const response = await fetch('/api/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
       const data = await response.json();
-      if (!response.ok) return alert(data.error || 'Gagal mengubah password.');
+      if (!response.ok) return notify(data.error || 'Gagal mengubah password.', 'error');
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(false);
-      alert('Password berhasil diubah.');
-    } catch (error) { console.error('Error changing password:', error); alert('Terjadi kesalahan saat mengubah password.'); }
+      notify('Password berhasil diubah.', 'success');
+    } catch (error) { console.error('Error changing password:', error); notify('Terjadi kesalahan saat mengubah password.', 'error'); }
   };
 
   // Dark mode state with persistence

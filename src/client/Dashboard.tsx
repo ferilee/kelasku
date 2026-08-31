@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, Sun, Moon, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
+import { useNotifications } from './NotificationCenter';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
   positif: {
@@ -69,6 +70,7 @@ interface StudentWarning {
 const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [activeTab, setActiveTab] = useState('workspace');
   const classData = useClassData();
+  const { notify, confirm } = useNotifications();
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
   const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(null);
   const canManageStudents = userRole === 'admin';
@@ -125,30 +127,30 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       body: JSON.stringify({ classId: classData.classId, subject: activeTeachingSubject, type: teachingAnnouncementType, text: teachingAnnouncementText }),
     });
     const result = await response.json().catch(() => null);
-    if (!response.ok) return alert(result?.error || 'Gagal menyimpan informasi untuk siswa.');
+    if (!response.ok) return notify(result?.error || 'Gagal menyimpan informasi untuk siswa.', 'error');
     setTeachingAnnouncementText('');
     await classData.selectClass(classData.classId);
-    alert('Informasi berhasil ditampilkan kepada siswa di kelas ini.');
+    notify('Informasi berhasil ditampilkan kepada siswa di kelas ini.', 'success');
   };
 
   const handleRemoveTeachingAnnouncement = async (id: string) => {
-    if (!window.confirm('Hapus informasi ini dari dashboard siswa?')) return;
+    if (!(await confirm({ title: 'Hapus informasi', message: 'Hapus informasi ini dari dashboard siswa?', danger: true, confirmLabel: 'Hapus' }))) return;
     const response = await fetch(`/api/teaching-announcements/${id}`, { method: 'DELETE' });
     const result = await response.json().catch(() => null);
-    if (!response.ok) return alert(result?.error || 'Gagal menghapus informasi.');
+    if (!response.ok) return notify(result?.error || 'Gagal menghapus informasi.', 'error');
     if (classData.classId) await classData.selectClass(classData.classId);
   };
 
   const handleChangePassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (newPassword !== confirmPassword) return alert('Konfirmasi password baru tidak sama.');
+    if (newPassword !== confirmPassword) return notify('Konfirmasi password baru tidak sama.', 'warning');
     try {
       const response = await fetch('/api/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
       const data = await response.json();
-      if (!response.ok) return alert(data.error || 'Gagal mengubah password.');
+      if (!response.ok) return notify(data.error || 'Gagal mengubah password.', 'error');
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(false);
-      alert('Password berhasil diubah.');
-    } catch (error) { console.error('Error changing password:', error); alert('Terjadi kesalahan saat mengubah password.'); }
+      notify('Password berhasil diubah.', 'success');
+    } catch (error) { console.error('Error changing password:', error); notify('Terjadi kesalahan saat mengubah password.', 'error'); }
   };
 
   // Local state for the settings form to avoid immediate re-renders while typing
@@ -345,22 +347,22 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       body: JSON.stringify({ studentId: caseStudentId, classId: caseClassId, title: caseTitle, category: caseCategory, priority: casePriority, summary: caseSummary, ownerId: caseOwnerId || undefined, dueDate: caseDueDate || null, visibility: caseVisibility }),
     });
     const result = await response.json().catch(() => null);
-    if (!response.ok) return alert(result?.error || 'Gagal membuat kasus pembinaan.');
+    if (!response.ok) return notify(result?.error || 'Gagal membuat kasus pembinaan.', 'error');
     setShowCaseModal(false);
     await fetchMonitoring();
-    alert('Kasus pembinaan berhasil dibuat.');
+    notify('Kasus pembinaan berhasil dibuat.', 'success');
   };
 
   const openCaseDetail = async (caseId: string) => {
     const response = await fetch(`/api/student-cases/${caseId}`);
-    if (!response.ok) return alert((await response.json().catch(() => null))?.error || 'Gagal memuat detail kasus.');
+    if (!response.ok) return notify((await response.json().catch(() => null))?.error || 'Gagal memuat detail kasus.', 'error');
     setSelectedCase(await response.json());
   };
 
   const updateStudentCase = async (caseId: string, payload: Record<string, unknown>) => {
     const response = await fetch(`/api/student-cases/${caseId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const result = await response.json().catch(() => null);
-    if (!response.ok) return alert(result?.error || 'Gagal memperbarui kasus.');
+    if (!response.ok) return notify(result?.error || 'Gagal memperbarui kasus.', 'error');
     setSelectedCase((current) => current ? { ...current, ...result } : current);
     await fetchMonitoring();
   };
@@ -373,7 +375,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       body: JSON.stringify({ note: caseUpdateNote, visibility: caseUpdateVisibility, nextFollowUpDate: caseNextFollowUpDate || null }),
     });
     const result = await response.json().catch(() => null);
-    if (!response.ok) return alert(result?.error || 'Gagal menyimpan tindak lanjut.');
+    if (!response.ok) return notify(result?.error || 'Gagal menyimpan tindak lanjut.', 'error');
     setCaseUpdateNote('');
     setCaseNextFollowUpDate('');
     setShowCaseUpdateModal(false);
@@ -514,7 +516,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (!name) return;
     const url = editingSubjectId ? `/api/subjects/${editingSubjectId}` : '/api/subjects';
     const res = await fetch(url, { method: editingSubjectId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (!res.ok) return alert((await res.json()).error || 'Gagal menyimpan mata pelajaran.');
+    if (!res.ok) return notify((await res.json()).error || 'Gagal menyimpan mata pelajaran.');
     setSelectedSubject(name);
     setSubjectName('');
     setEditingSubjectId(null);
@@ -523,9 +525,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   };
 
   const handleDeleteSubject = async (subject: { id: number; name: string }) => {
-    if (!window.confirm(`Hapus mata pelajaran "${subject.name}"?`)) return;
+    if (!(await confirm({ title: 'Hapus mata pelajaran', message: `Hapus mata pelajaran "${subject.name}"?`, danger: true, confirmLabel: 'Hapus' }))) return;
     const res = await fetch(`/api/subjects/${subject.id}`, { method: 'DELETE' });
-    if (!res.ok) return alert((await res.json()).error || 'Gagal menghapus mata pelajaran.');
+    if (!res.ok) return notify((await res.json()).error || 'Gagal menghapus mata pelajaran.');
     fetchSubjects();
   };
 
@@ -562,28 +564,28 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           })
         });
       }
-      alert('Nilai berhasil disimpan!');
+      notify('Nilai berhasil disimpan!');
       fetchGrades();
     } catch (err) {
       console.error('Error saving grades:', err);
-      alert('Gagal menyimpan nilai.');
+      notify('Gagal menyimpan nilai.');
     }
   };
 
   const handleDeleteAssessment = async (assessmentName: string, assessmentType: string) => {
-    const isConfirmed = window.confirm(`Apakah Anda yakin ingin menghapus kolom penilaian "${assessmentName}"?`);
+    const isConfirmed = await confirm({ title: 'Hapus kolom penilaian', message: `Apakah Anda yakin ingin menghapus kolom penilaian "${assessmentName}"?`, danger: true, confirmLabel: 'Hapus' });
     if (!isConfirmed) return;
     try {
       const res = await fetch(`/api/grades/assessment?subject=${encodeURIComponent(selectedSubject)}&type=${assessmentType}&name=${encodeURIComponent(assessmentName)}&classId=${classData.classId}`, {
         method: 'DELETE'
       });
       if (res.ok) {
-        alert('Kolom penilaian berhasil dihapus!');
+        notify('Kolom penilaian berhasil dihapus!');
         fetchGrades();
       }
     } catch (err) {
       console.error('Error deleting assessment:', err);
-      alert('Gagal menghapus kolom penilaian.');
+      notify('Gagal menghapus kolom penilaian.');
     }
   };
 
@@ -660,7 +662,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAssignmentTitle.trim()) {
-      alert('Judul tidak boleh kosong!');
+      notify('Judul tidak boleh kosong!');
       return;
     }
 
@@ -678,33 +680,33 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       });
 
       if (res.ok) {
-        alert(newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!');
+        notify(newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!');
         setShowAddAssignmentModal(false);
         fetchAssignments();
       } else {
         const payload = await res.json().catch(() => null) as { error?: string } | null;
-        alert(payload?.error || 'Gagal menyimpan.');
+        notify(payload?.error || 'Gagal menyimpan.');
       }
     } catch (err) {
       console.error('Error creating assignment:', err);
-      alert('Terjadi kesalahan saat menyimpan.');
+      notify('Terjadi kesalahan saat menyimpan.');
     }
   };
 
   const handleDeleteAssignment = async (id: number) => {
-    const isConfirmed = window.confirm('Apakah Anda yakin ingin menghapus item ini?');
+    const isConfirmed = await confirm({ title: 'Hapus item', message: 'Apakah Anda yakin ingin menghapus item ini?', danger: true, confirmLabel: 'Hapus' });
     if (!isConfirmed) return;
     try {
       const res = await fetch(`/api/assignments/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
-        alert('Berhasil dihapus!');
+        notify('Berhasil dihapus!');
         fetchAssignments();
       }
     } catch (err) {
       console.error('Error deleting assignment:', err);
-      alert('Gagal menghapus.');
+      notify('Gagal menghapus.');
     }
   };
 
@@ -749,7 +751,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       }
     } catch (err) {
       console.error('Error grading submission:', err);
-      alert('Gagal menyimpan nilai.');
+      notify('Gagal menyimpan nilai.');
     }
   };
 
@@ -1009,9 +1011,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   };
 
   const handlePrintTeachingAttendancePDF = () => {
-    if (!activeTeachingSubject || !teachingAttendanceReport.length) return alert('Belum ada data presensi pembelajaran pada periode ini.');
+    if (!activeTeachingSubject || !teachingAttendanceReport.length) return notify('Belum ada data presensi pembelajaran pada periode ini.');
     const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
-    if (!dates.length) return alert('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
+    if (!dates.length) return notify('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
     const statusCode: Record<string, string> = { Hadir: '✓', Sakit: 'S', Izin: 'I', Alfa: 'A' };
     const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).getDate()}</th>`).join('');
     const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
@@ -1026,7 +1028,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
   const handlePrintGradesPDF = () => {
     if (sessionAssessments.length === 0) {
-      alert('Belum ada data penilaian untuk mata pelajaran ini.');
+      notify('Belum ada data penilaian untuk mata pelajaran ini.');
       return;
     }
     const headers = sessionAssessments.map((assessment) => `<th>${assessment.type}<br>${assessment.name}</th>`).join('');
@@ -1064,9 +1066,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   };
 
   const handlePrintTeachingGradesPDF = () => {
-    if (!activeTeachingSubject) return alert('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
+    if (!activeTeachingSubject) return notify('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
     const assessments = teachingAssessments;
-    if (!assessments.length) return alert('Belum ada data penilaian untuk mata pelajaran ini.');
+    if (!assessments.length) return notify('Belum ada data penilaian untuk mata pelajaran ini.');
 
     const headers = assessments.map((assessment: { name: string; type: string }) => `<th>${assessment.type}<br>${assessment.name}</th>`).join('');
     const rows = classData.students.map((student, index) => {
@@ -1089,7 +1091,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   };
 
   const handlePrintTeachingBehaviorPDF = () => {
-    if (!activeTeachingSubject) return alert('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
+    if (!activeTeachingSubject) return notify('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
     const subjectRecords = (classData.behaviorRecords || []).filter((record) => record.subject === activeTeachingSubject);
     const rows = classData.students.map((student, index) => {
       const records = subjectRecords.filter((record) => record.studentId === student.id);
@@ -1164,7 +1166,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
   const handleSaveQuote = () => {
     classData.updateQuote(quoteText, quoteAuthor);
-    alert('Kutipan berhasil diperbarui!');
+    notify('Kutipan berhasil diperbarui!');
   };
 
   const handleAddAnnouncement = () => {
@@ -1194,7 +1196,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      alert(`Memproses file: ${file.name}...`);
+      notify(`Memproses file: ${file.name}...`);
       const reader = new FileReader();
       reader.onload = async (event) => {
         const text = event.target?.result as string;
@@ -1222,17 +1224,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               }
             }
           }
-          alert(`Sukses mengimpor ${successCount} data siswa!`);
+          notify(`Sukses mengimpor ${successCount} data siswa!`);
         }
       };
       reader.readAsText(file);
     }
   };
 
-  const handleResetPassword = (studentName: string) => {
-    const isConfirmed = window.confirm(`Apakah Anda yakin ingin mereset password milik ${studentName} menjadi '123456'?`);
+  const handleResetPassword = async (studentName: string) => {
+    const isConfirmed = await confirm({ title: 'Reset password', message: `Apakah Anda yakin ingin mereset password milik ${studentName} menjadi '123456'?`, confirmLabel: 'Reset' });
     if (isConfirmed) {
-      alert(`Sukses! Password untuk ${studentName} berhasil direset.`);
+      notify(`Sukses! Password untuk ${studentName} berhasil direset.`);
     }
   };
 
@@ -1270,7 +1272,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const handleSaveAttendance = async () => {
     if (isSavingAttendance) return;
     if (!classData.classId || !Object.keys(attendanceMap).length) {
-      return alert('Data kelas atau presensi belum siap. Muat ulang data lalu coba lagi.');
+      return notify('Data kelas atau presensi belum siap. Muat ulang data lalu coba lagi.');
     }
     setIsSavingAttendance(true);
     try {
@@ -1289,24 +1291,24 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         })
       });
       if (res.ok) {
-        alert('Presensi berhasil disimpan!');
+        notify('Presensi berhasil disimpan!');
       } else {
         const result = await res.json().catch(() => null);
-        alert(result?.error || `Gagal menyimpan presensi (${res.status}).`);
+        notify(result?.error || `Gagal menyimpan presensi (${res.status}).`);
       }
     } catch (err) {
       console.error('Error saving attendance:', err);
-      alert('Terjadi kesalahan saat menyimpan presensi.');
+      notify('Terjadi kesalahan saat menyimpan presensi.');
     } finally {
       setIsSavingAttendance(false);
     }
   };
 
-  const handleMarkAllPrayerAbsent = () => {
+  const handleMarkAllPrayerAbsent = async () => {
     const targetStudents = classData.students.filter((student) => attendanceType !== 'jumat' || student.gender === 'L');
     const targetLabel = attendanceType === 'jumat' ? 'semua siswa laki-laki' : 'semua siswa';
     const attendanceLabel = attendanceType === 'harian' ? 'presensi harian' : attendanceType === 'dhuha' ? 'Sholat Dhuha' : attendanceType === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat';
-    if (!targetStudents.length || !window.confirm(`Jadikan ${targetLabel} berstatus Alfa untuk ${attendanceLabel}? Perubahan baru tersimpan setelah Anda menekan Simpan Presensi.`)) return;
+    if (!targetStudents.length || !(await confirm({ title: 'Tandai presensi', message: `Jadikan ${targetLabel} berstatus Alfa untuk ${attendanceLabel}? Perubahan baru tersimpan setelah Anda menekan Simpan Presensi.`, danger: true, confirmLabel: 'Tandai Alfa' }))) return;
     setAttendanceMap((current) => ({
       ...current,
       ...Object.fromEntries(targetStudents.map((student) => [student.id, 'Alfa']))
@@ -1327,23 +1329,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   }, [activeTab, teachingAttendanceDate, activeTeachingSubject, classData.classId, classData.students]);
 
   const handleSaveTeachingAttendance = async () => {
-    if (!classData.classId || !activeTeachingSubject) return alert('Pilih kartu kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
+    if (!classData.classId || !activeTeachingSubject) return notify('Pilih kartu kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
     if (isSavingTeachingAttendance) return;
-    if (!Object.keys(teachingAttendanceMap).length) return alert('Data siswa belum siap. Muat ulang data lalu coba lagi.');
+    if (!Object.keys(teachingAttendanceMap).length) return notify('Data siswa belum siap. Muat ulang data lalu coba lagi.');
     setIsSavingTeachingAttendance(true);
     try {
       const res = await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
         records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
       }) });
-      if (res.ok) alert('Presensi pembelajaran berhasil disimpan.');
+      if (res.ok) notify('Presensi pembelajaran berhasil disimpan.');
       else {
         const result = await res.json().catch(() => null);
-        alert(result?.error || `Gagal menyimpan presensi pembelajaran (${res.status}).`);
+        notify(result?.error || `Gagal menyimpan presensi pembelajaran (${res.status}).`);
       }
     } catch (error) {
       console.error('Error saving teaching attendance:', error);
-      alert('Terjadi kesalahan saat menyimpan presensi pembelajaran.');
+      notify('Terjadi kesalahan saat menyimpan presensi pembelajaran.');
     } finally {
       setIsSavingTeachingAttendance(false);
     }
@@ -1886,10 +1888,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               ].map((item) => <button key={item.title} onClick={item.action} className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-700 dark:bg-slate-800"><item.icon className={`h-6 w-6 ${item.color}`} /><h4 className="mt-4 font-bold text-slate-800 dark:text-slate-100">{item.title}</h4><p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{item.description}</p><span className="mt-4 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka pengaturan →</span></button>)}</div></div> : <><div className="flex items-center justify-between"><div><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{({ teaching: 'Kelas & Guru', landing: 'Konten Landing Page', gallery: 'Galeri Kelas', officers: 'Pengurus Kelas', profile: 'Profil Kelas' } as const)[settingsView]}</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola konfigurasi yang dipilih, lalu kembali ke aksi cepat.</p></div><button onClick={() => setSettingsView('overview')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">← Aksi Cepat</button></div><div id="settings-teaching" className={`${settingsView === 'teaching' ? '' : 'hidden '}bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-6 scroll-mt-6`}>
                 <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Kelas & Penugasan Mengajar</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Kelola rombel, guru pengajar, dan akses mata pelajaran per kelas.</p></div>
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Master Kelas</h4><div className="grid grid-cols-2 gap-2"><input value={newClassName} onChange={(event) => setNewClassName(event.target.value)} placeholder="Contoh: XI TKJ B" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newClassYear} onChange={(event) => setNewClassYear(event.target.value)} placeholder={classData.selectedYear || '2026-2027'} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { const name = newClassName.trim(), academicYear = newClassYear.trim() || classData.selectedYear || ''; if (!name || !academicYear) return; const response = await fetch('/api/classes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah kelas.'); setNewClassName(''); setNewClassYear(''); await classData.selectClass(classData.classId || ''); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Kelas</button><div className="space-y-2">{classData.classes.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><button onClick={() => classData.selectClass(item.id)} className="text-left"><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></button>{item.id !== classData.classId && <button onClick={async () => { if (!confirm(`Hapus kelas ${item.name}?`)) return; const response = await fetch(`/api/classes/${item.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus kelas.'); await classData.selectClass(classData.classId || ''); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></section>
-                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Guru & BK</h4><div className="grid gap-2 sm:grid-cols-3"><input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="Nama akun" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newTeacherIdentifier} onChange={(event) => setNewTeacherIdentifier(event.target.value)} placeholder="NIP / username" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value as 'teacher' | 'counselor')} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="teacher">Guru Pengajar</option><option value="counselor">BK</option></select></div><button onClick={async () => { if (!newTeacherName.trim() || !newTeacherIdentifier.trim()) return; const response = await fetch('/api/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeacherName, identifier: newTeacherIdentifier, accountRole: newAccountRole }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menambah akun.'); setNewTeacherName(''); setNewTeacherIdentifier(''); setNewAccountRole('teacher'); fetchTeachingSetup(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Akun</button><div className="space-y-2">{teachers.length ? teachers.map((teacher) => <div key={teacher.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><span><span className="font-medium text-slate-800 dark:text-slate-100">{teacher.name}</span><span className="ml-2 text-xs text-slate-400">{teacher.identifier}</span><span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.primaryRole === 'counselor' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'}`}>{teacher.primaryRole === 'counselor' ? 'BK' : 'Guru'}</span></span><button onClick={async () => { if (!confirm(`Hapus akun ${teacher.name}?`)) return; const response = await fetch(`/api/teachers/${teacher.id}`, { method: 'DELETE' }); if (!response.ok) return alert((await response.json()).error || 'Gagal menghapus akun.'); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada akun guru atau BK.</p>}</div></section>
+                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Master Kelas</h4><div className="grid grid-cols-2 gap-2"><input value={newClassName} onChange={(event) => setNewClassName(event.target.value)} placeholder="Contoh: XI TKJ B" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newClassYear} onChange={(event) => setNewClassYear(event.target.value)} placeholder={classData.selectedYear || '2026-2027'} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /></div><button onClick={async () => { const name = newClassName.trim(), academicYear = newClassYear.trim() || classData.selectedYear || ''; if (!name || !academicYear) return; const response = await fetch('/api/classes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, academicYear }) }); if (!response.ok) return notify((await response.json()).error || 'Gagal menambah kelas.'); setNewClassName(''); setNewClassYear(''); await classData.selectClass(classData.classId || ''); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Kelas</button><div className="space-y-2">{classData.classes.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><button onClick={() => classData.selectClass(item.id)} className="text-left"><span className="font-medium text-slate-800 dark:text-slate-100">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></button>{item.id !== classData.classId && <button onClick={async () => { if (!(await confirm({ title: 'Hapus kelas', message: `Hapus kelas ${item.name}?`, danger: true, confirmLabel: 'Hapus' }))) return; const response = await fetch(`/api/classes/${item.id}`, { method: 'DELETE' }); if (!response.ok) return notify((await response.json()).error || 'Gagal menghapus kelas.'); await classData.selectClass(classData.classId || ''); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>)}</div></section>
+                  <section className="space-y-3"><h4 className="font-semibold text-slate-700 dark:text-slate-200">Guru & BK</h4><div className="grid gap-2 sm:grid-cols-3"><input value={newTeacherName} onChange={(event) => setNewTeacherName(event.target.value)} placeholder="Nama akun" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><input value={newTeacherIdentifier} onChange={(event) => setNewTeacherIdentifier(event.target.value)} placeholder="NIP / username" className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600" /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value as 'teacher' | 'counselor')} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="teacher">Guru Pengajar</option><option value="counselor">BK</option></select></div><button onClick={async () => { if (!newTeacherName.trim() || !newTeacherIdentifier.trim()) return; const response = await fetch('/api/teachers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newTeacherName, identifier: newTeacherIdentifier, accountRole: newAccountRole }) }); if (!response.ok) return notify((await response.json()).error || 'Gagal menambah akun.'); setNewTeacherName(''); setNewTeacherIdentifier(''); setNewAccountRole('teacher'); fetchTeachingSetup(); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Plus className="mr-1 inline h-4 w-4" />Tambah Akun</button><div className="space-y-2">{teachers.length ? teachers.map((teacher) => <div key={teacher.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/40"><span><span className="font-medium text-slate-800 dark:text-slate-100">{teacher.name}</span><span className="ml-2 text-xs text-slate-400">{teacher.identifier}</span><span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${teacher.primaryRole === 'counselor' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'}`}>{teacher.primaryRole === 'counselor' ? 'BK' : 'Guru'}</span></span><button onClick={async () => { if (!(await confirm({ title: 'Hapus akun', message: `Hapus akun ${teacher.name}?`, danger: true, confirmLabel: 'Hapus' }))) return; const response = await fetch(`/api/teachers/${teacher.id}`, { method: 'DELETE' }); if (!response.ok) return notify((await response.json()).error || 'Gagal menghapus akun.'); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada akun guru atau BK.</p>}</div></section>
                 </div>
-                <section className="border-t border-slate-100 pt-5 dark:border-slate-700"><h4 className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Penugasan Mengajar</h4><div className="grid gap-2 md:grid-cols-4"><select value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih guru</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select><select value={assignmentClassId} onChange={(event) => setAssignmentClassId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih mapel</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select><button onClick={async () => { const currentClass = classData.classes.find((item) => item.id === assignmentClassId); if (!assignmentTeacherId || !assignmentClassId || !assignmentSubjectId || !currentClass) return; const response = await fetch('/api/teaching-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: assignmentTeacherId, classId: assignmentClassId, subjectId: assignmentSubjectId, academicYear: currentClass.academicYear }) }); if (!response.ok) return alert((await response.json()).error || 'Gagal menyimpan penugasan.'); setAssignmentTeacherId(''); setAssignmentClassId(''); setAssignmentSubjectId(''); fetchTeachingSetup(); }} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white"><Save className="mr-1 inline h-4 w-4" />Tetapkan</button></div><div className="mt-3 space-y-2">{teachingAssignments.length ? teachingAssignments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-700"><span className="text-slate-700 dark:text-slate-200"><b>{item.teacherName}</b> · {item.subjectName} · {item.className} <span className="text-xs text-slate-400">({item.academicYear})</span></span><button onClick={async () => { if (!confirm('Hapus penugasan ini?')) return; await fetch(`/api/teaching-assignments/${item.id}`, { method: 'DELETE' }); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada penugasan mengajar.</p>}</div></section>
+                <section className="border-t border-slate-100 pt-5 dark:border-slate-700"><h4 className="mb-3 font-semibold text-slate-700 dark:text-slate-200">Penugasan Mengajar</h4><div className="grid gap-2 md:grid-cols-4"><select value={assignmentTeacherId} onChange={(event) => setAssignmentTeacherId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih guru</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select><select value={assignmentClassId} onChange={(event) => setAssignmentClassId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={assignmentSubjectId} onChange={(event) => setAssignmentSubjectId(event.target.value)} className="rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-600"><option value="">Pilih mapel</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select><button onClick={async () => { const currentClass = classData.classes.find((item) => item.id === assignmentClassId); if (!assignmentTeacherId || !assignmentClassId || !assignmentSubjectId || !currentClass) return; const response = await fetch('/api/teaching-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: assignmentTeacherId, classId: assignmentClassId, subjectId: assignmentSubjectId, academicYear: currentClass.academicYear }) }); if (!response.ok) return notify((await response.json()).error || 'Gagal menyimpan penugasan.'); setAssignmentTeacherId(''); setAssignmentClassId(''); setAssignmentSubjectId(''); fetchTeachingSetup(); }} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white"><Save className="mr-1 inline h-4 w-4" />Tetapkan</button></div><div className="mt-3 space-y-2">{teachingAssignments.length ? teachingAssignments.map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-700"><span className="text-slate-700 dark:text-slate-200"><b>{item.teacherName}</b> · {item.subjectName} · {item.className} <span className="text-xs text-slate-400">({item.academicYear})</span></span><button onClick={async () => { if (!(await confirm({ title: 'Hapus penugasan', message: 'Hapus penugasan ini?', danger: true, confirmLabel: 'Hapus' }))) return; await fetch(`/api/teaching-assignments/${item.id}`, { method: 'DELETE' }); fetchTeachingSetup(); }} className="text-red-500"><Trash2 className="h-4 w-4" /></button></div>) : <p className="py-3 text-center text-xs text-slate-400">Belum ada penugasan mengajar.</p>}</div></section>
               </div>
               <div id="settings-hero" className={`${settingsView === 'landing' ? '' : 'hidden '}bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6`}>
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
@@ -1904,8 +1906,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     <label className="block text-sm font-medium text-slate-600 dark:text-slate-400">URL Gambar</label>
                     <input value={heroImageUrl} onChange={(event) => setHeroImageUrl(event.target.value)} placeholder="https://contoh.sch.id/gambar-kelas.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" />
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={async () => { try { await classData.updateHeroImage(heroImageUrl); alert('Gambar hero berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan gambar hero.'); } }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Gambar</button>
-                      <button onClick={async () => { if (!confirm('Kembalikan gambar hero ke gambar default?')) return; try { await classData.resetHeroImage(); alert('Gambar hero dikembalikan ke default.'); } catch { alert('Gagal mengembalikan gambar default.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Default</button>
+                      <button onClick={async () => { try { await classData.updateHeroImage(heroImageUrl); notify('Gambar hero berhasil disimpan.'); } catch (error) { notify(error instanceof Error ? error.message : 'Gagal menyimpan gambar hero.'); } }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Gambar</button>
+                      <button onClick={async () => { if (!(await confirm({ title: 'Gunakan gambar default', message: 'Kembalikan gambar hero ke gambar default?', confirmLabel: 'Gunakan default' }))) return; try { await classData.resetHeroImage(); notify('Gambar hero dikembalikan ke default.'); } catch { notify('Gagal mengembalikan gambar default.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Default</button>
                     </div>
                   </div>
                 </div>
@@ -1914,8 +1916,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <div id="settings-gallery" className={`${settingsView === 'gallery' ? '' : 'hidden '}bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6`}>
                 <div className="flex items-start gap-3 mb-4 border-b border-slate-100 dark:border-slate-700 pb-3"><span className="p-2 rounded-lg bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400"><ImageIcon className="h-5 w-5" /></span><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Galeri Momen Kelas</h3><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Tambahkan dokumentasi kegiatan kelas melalui URL gambar.</p></div></div>
                 <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-xs font-medium text-slate-500">Judul</label><input value={galleryTitle} onChange={(event) => setGalleryTitle(event.target.value)} placeholder="Contoh: Kegiatan Projek P5" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div><label className="mb-1 block text-xs font-medium text-slate-500">URL Gambar</label><input value={galleryImageUrl} onChange={(event) => setGalleryImageUrl(event.target.value)} placeholder="https://contoh.sch.id/kegiatan.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div><div className="sm:col-span-2"><label className="mb-1 block text-xs font-medium text-slate-500">Keterangan (opsional)</label><input value={galleryDescription} onChange={(event) => setGalleryDescription(event.target.value)} placeholder="Deskripsi singkat kegiatan" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none" /></div></div>
-                <div className="mt-3 flex flex-wrap gap-3"><button disabled={!galleryTitle.trim() || !galleryImageUrl.trim()} onClick={async () => { try { await classData.addGalleryItem({ title: galleryTitle, imageUrl: galleryImageUrl, description: galleryDescription }); setGalleryTitle(''); setGalleryImageUrl(''); setGalleryDescription(''); alert('Foto galeri berhasil ditambahkan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menambah foto galeri.'); } }} className="flex items-center gap-2 rounded-lg bg-pink-600 px-4 py-2 font-medium text-white transition-colors hover:bg-pink-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah Foto</button>{galleryImageUrl && <img src={galleryImageUrl} alt="Pratinjau galeri" className="h-10 w-10 rounded-lg object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
-                <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{classData.galleryItems.length === 0 ? <p className="col-span-full py-3 text-center text-sm text-slate-400">Belum ada foto galeri.</p> : classData.galleryItems.map((item) => <div key={item.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><div className="p-2"><p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.title}</p></div><button onClick={async () => { if (!confirm(`Hapus foto "${item.title}"?`)) return; try { await classData.removeGalleryItem(item.id); } catch { alert('Gagal menghapus foto galeri.'); } }} className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 text-red-500 opacity-0 shadow transition-opacity group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></div>)}</div>
+                <div className="mt-3 flex flex-wrap gap-3"><button disabled={!galleryTitle.trim() || !galleryImageUrl.trim()} onClick={async () => { try { await classData.addGalleryItem({ title: galleryTitle, imageUrl: galleryImageUrl, description: galleryDescription }); setGalleryTitle(''); setGalleryImageUrl(''); setGalleryDescription(''); notify('Foto galeri berhasil ditambahkan.'); } catch (error) { notify(error instanceof Error ? error.message : 'Gagal menambah foto galeri.'); } }} className="flex items-center gap-2 rounded-lg bg-pink-600 px-4 py-2 font-medium text-white transition-colors hover:bg-pink-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah Foto</button>{galleryImageUrl && <img src={galleryImageUrl} alt="Pratinjau galeri" className="h-10 w-10 rounded-lg object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />}</div>
+                <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">{classData.galleryItems.length === 0 ? <p className="col-span-full py-3 text-center text-sm text-slate-400">Belum ada foto galeri.</p> : classData.galleryItems.map((item) => <div key={item.id} className="group relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700"><img src={item.imageUrl} alt={item.title} className="aspect-square w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} /><div className="p-2"><p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.title}</p></div><button onClick={async () => { if (!(await confirm({ title: 'Hapus foto galeri', message: `Hapus foto "${item.title}"?`, danger: true, confirmLabel: 'Hapus' }))) return; try { await classData.removeGalleryItem(item.id); } catch { notify('Gagal menghapus foto galeri.'); } }} className="absolute right-2 top-2 rounded-lg bg-white/90 p-1.5 text-red-500 opacity-0 shadow transition-opacity group-hover:opacity-100"><Trash2 className="h-4 w-4" /></button></div>)}</div>
               </div>
 
               <div id="settings-homeroom-photo" className={`${settingsView === 'landing' ? '' : 'hidden '}bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 scroll-mt-6`}>
@@ -1925,7 +1927,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
                 <div className="grid md:grid-cols-[112px_1fr] gap-5 items-start">
                   <img src={homeroomTeacherPhotoUrl || '/wali-kelas-placeholder.svg'} alt="Pratinjau foto wali kelas" className="h-28 w-28 rounded-full border-4 border-slate-100 dark:border-slate-700 object-cover bg-slate-100 dark:bg-slate-900" onError={(event) => { event.currentTarget.src = '/wali-kelas-placeholder.svg'; }} />
-                  <div className="space-y-3"><label className="block text-sm font-medium text-slate-600 dark:text-slate-400">URL Foto</label><input value={homeroomTeacherPhotoUrl} onChange={(event) => setHomeroomTeacherPhotoUrl(event.target.value)} placeholder="https://contoh.sch.id/foto-wali-kelas.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" /><div className="flex flex-wrap gap-2"><button onClick={async () => { try { await classData.updateHomeroomTeacherPhoto(homeroomTeacherPhotoUrl); alert('Foto wali kelas berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan foto wali kelas.'); } }} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Foto</button><button onClick={async () => { if (!confirm('Kembalikan ke foto placeholder?')) return; try { await classData.resetHomeroomTeacherPhoto(); alert('Foto placeholder digunakan kembali.'); } catch { alert('Gagal mengembalikan foto placeholder.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Placeholder</button></div></div>
+                  <div className="space-y-3"><label className="block text-sm font-medium text-slate-600 dark:text-slate-400">URL Foto</label><input value={homeroomTeacherPhotoUrl} onChange={(event) => setHomeroomTeacherPhotoUrl(event.target.value)} placeholder="https://contoh.sch.id/foto-wali-kelas.jpg" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" /><div className="flex flex-wrap gap-2"><button onClick={async () => { try { await classData.updateHomeroomTeacherPhoto(homeroomTeacherPhotoUrl); notify('Foto wali kelas berhasil disimpan.'); } catch (error) { notify(error instanceof Error ? error.message : 'Gagal menyimpan foto wali kelas.'); } }} className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"><Save className="h-4 w-4" /> Simpan Foto</button><button onClick={async () => { if (!(await confirm({ title: 'Gunakan foto placeholder', message: 'Kembalikan ke foto placeholder?', confirmLabel: 'Gunakan placeholder' }))) return; try { await classData.resetHomeroomTeacherPhoto(); notify('Foto placeholder digunakan kembali.'); } catch { notify('Gagal mengembalikan foto placeholder.'); } }} className="px-4 py-2 rounded-lg font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Gunakan Placeholder</button></div></div>
                 </div>
               </div>
 
@@ -1937,10 +1939,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end mb-5">
                   <div><label className="block text-xs font-medium text-slate-500 mb-1">Jabatan</label><input value={officerRole} onChange={(event) => setOfficerRole(event.target.value)} placeholder="Contoh: Ketua Kelas" className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500" /></div>
                   <div><label className="block text-xs font-medium text-slate-500 mb-1">Siswa Aktif</label><select value={officerStudentId} onChange={(event) => setOfficerStudentId(event.target.value)} className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500">{classData.students.filter((student) => student.status === 'Aktif').map((student) => <option key={student.id} value={student.id}>{student.name} — {student.nisn}</option>)}</select></div>
-                  <button disabled={!officerRole.trim() || !officerStudentId} onClick={async () => { try { await classData.saveClassOfficer(officerStudentId, officerRole); alert('Pengurus kelas berhasil disimpan.'); } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menyimpan pengurus kelas.'); } }} className="flex justify-center items-center gap-2 bg-emerald-600 disabled:opacity-50 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"><Save className="h-4 w-4" /> Simpan</button>
+                  <button disabled={!officerRole.trim() || !officerStudentId} onClick={async () => { try { await classData.saveClassOfficer(officerStudentId, officerRole); notify('Pengurus kelas berhasil disimpan.'); } catch (error) { notify(error instanceof Error ? error.message : 'Gagal menyimpan pengurus kelas.'); } }} className="flex justify-center items-center gap-2 bg-emerald-600 disabled:opacity-50 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"><Save className="h-4 w-4" /> Simpan</button>
                 </div>
                 <div className="space-y-2">
-                  {classData.officers.length === 0 ? <p className="py-4 text-center text-sm text-slate-400">Belum ada pengurus kelas.</p> : classData.officers.map((officer) => <div key={officer.id} className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-4 py-3"><div className="h-9 w-9 shrink-0 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 grid place-items-center font-bold">{officer.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{officer.name}</p><p className="text-xs text-slate-500 dark:text-slate-400">{officer.role}</p></div><button onClick={() => { setOfficerRole(officer.role); setOfficerStudentId(officer.userId); }} className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg" title="Ubah penugasan"><Edit2 className="h-4 w-4" /></button><button onClick={async () => { if (!confirm(`Hapus jabatan ${officer.role}?`)) return; try { await classData.removeClassOfficer(officer.id); } catch { alert('Gagal menghapus pengurus kelas.'); } }} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg" title="Hapus jabatan"><Trash2 className="h-4 w-4" /></button></div>)}
+                  {classData.officers.length === 0 ? <p className="py-4 text-center text-sm text-slate-400">Belum ada pengurus kelas.</p> : classData.officers.map((officer) => <div key={officer.id} className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 px-4 py-3"><div className="h-9 w-9 shrink-0 rounded-full bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 grid place-items-center font-bold">{officer.name.slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">{officer.name}</p><p className="text-xs text-slate-500 dark:text-slate-400">{officer.role}</p></div><button onClick={() => { setOfficerRole(officer.role); setOfficerStudentId(officer.userId); }} className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg" title="Ubah penugasan"><Edit2 className="h-4 w-4" /></button><button onClick={async () => { if (!(await confirm({ title: 'Hapus jabatan', message: `Hapus jabatan ${officer.role}?`, danger: true, confirmLabel: 'Hapus' }))) return; try { await classData.removeClassOfficer(officer.id); } catch { notify('Gagal menghapus pengurus kelas.'); } }} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg" title="Hapus jabatan"><Trash2 className="h-4 w-4" /></button></div>)}
                 </div>
               </div>
               
@@ -2192,10 +2194,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                           </button>
                           <button 
                             onClick={async () => {
-                              const isConfirmed = window.confirm(`Nonaktifkan ${student.name}? Data presensi, nilai, sikap, dan prestasi tetap tersimpan.`);
+                              const isConfirmed = await confirm({ title: 'Nonaktifkan siswa', message: `Nonaktifkan ${student.name}? Data presensi, nilai, sikap, dan prestasi tetap tersimpan.`, confirmLabel: 'Nonaktifkan' });
                               if (isConfirmed) {
                                 await classData.removeStudent(student.id);
-                                alert('Status siswa berhasil diubah menjadi Nonaktif.');
+                                notify('Status siswa berhasil diubah menjadi Nonaktif.');
                               }
                             }}
                             className="text-slate-400 hover:text-amber-500 p-1 ml-1"
@@ -2205,13 +2207,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                           </button>
                           <button
                             onClick={async () => {
-                              const isConfirmed = window.confirm(`Hapus permanen ${student.name}? Tindakan ini tidak dapat dibatalkan dan hanya tersedia bila siswa belum memiliki riwayat data.`);
+                              const isConfirmed = await confirm({ title: 'Hapus permanen siswa', message: `Hapus permanen ${student.name}? Tindakan ini tidak dapat dibatalkan dan hanya tersedia bila siswa belum memiliki riwayat data.`, danger: true, confirmLabel: 'Hapus permanen' });
                               if (!isConfirmed) return;
                               try {
                                 await classData.permanentlyDeleteStudent(student.id);
-                                alert('Siswa berhasil dihapus permanen.');
+                                notify('Siswa berhasil dihapus permanen.');
                               } catch (error) {
-                                alert(error instanceof Error ? error.message : 'Gagal menghapus siswa.');
+                                notify(error instanceof Error ? error.message : 'Gagal menghapus siswa.');
                               }
                             }}
                             className="text-slate-400 hover:text-red-500 p-1 ml-1"
@@ -2441,9 +2443,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   };
                   try {
                     await classData.updateClassProfile(target.classNameInput.value, target.yearInput.value);
-                    alert('Pengaturan kelas berhasil disimpan untuk semua browser.');
+                    notify('Pengaturan kelas berhasil disimpan untuk semua browser.');
                   } catch (error) {
-                    alert(error instanceof Error ? error.message : 'Gagal menyimpan pengaturan kelas.');
+                    notify(error instanceof Error ? error.message : 'Gagal menyimpan pengaturan kelas.');
                   }
                 }} className="space-y-4">
                   <div>
@@ -2488,9 +2490,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   const duties = classData.officerDuties.map((duty) => ({ ...duty, description: String(formData.get(`officer-duty-${duty.key}`) || '').trim() }));
                   try {
                     await classData.updateOfficerDuties(duties);
-                    alert('Tugas pengurus kelas berhasil disimpan.');
+                    notify('Tugas pengurus kelas berhasil disimpan.');
                   } catch (error) {
-                    alert(error instanceof Error ? error.message : 'Gagal menyimpan tugas pengurus kelas.');
+                    notify(error instanceof Error ? error.message : 'Gagal menyimpan tugas pengurus kelas.');
                   }
                 }} className="space-y-5">
                   {classData.officerDuties.map((duty) => (
@@ -3195,7 +3197,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                         </div>
                                         <button
                                           onClick={async () => {
-                                            if (confirm(`Hapus jadwal ${sched.subject} pada hari ${sched.day}?`)) {
+                                            if (await confirm({ title: 'Hapus jadwal', message: `Hapus jadwal ${sched.subject} pada hari ${sched.day}?`, danger: true, confirmLabel: 'Hapus' })) {
                                               await classData.removeSchedule(sched.id);
                                             }
                                           }}
@@ -3266,7 +3268,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                           <button
                             onClick={() => {
                               if (!newAgendaTitle || !newAgendaDate) {
-                                alert('Isi tanggal dan judul agenda!');
+                                notify('Isi tanggal dan judul agenda!');
                                 return;
                               }
                               classData.addAgenda({
@@ -3277,7 +3279,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                               });
                               setNewAgendaDate('');
                               setNewAgendaTitle('');
-                              alert('Agenda berhasil ditambahkan!');
+                              notify('Agenda berhasil ditambahkan!');
                             }}
                             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5"
                           >
@@ -3305,7 +3307,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                               </div>
                               <button
                                 onClick={async () => {
-                                  if (confirm(`Hapus agenda "${item.title}"?`)) {
+                                  if (await confirm({ title: 'Hapus agenda', message: `Hapus agenda "${item.title}"?`, danger: true, confirmLabel: 'Hapus' })) {
                                     await classData.removeAgenda(item.id);
                                   }
                                 }}
@@ -3505,7 +3507,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                     
                                     <button
                                       onClick={async () => {
-                                        if (confirm('Hapus catatan sikap ini?')) {
+                                        if (await confirm({ title: 'Hapus catatan sikap', message: 'Hapus catatan sikap ini?', danger: true, confirmLabel: 'Hapus' })) {
                                           await classData.removeBehaviorRecord(rec.id);
                                         }
                                       }}
@@ -3594,7 +3596,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                 <td className="px-6 py-4 text-right">
                                   <button
                                     onClick={async () => {
-                                      if (confirm(`Hapus catatan prestasi "${item.title}"?`)) {
+                                      if (await confirm({ title: 'Hapus catatan prestasi', message: `Hapus catatan prestasi "${item.title}"?`, danger: true, confirmLabel: 'Hapus' })) {
                                         await classData.removeAchievement(item.id);
                                       }
                                     }}
@@ -3634,7 +3636,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         <div key={record.id} className={`relative rounded-xl border p-4 pr-11 ${record.type === 'positif' ? 'border-emerald-100 bg-emerald-50/40 dark:border-emerald-900/30 dark:bg-emerald-950/10' : 'border-rose-100 bg-rose-50/40 dark:border-rose-900/30 dark:bg-rose-950/10'}`}>
                           <div className="mb-1.5 flex items-start justify-between gap-2"><span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${record.type === 'positif' ? 'border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-400' : 'border-rose-200 bg-rose-100 text-rose-800 dark:border-rose-800 dark:bg-rose-900/50 dark:text-rose-400'}`}>{record.category} ({record.type === 'positif' ? `+${record.points}` : `-${record.points}`}){record.subject ? ` · ${record.subject}` : ''}</span><span className="shrink-0 font-mono text-[10px] text-slate-400">{record.date}</span></div>
                           <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">{record.description}</p>
-                          <button onClick={async () => { if (confirm('Hapus catatan sikap ini?')) await classData.removeBehaviorRecord(record.id); }} aria-label="Hapus catatan sikap" className="absolute bottom-3 right-3 rounded p-1 text-red-500 hover:bg-white/70 hover:text-red-700 dark:hover:bg-slate-700"><Trash2 className="h-4 w-4" /></button>
+                          <button onClick={async () => { if (await confirm({ title: 'Hapus catatan sikap', message: 'Hapus catatan sikap ini?', danger: true, confirmLabel: 'Hapus' })) await classData.removeBehaviorRecord(record.id); }} aria-label="Hapus catatan sikap" className="absolute bottom-3 right-3 rounded p-1 text-red-500 hover:bg-white/70 hover:text-red-700 dark:hover:bg-slate-700"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       ))}
                     </div>
@@ -3729,7 +3731,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   gender: manualGender,
                   status: manualStatus
                 });
-                alert('Siswa berhasil diperbarui!');
+                notify('Siswa berhasil diperbarui!');
               } else {
                 await classData.addStudent({
                   id: '',
@@ -3738,7 +3740,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   gender: manualGender,
                   status: manualStatus
                 });
-                alert('Siswa berhasil ditambahkan!');
+                notify('Siswa berhasil ditambahkan!');
               }
               setShowAddModal(false);
               setEditingStudent(null);
@@ -3871,12 +3873,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 <button 
                   onClick={() => {
                     if (!newAssessmentName.trim()) {
-                      alert('Nama penilaian tidak boleh kosong!');
+                      notify('Nama penilaian tidak boleh kosong!');
                       return;
                     }
                     const exists = sessionAssessments.some(a => a.name.toLowerCase() === newAssessmentName.trim().toLowerCase());
                     if (exists) {
-                      alert('Nama penilaian sudah ada!');
+                      notify('Nama penilaian sudah ada!');
                       return;
                     }
                     setSessionAssessments(prev => [...prev, { name: newAssessmentName.trim(), type: newAssessmentType }]);
@@ -4266,7 +4268,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   type="button"
                   onClick={async () => {
                     if (!newScheduleSubject || !newScheduleTimeStart || !newScheduleTimeEnd) {
-                      alert('Isi semua data wajib!');
+                      notify('Isi semua data wajib!');
                       return;
                     }
                     await classData.addSchedule({
@@ -4278,7 +4280,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       color: newScheduleColor
                     });
                     setShowAddScheduleModal(false);
-                    alert('Jadwal pelajaran berhasil ditambahkan!');
+                    notify('Jadwal pelajaran berhasil ditambahkan!');
                   }}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] hover:shadow-[0_0_25px_rgba(37,99,235,0.3)]"
                 >
@@ -4336,7 +4338,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 subject: workspaceMode === 'teaching' ? activeTeachingSubject || undefined : undefined
               });
               setShowAddBehaviorModal(false);
-              alert('Catatan sikap berhasil disimpan!');
+              notify('Catatan sikap berhasil disimpan!');
             }} className="p-6 space-y-4">
               {workspaceMode === 'teaching' && <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/20 dark:text-violet-300"><span className="font-bold">Mata Pelajaran:</span> {activeTeachingSubject || 'Belum dipilih'}</div>}
               <div>
@@ -4496,7 +4498,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 description: achievementDescription
               });
               setShowAddAchievementModal(false);
-              alert('Prestasi berhasil dicatat!');
+              notify('Prestasi berhasil dicatat!');
             }} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Siswa</label>

@@ -29,3 +29,13 @@ Kasus atau catatan yang memuat informasi yang tidak boleh dibaca oleh semua peng
 ### BK
 
 Konselor atau petugas bimbingan dan konseling. BK dapat memantau kasus lintas kelas tanpa memiliki hak mengelola konfigurasi kelas.
+
+## Aktivitas Belajar
+
+### Sesi Akses
+
+Rentang penggunaan portal oleh seorang siswa yang dimulai saat login dan berakhir saat logout atau setelah tidak lagi aktif selama lima menit. Durasi sesi hanya menghitung waktu aktif, bukan waktu ketika halaman ditinggalkan.
+
+### Aktivitas Belajar
+
+Peristiwa penting selama Sesi Akses siswa, seperti membuka halaman belajar, membuka materi, membuka tugas, dan mengumpulkan tugas. Aktivitas Belajar menunjukkan tindakan di portal, bukan bukti bahwa seluruh isi materi telah dibaca.

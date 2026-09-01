@@ -209,6 +209,31 @@ sqlite.run(`
     next_follow_up_date TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
+
+  CREATE TABLE IF NOT EXISTS student_activity_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    class_id INTEGER REFERENCES classes(id),
+    academic_year TEXT,
+    started_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    ended_at INTEGER,
+    end_reason TEXT,
+    active_seconds INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS student_activity_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES student_activity_sessions(id),
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    action TEXT NOT NULL,
+    page TEXT,
+    resource_type TEXT,
+    resource_id TEXT,
+    resource_title TEXT,
+    metadata TEXT,
+    occurred_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
 `);
 
 function addColumnIfMissing(table: string, column: string, definition: string) {

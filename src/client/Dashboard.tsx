@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw } from 'lucide-react';
 import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
@@ -67,6 +67,30 @@ interface StudentWarning {
   reason: string;
   value: number;
 }
+
+type ActivityAction = 'login' | 'logout' | 'page_view' | 'material_opened' | 'material_downloaded' | 'assignment_opened' | 'assignment_submitted';
+type ActivityStudent = {
+  id: string; name: string; identifier: string; status: string; classId: string | null; className: string;
+  online: boolean; lastActiveAt: string | null; totalActiveSeconds: number; sessionCount: number; activityCount: number;
+  latestActivity: { action: ActivityAction; occurredAt: string; page: string | null; resourceTitle: string | null } | null;
+};
+type ActivityReport = {
+  summary: { onlineCount: number; activeStudentCount: number; totalActiveSeconds: number; sessionCount: number; activityCount: number };
+  students: ActivityStudent[];
+  sessions: Array<{ id: string; studentId: string; studentName: string; className: string; startedAt: string; lastSeenAt: string; endedAt: string | null; endReason: string | null; activeSeconds: number }>;
+  activities: Array<{ id: string; sessionId: string; studentId: string; studentName: string; action: ActivityAction; page: string | null; resourceType: string | null; resourceId: string | null; resourceTitle: string | null; occurredAt: string }>;
+};
+
+const activityLabels: Record<ActivityAction, string> = {
+  login: 'Masuk', logout: 'Keluar', page_view: 'Membuka halaman', material_opened: 'Membuka materi', material_downloaded: 'Mengunduh materi', assignment_opened: 'Membuka tugas', assignment_submitted: 'Mengumpulkan tugas',
+};
+
+const formatActivityDuration = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 1) return '< 1 menit';
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} jam ${minutes % 60} menit` : `${minutes} menit`;
+};
 
 const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [activeTab, setActiveTab] = useState('workspace');
@@ -221,6 +245,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [monitoringPriorityFilter, setMonitoringPriorityFilter] = useState<'all' | CasePriority>('all');
   const [monitoringSearch, setMonitoringSearch] = useState('');
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
+  const [monitoringSubTab, setMonitoringSubTab] = useState<'cases' | 'activity'>(userRole === 'teacher' ? 'activity' : 'cases');
+  const [activityFrom, setActivityFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [activityActionFilter, setActivityActionFilter] = useState<'all' | ActivityAction>('all');
+  const [activitySearch, setActivitySearch] = useState('');
+  const [studentActivityReport, setStudentActivityReport] = useState<ActivityReport | null>(null);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+  const [selectedActivityStudentId, setSelectedActivityStudentId] = useState<string | null>(null);
   const [showCaseModal, setShowCaseModal] = useState(false);
   const [showCaseUpdateModal, setShowCaseUpdateModal] = useState(false);
   const [caseTitle, setCaseTitle] = useState('');
@@ -292,6 +324,30 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     if (activeTab === 'monitoring') fetchMonitoring();
   }, [activeTab, fetchMonitoring]);
+
+  const fetchStudentActivity = useCallback(async () => {
+    setIsLoadingActivity(true);
+    try {
+      const params = new URLSearchParams({ from: activityFrom, to: activityTo });
+      if (monitoringClassFilter !== 'all') params.set('classId', monitoringClassFilter);
+      if (activityActionFilter !== 'all') params.set('action', activityActionFilter);
+      const response = await fetch(`/api/student-activity?${params.toString()}`);
+      if (response.ok) setStudentActivityReport(await response.json());
+      else setStudentActivityReport(null);
+    } catch (error) {
+      console.error('Error fetching student activity:', error);
+      setStudentActivityReport(null);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [activityActionFilter, activityFrom, activityTo, monitoringClassFilter, userRole]);
+
+  useEffect(() => {
+    if (activeTab !== 'monitoring' || monitoringSubTab !== 'activity') return undefined;
+    fetchStudentActivity();
+    const refreshId = window.setInterval(fetchStudentActivity, 30_000);
+    return () => window.clearInterval(refreshId);
+  }, [activeTab, monitoringSubTab, fetchStudentActivity]);
 
   const openNewCaseModal = () => {
     setCaseClassId(classData.classId || '');
@@ -1437,7 +1493,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
             { id: 'students', label: 'Siswa', icon: Users },
             ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
-            ...((userRole === 'admin' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
+            ...((userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
             { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
             ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
             ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
@@ -3365,8 +3421,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             </div>
           )}
 
-          {activeTab === 'monitoring' && (userRole === 'admin' || userRole === 'counselor') && (
+          {activeTab === 'monitoring' && (userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                {userRole !== 'teacher' && <button onClick={() => setMonitoringSubTab('cases')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'cases' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><ShieldAlert className="h-4 w-4" /> Kasus Pembinaan</button>}
+                <button onClick={() => setMonitoringSubTab('activity')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'activity' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Activity className="h-4 w-4" /> Aktivitas Belajar</button>
+              </div>
+              {monitoringSubTab === 'cases' && (
+              <>
               <div className="flex flex-col gap-4 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-500 to-orange-600 p-6 text-white shadow-lg dark:border-amber-900">
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                   <div><p className="text-xs font-bold uppercase tracking-wider text-amber-100">Pusat Pemantauan Siswa</p><h3 className="mt-1 text-2xl font-black">Kasus Pembinaan</h3><p className="mt-2 max-w-2xl text-sm text-amber-50">Pantau masalah, kebutuhan bantuan, dan tindak lanjut siswa secara terstruktur.</p></div>
@@ -3394,6 +3456,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </section>
 
               {selectedCase && <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm dark:border-amber-900/50 dark:bg-slate-800"><div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-700 sm:flex-row sm:items-start"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Detail Kasus</p><h4 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{selectedCase.title}</h4><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{selectedCase.student?.name} · {selectedCase.class?.name}</p></div><button onClick={() => setSelectedCase(null)} className="self-end rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><div className="grid gap-4 py-4 sm:grid-cols-3"><div><p className="text-xs text-slate-400">Status</p><select value={selectedCase.status} onChange={(event) => updateStudentCase(selectedCase.id, { status: event.target.value })} className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="terbuka">Terbuka</option><option value="ditangani">Ditangani</option><option value="selesai">Selesai</option></select></div><div><p className="text-xs text-slate-400">Prioritas</p><select value={selectedCase.priority} onChange={(event) => updateStudentCase(selectedCase.id, { priority: event.target.value })} className="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="mendesak">Mendesak</option><option value="tinggi">Tinggi</option><option value="sedang">Sedang</option><option value="rendah">Rendah</option></select></div><div><p className="text-xs text-slate-400">Penanggung jawab</p><select value={selectedCase.ownerId} onChange={(event) => updateStudentCase(selectedCase.id, { ownerId: event.target.value })} className="mt-1 max-w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">{caseOwners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select></div></div><div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 dark:bg-slate-900/50 dark:text-slate-300"><p className="font-semibold text-slate-700 dark:text-slate-200">Ringkasan</p><p className="mt-1 whitespace-pre-wrap">{selectedCase.summary}</p></div><div className="mt-5 flex items-center justify-between"><h5 className="font-bold text-slate-800 dark:text-slate-100">Riwayat Tindak Lanjut</h5><button onClick={() => { setCaseUpdateNote(''); setCaseNextFollowUpDate(''); setCaseUpdateVisibility('ringkasan'); setShowCaseUpdateModal(true); }} className="flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700"><Plus className="h-4 w-4" /> Tambah Catatan</button></div><div className="mt-3 space-y-3">{selectedCase.updates.length === 0 ? <p className="py-5 text-center text-sm text-slate-400">Belum ada catatan tindak lanjut.</p> : selectedCase.updates.map((update) => <div key={update.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap justify-between gap-2 text-xs text-slate-400"><span>{update.author?.name || 'Pengguna'} · {update.createdAt ? new Date(update.createdAt).toLocaleString('id-ID') : ''}</span>{update.nextFollowUpDate && <span className="font-semibold text-amber-600">Tindak lanjut: {update.nextFollowUpDate}</span>}</div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{update.note}</p></div>)}</div></section>}
+              </>
+              )}
+
+              {monitoringSubTab === 'activity' && (
+                <>
+                  <div className="flex flex-col gap-4 rounded-2xl border border-cyan-100 bg-gradient-to-br from-cyan-600 to-blue-700 p-6 text-white shadow-lg dark:border-cyan-900">
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-100">Pusat Pemantauan Siswa</p><h3 className="mt-1 text-2xl font-black">Aktivitas Belajar</h3><p className="mt-2 max-w-2xl text-sm text-cyan-50">Pantau kehadiran online, waktu aktif, dan aktivitas belajar siswa.</p></div><RefreshCw className={`h-7 w-7 ${isLoadingActivity ? 'animate-spin' : ''}`} /></div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"><p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Online sekarang</p><p className="mt-1 text-3xl font-black text-emerald-800 dark:text-emerald-200">{studentActivityReport?.summary.onlineCount || 0}</p></div><div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900/50 dark:bg-blue-950/20"><p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Siswa beraktivitas</p><p className="mt-1 text-3xl font-black text-blue-800 dark:text-blue-200">{studentActivityReport?.summary.activeStudentCount || 0}</p></div><div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 dark:border-violet-900/50 dark:bg-violet-950/20"><p className="text-xs font-semibold text-violet-700 dark:text-violet-300">Total waktu aktif</p><p className="mt-1 text-2xl font-black text-violet-800 dark:text-violet-200">{formatActivityDuration(studentActivityReport?.summary.totalActiveSeconds || 0)}</p></div></div>
+                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Daftar Aktivitas Siswa</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Durasi dihitung dari waktu aktif; materi yang dibuka bukan bukti seluruh isi telah dibaca.</p></div><button onClick={fetchStudentActivity} className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Segarkan</button></div>
+                    <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><select value={monitoringClassFilter} onChange={(event) => setMonitoringClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input type="date" value={activityFrom} onChange={(event) => setActivityFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="date" value={activityTo} onChange={(event) => setActivityTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><select value={activityActionFilter} onChange={(event) => setActivityActionFilter(event.target.value as typeof activityActionFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua aktivitas</option>{Object.entries(activityLabels).filter(([key]) => key !== 'logout').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Cari nama siswa..." className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+                    {isLoadingActivity && !studentActivityReport ? <p className="py-10 text-center text-sm text-slate-400">Memuat aktivitas siswa…</p> : (() => { const rows = (studentActivityReport?.students || []).filter((student) => !activitySearch.trim() || student.name.toLowerCase().includes(activitySearch.trim().toLowerCase()) || student.identifier.includes(activitySearch.trim())); return rows.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada data aktivitas pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Waktu aktif</th><th className="px-3 py-3">Aktivitas</th><th className="px-3 py-3">Terakhir aktif</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{rows.map((student) => <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-800 dark:text-slate-100">{student.name}</p><p className="text-[11px] text-slate-400">{student.className} · {student.identifier}</p></td><td className="px-3 py-3">{student.online ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span> : <span className="text-xs text-slate-400">Offline</span>}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</td><td className="px-3 py-3"><span className="font-semibold text-slate-700 dark:text-slate-200">{student.activityCount}</span><span className="ml-1 text-xs text-slate-400">event</span>{student.latestActivity && <p className="mt-1 max-w-[230px] truncate text-[11px] text-slate-400">{activityLabels[student.latestActivity.action]}{student.latestActivity.resourceTitle ? ` · ${student.latestActivity.resourceTitle}` : ''}</p>}</td><td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{student.lastActiveAt ? new Date(student.lastActiveAt).toLocaleString('id-ID') : 'Belum aktif'}</td><td className="px-3 py-3 text-right"><button onClick={() => setSelectedActivityStudentId(selectedActivityStudentId === student.id ? null : student.id)} className="rounded-lg px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30">{selectedActivityStudentId === student.id ? 'Tutup' : 'Detail'}</button></td></tr>)}</tbody></table></div>; })()}
+                  </section>
+                  {selectedActivityStudentId && studentActivityReport && <section className="rounded-2xl border border-cyan-200 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800"><div className="flex items-center justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Kronologi Aktivitas</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{studentActivityReport.students.find((student) => student.id === selectedActivityStudentId)?.name || 'Siswa'}</p></div><button onClick={() => setSelectedActivityStudentId(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><div className="mt-4 space-y-2">{studentActivityReport.activities.filter((activity) => activity.studentId === selectedActivityStudentId).slice(0, 100).map((activity) => <div key={activity.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 dark:border-slate-700"><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-500" /><div><p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{activityLabels[activity.action]}{activity.resourceTitle ? ` · ${activity.resourceTitle}` : ''}</p><p className="mt-1 text-xs text-slate-400">{new Date(activity.occurredAt).toLocaleString('id-ID')}{activity.page ? ` · ${activity.page}` : ''}</p></div></div>)}{studentActivityReport.activities.filter((activity) => activity.studentId === selectedActivityStudentId).length === 0 && <p className="py-6 text-center text-sm text-slate-400">Belum ada aktivitas detail pada periode ini.</p>}</div></section>}
+                </>
+              )}
             </div>
           )}
 
@@ -3728,7 +3807,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
             <div className="grid grid-cols-3 gap-3">{[
-              ...((userRole === 'admin' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
+              ...((userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
               ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
               ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
               ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),

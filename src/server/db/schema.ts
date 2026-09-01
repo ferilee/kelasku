@@ -198,3 +198,28 @@ export const caseUpdates = sqliteTable('case_updates', {
   nextFollowUpDate: text('next_follow_up_date'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
+
+export const studentActivitySessions = sqliteTable('student_activity_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  classId: integer('class_id').references(() => classes.id),
+  academicYear: text('academic_year'),
+  startedAt: integer('started_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  endedAt: integer('ended_at', { mode: 'timestamp' }),
+  endReason: text('end_reason'),
+  activeSeconds: integer('active_seconds').notNull().default(0),
+});
+
+export const studentActivityLogs = sqliteTable('student_activity_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sessionId: integer('session_id').notNull().references(() => studentActivitySessions.id),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  action: text('action', { enum: ['login', 'logout', 'page_view', 'material_opened', 'material_downloaded', 'assignment_opened', 'assignment_submitted'] }).notNull(),
+  page: text('page'),
+  resourceType: text('resource_type'),
+  resourceId: text('resource_id'),
+  resourceTitle: text('resource_title'),
+  metadata: text('metadata'),
+  occurredAt: integer('occurred_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});

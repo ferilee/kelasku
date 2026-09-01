@@ -2,13 +2,18 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates } from './server/db/schema';
-import { eq, and, like, isNull, inArray } from 'drizzle-orm';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 
 const app = new Hono();
 
 type AuthUser = { id: number; name: string; role: 'admin' | 'teacher' | 'counselor' | 'student'; roles: Array<'admin' | 'homeroom' | 'teacher' | 'counselor'> };
-const activeSessions = new Map<string, { user: AuthUser; expiresAt: number }>();
+type ActivityAction = 'login' | 'logout' | 'page_view' | 'material_opened' | 'material_downloaded' | 'assignment_opened' | 'assignment_submitted';
+type ActivitySession = { user: AuthUser; expiresAt: number; activitySessionId?: number };
+const activeSessions = new Map<string, ActivitySession>();
+const ACTIVITY_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const ACTIVITY_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+const CLIENT_ACTIVITY_ACTIONS = new Set<ActivityAction>(['page_view', 'material_opened', 'material_downloaded', 'assignment_opened', 'assignment_submitted']);
 
 const DEFAULT_OFFICER_DUTIES = [
   { key: 'ketua', label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
@@ -40,6 +45,78 @@ function getAuthenticatedUser(c: { req: { raw: Request } }): AuthUser | null {
     return null;
   }
   return session.user;
+}
+
+async function closeStaleActivitySessions() {
+  const cutoff = Date.now() - ACTIVITY_IDLE_TIMEOUT_MS;
+  const openSessions = await db.select({ id: studentActivitySessions.id, lastSeenAt: studentActivitySessions.lastSeenAt })
+    .from(studentActivitySessions)
+    .where(isNull(studentActivitySessions.endedAt));
+  for (const session of openSessions) {
+    if (session.lastSeenAt.getTime() < cutoff) {
+      await db.update(studentActivitySessions).set({ endedAt: session.lastSeenAt, endReason: 'idle' }).where(eq(studentActivitySessions.id, session.id));
+    }
+  }
+}
+
+async function purgeOldActivity() {
+  const cutoff = new Date(Date.now() - ACTIVITY_RETENTION_MS);
+  const oldSessions = await db.select({ id: studentActivitySessions.id }).from(studentActivitySessions).where(lt(studentActivitySessions.startedAt, cutoff));
+  const sessionIds = oldSessions.map((session) => session.id);
+  if (sessionIds.length) await db.delete(studentActivityLogs).where(inArray(studentActivityLogs.sessionId, sessionIds));
+  if (sessionIds.length) await db.delete(studentActivitySessions).where(inArray(studentActivitySessions.id, sessionIds));
+}
+
+async function getActivitySession(sessionId: number, studentId: number) {
+  const rows = await db.select().from(studentActivitySessions).where(and(
+    eq(studentActivitySessions.id, sessionId),
+    eq(studentActivitySessions.studentId, studentId),
+  )).limit(1);
+  return rows[0] || null;
+}
+
+async function touchActivitySession(sessionId: number, studentId: number) {
+  const session = await getActivitySession(sessionId, studentId);
+  if (!session || session.endedAt) return { active: false, session: null };
+  const now = new Date();
+  const elapsed = now.getTime() - session.lastSeenAt.getTime();
+  if (elapsed > ACTIVITY_IDLE_TIMEOUT_MS) {
+    await db.update(studentActivitySessions).set({ endedAt: session.lastSeenAt, endReason: 'idle' }).where(eq(studentActivitySessions.id, session.id));
+    return { active: false, session };
+  }
+  const addedSeconds = Math.max(0, Math.floor(elapsed / 1000));
+  await db.update(studentActivitySessions).set({ lastSeenAt: now, activeSeconds: session.activeSeconds + addedSeconds }).where(eq(studentActivitySessions.id, session.id));
+  return { active: true, session: { ...session, lastSeenAt: now, activeSeconds: session.activeSeconds + addedSeconds } };
+}
+
+async function finishActivitySession(sessionId: number, studentId: number, reason: string) {
+  const session = await getActivitySession(sessionId, studentId);
+  if (!session || session.endedAt) return session;
+  const now = new Date();
+  const elapsed = now.getTime() - session.lastSeenAt.getTime();
+  const isWithinActiveWindow = elapsed <= ACTIVITY_IDLE_TIMEOUT_MS;
+  const addedSeconds = isWithinActiveWindow ? Math.max(0, Math.floor(elapsed / 1000)) : 0;
+  const endedAt = isWithinActiveWindow ? now : session.lastSeenAt;
+  await db.update(studentActivitySessions).set({
+    lastSeenAt: isWithinActiveWindow ? now : session.lastSeenAt,
+    endedAt,
+    endReason: isWithinActiveWindow ? reason : 'idle',
+    activeSeconds: session.activeSeconds + addedSeconds,
+  }).where(eq(studentActivitySessions.id, session.id));
+  return { ...session, lastSeenAt: endedAt, endedAt, activeSeconds: session.activeSeconds + addedSeconds };
+}
+
+async function recordActivityEvent(sessionId: number, studentId: number, action: ActivityAction, details: { page?: string; resourceType?: string; resourceId?: string; resourceTitle?: string; metadata?: Record<string, unknown> } = {}) {
+  await db.insert(studentActivityLogs).values({
+    sessionId,
+    studentId,
+    action,
+    page: details.page,
+    resourceType: details.resourceType,
+    resourceId: details.resourceId,
+    resourceTitle: details.resourceTitle,
+    metadata: details.metadata ? JSON.stringify(details.metadata) : null,
+  });
 }
 
 async function accessibleClassIds(user: AuthUser) {
@@ -274,7 +351,18 @@ app.post('/api/auth/login', async (c) => {
       ...(user.role === 'counselor' ? ['counselor' as const] : []),
     ])];
     const sessionUser: AuthUser = { id: user.id, name: user.name, role: user.role as AuthUser['role'], roles };
-    activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12 });
+    let activitySessionId: number | undefined;
+    if (user.role === 'student') {
+      const classRow = user.classId ? await db.select({ academicYear: classes.academicYear }).from(classes).where(eq(classes.id, user.classId)).limit(1) : [];
+      const insertedSession = await db.insert(studentActivitySessions).values({
+        studentId: user.id,
+        classId: user.classId ?? null,
+        academicYear: classRow[0]?.academicYear ?? null,
+      }).returning({ id: studentActivitySessions.id });
+      activitySessionId = insertedSession[0]?.id;
+      if (activitySessionId) await recordActivityEvent(activitySessionId, user.id, 'login', { page: 'login' });
+    }
+    activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12, activitySessionId });
     setCookie(c, 'webkelas_session', token, { httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 12 });
     return c.json({ user: sessionUser });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
@@ -310,8 +398,13 @@ app.put('/api/auth/password', async (c) => {
   }
 });
 
-app.post('/api/auth/logout', (c) => {
+app.post('/api/auth/logout', async (c) => {
   const token = getCookie(c, 'webkelas_session');
+  const session = token ? activeSessions.get(token) : undefined;
+  if (session?.activitySessionId && session.user.role === 'student') {
+    const finished = await finishActivitySession(session.activitySessionId, session.user.id, 'logout');
+    if (finished) await recordActivityEvent(session.activitySessionId, session.user.id, 'logout', { page: 'logout' });
+  }
   if (token) activeSessions.delete(token);
   deleteCookie(c, 'webkelas_session', { path: '/' });
   return c.json({ success: true });
@@ -322,11 +415,146 @@ app.use('/api/*', async (c, next) => {
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
   const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/')));
-  if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath) {
+  const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
+  if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
   }
-  if (user.role === 'student' && c.req.method !== 'GET') return c.json({ error: 'Siswa tidak memiliki akses untuk mengubah data ini.' }, 403);
+  if (user.role === 'student' && c.req.method !== 'GET' && !studentWritePath) return c.json({ error: 'Siswa tidak memiliki akses untuk mengubah data ini.' }, 403);
   return next();
+});
+
+app.post('/api/activity/heartbeat', async (c) => {
+  const token = getCookie(c as any, 'webkelas_session');
+  const authSession = token ? activeSessions.get(token) : undefined;
+  if (!authSession || authSession.user.role !== 'student' || !authSession.activitySessionId) {
+    return c.json({ active: false });
+  }
+  const result = await touchActivitySession(authSession.activitySessionId, authSession.user.id);
+  return c.json({ active: result.active, lastSeenAt: result.session?.lastSeenAt?.toISOString() || null });
+});
+
+app.post('/api/activity/events', async (c) => {
+  const token = getCookie(c as any, 'webkelas_session');
+  const authSession = token ? activeSessions.get(token) : undefined;
+  if (!authSession || authSession.user.role !== 'student' || !authSession.activitySessionId) {
+    return c.json({ error: 'Sesi aktivitas siswa tidak ditemukan.' }, 401);
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const action = typeof body.action === 'string' ? body.action as ActivityAction : null;
+  if (!action || !CLIENT_ACTIVITY_ACTIONS.has(action)) return c.json({ error: 'Jenis aktivitas tidak valid.' }, 400);
+  const session = await touchActivitySession(authSession.activitySessionId, authSession.user.id);
+  if (!session.active) return c.json({ error: 'Sesi aktivitas telah berakhir.' }, 409);
+  await recordActivityEvent(authSession.activitySessionId, authSession.user.id, action, {
+    page: typeof body.page === 'string' ? body.page.slice(0, 100) : undefined,
+    resourceType: typeof body.resourceType === 'string' ? body.resourceType.slice(0, 50) : undefined,
+    resourceId: typeof body.resourceId === 'string' ? body.resourceId.slice(0, 100) : undefined,
+    resourceTitle: typeof body.resourceTitle === 'string' ? body.resourceTitle.slice(0, 200) : undefined,
+  });
+  return c.json({ success: true });
+});
+
+type ActivityReportQuery = { classId?: number; studentId?: number; from?: string; to?: string; action?: ActivityAction };
+
+function parseReportDate(value: string | undefined, endOfDay = false) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00'}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function buildStudentActivityReport(user: AuthUser, query: ActivityReportQuery) {
+  await closeStaleActivitySessions();
+  await purgeOldActivity();
+  if (query.classId && !(await mayAccessClass(user, query.classId))) return null;
+
+  const permittedClassIds = await accessibleClassIds(user);
+  const allStudents = await db.select({ id: users.id, name: users.name, identifier: users.identifier, classId: users.classId, status: users.status })
+    .from(users)
+    .where(eq(users.role, 'student'));
+  const visibleStudents = allStudents.filter((student) => (
+    (permittedClassIds === null || (student.classId !== null && permittedClassIds.includes(student.classId))) &&
+    (!query.classId || student.classId === query.classId) &&
+    (!query.studentId || student.id === query.studentId)
+  ));
+  if (query.studentId && !visibleStudents.some((student) => student.id === query.studentId)) return null;
+  const studentIds = visibleStudents.map((student) => student.id);
+  const classRows = await db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes);
+  if (!studentIds.length) {
+    return { generatedAt: new Date().toISOString(), from: query.from || null, to: query.to || null, summary: { onlineCount: 0, activeStudentCount: 0, totalActiveSeconds: 0, sessionCount: 0, activityCount: 0 }, students: [], sessions: [], activities: [] };
+  }
+
+  const [sessionRows, activityRows] = await Promise.all([
+    db.select().from(studentActivitySessions).where(inArray(studentActivitySessions.studentId, studentIds)),
+    db.select().from(studentActivityLogs).where(inArray(studentActivityLogs.studentId, studentIds)),
+  ]);
+  const fromDate = parseReportDate(query.from) || new Date(new Date().setHours(0, 0, 0, 0));
+  const toDate = parseReportDate(query.to, true) || new Date();
+  const sessions = sessionRows.filter((session) => {
+    const endedAt = session.endedAt || new Date();
+    return session.startedAt <= toDate && endedAt >= fromDate;
+  });
+  const activities = activityRows.filter((activity) => activity.occurredAt >= fromDate && activity.occurredAt <= toDate && (!query.action || activity.action === query.action));
+  const visibleSessionIds = new Set(sessions.map((session) => session.id));
+  const filteredActivities = activities.filter((activity) => visibleSessionIds.has(activity.sessionId));
+  const studentMap = new Map(visibleStudents.map((student) => [student.id, student]));
+  const classMap = new Map(classRows.map((classRow) => [classRow.id, classRow]));
+  const now = Date.now();
+  const students = visibleStudents.map((student) => {
+    const studentSessions = sessions.filter((session) => session.studentId === student.id);
+    const studentActivities = filteredActivities.filter((activity) => activity.studentId === student.id).sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime() || b.id - a.id);
+    const latestSession = [...studentSessions].sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime())[0];
+    const latestActivity = studentActivities[0];
+    return {
+      id: student.id.toString(), name: student.name, identifier: student.identifier, status: student.status,
+      classId: student.classId?.toString() || null, className: student.classId ? classMap.get(student.classId)?.name || 'Kelas' : 'Belum berkelas',
+      online: studentSessions.some((session) => !session.endedAt && now - session.lastSeenAt.getTime() <= ACTIVITY_IDLE_TIMEOUT_MS),
+      lastActiveAt: latestSession?.lastSeenAt?.toISOString() || null,
+      totalActiveSeconds: studentSessions.reduce((total, session) => total + session.activeSeconds, 0),
+      sessionCount: studentSessions.length, activityCount: studentActivities.length,
+      latestActivity: latestActivity ? { action: latestActivity.action, occurredAt: latestActivity.occurredAt.toISOString(), page: latestActivity.page, resourceTitle: latestActivity.resourceTitle } : null,
+    };
+  });
+  return {
+    generatedAt: new Date().toISOString(), from: fromDate.toISOString(), to: toDate.toISOString(),
+    summary: {
+      onlineCount: students.filter((student) => student.online).length,
+      activeStudentCount: students.filter((student) => student.activityCount > 0 || student.online).length,
+      totalActiveSeconds: students.reduce((total, student) => total + student.totalActiveSeconds, 0),
+      sessionCount: sessions.length, activityCount: filteredActivities.length,
+    },
+    students: students.sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'id')),
+    sessions: sessions.map((session) => ({
+      id: session.id.toString(), studentId: session.studentId.toString(), studentName: studentMap.get(session.studentId)?.name || 'Siswa',
+      className: session.classId ? classMap.get(session.classId)?.name || 'Kelas' : 'Belum berkelas', startedAt: session.startedAt.toISOString(), lastSeenAt: session.lastSeenAt.toISOString(), endedAt: session.endedAt?.toISOString() || null, endReason: session.endReason, activeSeconds: session.activeSeconds,
+    })).sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    activities: filteredActivities.map((activity) => ({
+      id: activity.id.toString(), sessionId: activity.sessionId.toString(), studentId: activity.studentId.toString(), studentName: studentMap.get(activity.studentId)?.name || 'Siswa', action: activity.action, page: activity.page, resourceType: activity.resourceType, resourceId: activity.resourceId, resourceTitle: activity.resourceTitle, occurredAt: activity.occurredAt.toISOString(),
+    })).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
+  };
+}
+
+app.get('/api/student-activity', async (c) => {
+  const user = getAuthenticatedUser(c);
+  if (!user || user.role === 'student') return c.json({ error: 'Anda tidak memiliki akses ke laporan aktivitas siswa.' }, 403);
+  const classId = Number(c.req.query('classId'));
+  const studentId = Number(c.req.query('studentId'));
+  const action = c.req.query('action');
+  const report = await buildStudentActivityReport(user, {
+    classId: Number.isInteger(classId) && classId > 0 ? classId : undefined,
+    studentId: Number.isInteger(studentId) && studentId > 0 ? studentId : undefined,
+    from: c.req.query('from'), to: c.req.query('to'), action: CLIENT_ACTIVITY_ACTIONS.has(action as ActivityAction) ? action as ActivityAction : undefined,
+  });
+  if (!report) return c.json({ error: 'Anda tidak memiliki akses ke data aktivitas ini.' }, 403);
+  return c.json(report);
+});
+
+app.get('/api/student-activity/:studentId', async (c) => {
+  const user = getAuthenticatedUser(c);
+  if (!user || user.role === 'student') return c.json({ error: 'Anda tidak memiliki akses ke laporan aktivitas siswa.' }, 403);
+  const studentId = Number(c.req.param('studentId'));
+  if (!Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Siswa tidak valid.' }, 400);
+  const report = await buildStudentActivityReport(user, { studentId, from: c.req.query('from'), to: c.req.query('to'), action: c.req.query('action') as ActivityAction || undefined });
+  if (!report) return c.json({ error: 'Anda tidak memiliki akses ke siswa ini.' }, 403);
+  return c.json(report);
 });
 
 app.get('/api/my-workspace', async (c) => {
@@ -1780,6 +2008,8 @@ app.post('/api/assignments/:assignmentId/student/:studentId/grade', async (c) =>
 app.get('/api/student/:studentId/assignments', async (c) => {
   try {
     const studentId = parseInt(c.req.param('studentId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role !== 'student' || authenticatedUser.id !== studentId) return c.json({ error: 'Anda tidak memiliki akses ke data siswa ini.' }, 403);
     const allAssignments = await db.select().from(assignments);
     const studentSubmissions = await db.select().from(submissions).where(eq(submissions.userId, studentId));
     
@@ -1806,11 +2036,17 @@ app.get('/api/student/:studentId/assignments', async (c) => {
 app.post('/api/student/:studentId/submissions', async (c) => {
   try {
     const studentId = parseInt(c.req.param('studentId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role !== 'student' || authenticatedUser.id !== studentId) return c.json({ error: 'Anda tidak memiliki akses untuk mengumpulkan tugas ini.' }, 403);
     const body = await c.req.json();
-    const { assignmentId, filePath } = body;
+    const assignmentId = Number(body.assignmentId);
+    const filePath = typeof body.filePath === 'string' ? body.filePath.trim() : '';
     if (!assignmentId || !filePath) {
       return c.json({ error: 'assignmentId and filePath are required' }, 400);
     }
+
+    const assignment = await db.select({ title: assignments.title, type: assignments.type }).from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
+    if (!assignment[0] || assignment[0].type !== 'tugas') return c.json({ error: 'Tugas tidak ditemukan.' }, 404);
     
     const existing = await db.select().from(submissions).where(
       and(
@@ -1831,6 +2067,13 @@ app.post('/api/student/:studentId/submissions', async (c) => {
         filePath,
         submittedAt: new Date()
       });
+    }
+
+    const token = getCookie(c as any, 'webkelas_session');
+    const authSession = token ? activeSessions.get(token) : undefined;
+    if (authSession?.activitySessionId) {
+      const activitySession = await touchActivitySession(authSession.activitySessionId, studentId);
+      if (activitySession.active) await recordActivityEvent(authSession.activitySessionId, studentId, 'assignment_submitted', { page: 'assignments', resourceType: 'assignment', resourceId: assignmentId.toString(), resourceTitle: assignment[0].title });
     }
     
     return c.json({ success: true });

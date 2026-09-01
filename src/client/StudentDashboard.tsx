@@ -3,6 +3,7 @@ import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, Calend
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
+import { sendStudentActivity, useStudentActivity } from './studentActivity';
 
 type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
 type StudentAttendanceSummary = {
@@ -23,6 +24,8 @@ const StudentDashboard = () => {
   const currentStudentId = authenticatedStudent?.id.toString() || '';
   const dbStudentId = currentStudentId;
   const { notify } = useNotifications();
+
+  useStudentActivity(currentStudentId, activeTab);
 
   useEffect(() => {
     const loadStudentDashboard = async () => {
@@ -347,6 +350,7 @@ const StudentDashboard = () => {
                               </span>
                               <button 
                                 onClick={() => {
+                                  sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title });
                                   setActiveTab('assignments');
                                   setSelectedAssignmentId(item.id);
                                   setSubmitFilePath('');
@@ -516,10 +520,11 @@ const StudentDashboard = () => {
                               <span className="text-xs font-mono text-slate-650 dark:text-slate-400 truncate max-w-[200px]" title={item.filePath}>
                                 {item.filePath.split('/').pop()}
                               </span>
-                              <a 
-                                href={item.filePath} 
-                                target="_blank" 
+                              <a
+                                href={item.filePath}
+                                target="_blank"
                                 rel="noreferrer"
+                                onClick={() => sendStudentActivity('material_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title })}
                                 className="text-xs text-blue-600 hover:underline font-bold ml-auto"
                               >
                                 Lihat File Pendukung
@@ -541,6 +546,7 @@ const StudentDashboard = () => {
 
                           <button
                             onClick={() => {
+                              sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title });
                               setSelectedAssignmentId(item.id);
                               setSubmitFilePath(item.submission?.filePath || '');
                               setShowSubmitModal(true);
@@ -597,11 +603,12 @@ const StudentDashboard = () => {
                             <span className="text-xs font-mono text-slate-600 dark:text-slate-400 truncate max-w-[200px]" title={item.filePath}>
                               {item.filePath.split('/').pop()}
                             </span>
-                            <a 
-                              href={item.filePath} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="text-xs text-blue-600 hover:underline font-bold ml-auto"
+                              <a
+                                href={item.filePath}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() => sendStudentActivity('material_opened', { page: 'materials', resourceType: 'material', resourceId: item.id, resourceTitle: item.title })}
+                                className="text-xs text-blue-600 hover:underline font-bold ml-auto"
                             >
                               Lihat Modul / Slide
                             </a>

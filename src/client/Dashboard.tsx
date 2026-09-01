@@ -669,8 +669,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [newAssignmentType, setNewAssignmentType] = useState<'tugas' | 'materi'>('tugas');
   const [newAssignmentDueDate, setNewAssignmentDueDate] = useState('');
   const [newAssignmentFilePath, setNewAssignmentFilePath] = useState('');
+  const [newAssignmentTargetClassIds, setNewAssignmentTargetClassIds] = useState<string[]>([]);
+  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
   
   const [viewSubmissionsAssignmentId, setViewSubmissionsAssignmentId] = useState<number | null>(null);
+  const [submissionClassId, setSubmissionClassId] = useState('');
   const [submissionsList, setSubmissionsList] = useState<any[]>([]);
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
   const [tempSubGrades, setTempSubGrades] = useState<Record<number, number>>({});
@@ -701,36 +704,64 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
   }, []);
 
+  const openNewAssignmentModal = () => {
+    setEditingAssignmentId(null);
+    setNewAssignmentTitle('');
+    setNewAssignmentDesc('');
+    setNewAssignmentType('tugas');
+    setNewAssignmentDueDate('');
+    setNewAssignmentFilePath('');
+    setNewAssignmentTargetClassIds(classData.classId ? [classData.classId] : []);
+    setShowAddAssignmentModal(true);
+  };
+
+  const openEditAssignmentModal = (item: any) => {
+    setEditingAssignmentId(item.id);
+    setNewAssignmentTitle(item.title || '');
+    setNewAssignmentDesc(item.description || '');
+    setNewAssignmentType(item.type === 'materi' ? 'materi' : 'tugas');
+    setNewAssignmentDueDate(item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : '');
+    setNewAssignmentFilePath(item.filePath || '');
+    setNewAssignmentTargetClassIds((item.targetClassIds || []).map((id: number | string) => String(id)));
+    setShowAddAssignmentModal(true);
+  };
+
   const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAssignmentTitle.trim()) {
       notify('Judul tidak boleh kosong!');
       return;
     }
+    if (!newAssignmentTargetClassIds.length) {
+      notify('Pilih setidaknya satu kelas tujuan.');
+      return;
+    }
 
     try {
-      const res = await fetch('/api/assignments', {
-        method: 'POST',
+      const res = await fetch(editingAssignmentId ? `/api/assignments/${editingAssignmentId}` : '/api/assignments', {
+        method: editingAssignmentId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: newAssignmentTitle.trim(),
           description: newAssignmentDesc.trim(),
           type: newAssignmentType,
           filePath: newAssignmentFilePath.trim() || null,
-          dueDate: newAssignmentType === 'tugas' && newAssignmentDueDate ? newAssignmentDueDate : null
+          dueDate: newAssignmentType === 'tugas' && newAssignmentDueDate ? newAssignmentDueDate : null,
+          targetClassIds: newAssignmentTargetClassIds,
         })
       });
 
       if (res.ok) {
-        notify(newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!');
+        notify(editingAssignmentId ? 'Materi atau tugas berhasil diperbarui!' : (newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!'));
         setShowAddAssignmentModal(false);
+        setEditingAssignmentId(null);
         fetchAssignments();
       } else {
         const payload = await res.json().catch(() => null) as { error?: string } | null;
         notify(payload?.error || 'Gagal menyimpan.');
       }
     } catch (err) {
-      console.error('Error creating assignment:', err);
+      console.error('Error saving assignment:', err);
       notify('Terjadi kesalahan saat menyimpan.');
     }
   };
@@ -752,14 +783,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
   };
 
-  const fetchSubmissions = useCallback(async (assignmentId: number) => {
-    if (!classData.classId) {
+  const fetchSubmissions = useCallback(async (assignmentId: number, requestedClassId = submissionClassId || classData.classId || '') => {
+    if (!requestedClassId) {
       setSubmissionsList([]);
       return;
     }
     setIsLoadingSubmissions(true);
     try {
-      const res = await fetch(`/api/assignments/${assignmentId}/submissions?classId=${encodeURIComponent(classData.classId)}`);
+      const res = await fetch(`/api/assignments/${assignmentId}/submissions?classId=${encodeURIComponent(requestedClassId)}`);
       if (res.ok) {
         const data = await res.json();
         setSubmissionsList(data);
@@ -778,7 +809,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     } finally {
       setIsLoadingSubmissions(false);
     }
-  }, [classData.classId]);
+  }, [classData.classId, submissionClassId]);
 
   const handleSaveSubmissionGrade = async (studentId: number, gradeVal: number) => {
     if (viewSubmissionsAssignmentId === null) return;
@@ -789,7 +820,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         body: JSON.stringify({ grade: gradeVal })
       });
       if (res.ok) {
-        fetchSubmissions(viewSubmissionsAssignmentId);
+        fetchSubmissions(viewSubmissionsAssignmentId, submissionClassId);
       }
     } catch (err) {
       console.error('Error grading submission:', err);
@@ -807,7 +838,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (viewSubmissionsAssignmentId !== null) {
       fetchSubmissions(viewSubmissionsAssignmentId);
     }
-  }, [viewSubmissionsAssignmentId, fetchSubmissions]);
+  }, [viewSubmissionsAssignmentId, fetchSubmissions, submissionClassId]);
 
   const getSholatCount = (prayerAttendance: { Berjamaah: number; Munfarid: number }) =>
     prayerAttendance.Berjamaah + prayerAttendance.Munfarid;
@@ -3114,14 +3145,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     </div>
                     
                     <button
-                      onClick={() => {
-                        setNewAssignmentTitle('');
-                        setNewAssignmentDesc('');
-                        setNewAssignmentType('tugas');
-                        setNewAssignmentDueDate('');
-                        setNewAssignmentFilePath('');
-                        setShowAddAssignmentModal(true);
-                      }}
+                      onClick={openNewAssignmentModal}
                       className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-all shadow-sm"
                     >
                       <Plus className="h-4 w-4" /> Tambah Materi / Tugas
@@ -3142,20 +3166,38 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         <div key={item.id} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:shadow-md transition-all duration-300">
                           <div>
                             <div className="flex justify-between items-start mb-4">
-                              <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg ${
-                                item.type === 'tugas' 
-                                  ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50' 
-                                  : 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50'
-                              }`}>
-                                {item.type === 'tugas' ? 'Tugas' : 'Materi'}
-                              </span>
-                              <button 
-                                onClick={() => handleDeleteAssignment(item.id)}
-                                className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                                title="Hapus"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg ${
+                                  item.type === 'tugas'
+                                    ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50'
+                                    : 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50'
+                                }`}>
+                                  {item.type === 'tugas' ? 'Tugas' : 'Materi'}
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  {(item.targetClasses || []).map((target: any) => (
+                                    <span key={target.id} className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-300" title={`${target.name} · ${target.academicYear}`}>
+                                      Kelas {target.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => openEditAssignmentModal(item)}
+                                  className="text-slate-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                                  title="Edit"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAssignment(item.id)}
+                                  className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                                  title="Hapus"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
                             </div>
                             
                             <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">{item.title}</h4>
@@ -3199,7 +3241,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                   </span>
                                 </div>
                                 <button
-                                  onClick={() => { setSubmissionSearch(''); setSubmissionStatusFilter('all'); setViewSubmissionsAssignmentId(item.id); }}
+                                  onClick={() => { setSubmissionSearch(''); setSubmissionStatusFilter('all'); setSubmissionClassId(String(item.targetClassIds?.[0] || classData.classId || '')); setViewSubmissionsAssignmentId(item.id); }}
                                   className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-lg transition-all"
                                 >
                                   Lihat Pengumpulan
@@ -4029,8 +4071,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             </button>
 
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              Tambah Materi / Tugas
+              {editingAssignmentId ? <Edit2 className="h-5 w-5 text-blue-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
+              {editingAssignmentId ? 'Edit Materi / Tugas' : 'Tambah Materi / Tugas'}
             </h3>
             
             <form onSubmit={handleCreateAssignment} className="space-y-4">
@@ -4066,6 +4108,28 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   <option value="tugas">Tugas (Memerlukan Pengumpulan & Nilai)</option>
                   <option value="materi">Materi (Hanya untuk Dibaca/Didownload)</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kelas Tujuan</label>
+                <div className="max-h-36 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+                  {classData.classes.filter((item) => item.status === 'Aktif').map((item) => {
+                    const checked = newAssignmentTargetClassIds.includes(item.id);
+                    return (
+                      <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors ${checked ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setNewAssignmentTargetClassIds((current) => checked ? current.filter((id) => id !== item.id) : [...current, item.id])}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><span className="font-semibold">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></span>
+                      </label>
+                    );
+                  })}
+                  {classData.classes.filter((item) => item.status === 'Aktif').length === 0 && <p className="text-xs text-slate-400">Belum ada kelas aktif yang dapat dipilih.</p>}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">Materi/tugas hanya akan tampil untuk siswa pada kelas yang dipilih.</p>
               </div>
 
               {newAssignmentType === 'tugas' && (
@@ -4132,8 +4196,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               Pantau Pengumpulan Tugas & Beri Nilai
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Berikut adalah daftar pengumpulan tugas oleh siswa kelas ini beserta status penilaiannya.
+              Berikut adalah daftar pengumpulan tugas oleh siswa pada kelas tujuan beserta status penilaiannya.
             </p>
+
+            {(() => {
+              const assignment = assignmentsList.find((item) => item.id === viewSubmissionsAssignmentId);
+              const targetClasses = assignment?.targetClasses || [];
+              return targetClasses.length > 1 ? (
+                <div className="mb-4 flex items-center gap-3">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Kelas</label>
+                  <select
+                    value={submissionClassId}
+                    onChange={(event) => { setSubmissionClassId(event.target.value); fetchSubmissions(viewSubmissionsAssignmentId, event.target.value); }}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    {targetClasses.map((target: any) => <option key={target.id} value={target.id}>{target.name} · {target.academicYear}</option>)}
+                  </select>
+                </div>
+              ) : null;
+            })()}
 
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">

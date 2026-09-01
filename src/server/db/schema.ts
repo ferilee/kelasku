@@ -57,6 +57,13 @@ export const assignments = sqliteTable('assignments', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
+export const assignmentClasses = sqliteTable('assignment_classes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  assignmentId: integer('assignment_id').notNull().references(() => assignments.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
 export const submissions = sqliteTable('submissions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   assignmentId: integer('assignment_id').notNull().references(() => assignments.id),

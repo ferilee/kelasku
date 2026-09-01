@@ -58,6 +58,14 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS assignment_classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(assignment_id, class_id)
+  );
+
   CREATE TABLE IF NOT EXISTS submissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     assignment_id INTEGER NOT NULL REFERENCES assignments(id),
@@ -296,5 +304,14 @@ if (!initialClass) {
 if (initialClass) {
   sqlite.query("UPDATE users SET class_id = ? WHERE role = 'student' AND class_id IS NULL").run(initialClass.id);
   sqlite.query('UPDATE schedules SET class_id = ? WHERE class_id IS NULL').run(initialClass.id);
+  sqlite.query(`
+    INSERT OR IGNORE INTO assignment_classes (assignment_id, class_id)
+    SELECT assignments.id, ?
+    FROM assignments
+    WHERE NOT EXISTS (
+      SELECT 1 FROM assignment_classes
+      WHERE assignment_classes.assignment_id = assignments.id
+    )
+  `).run(initialClass.id);
 }
 export const db = drizzle(sqlite, { schema });

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 
 const app = new Hono();
@@ -143,6 +143,47 @@ async function mayAccessClass(user: AuthUser | null, classId: number) {
   if (!user) return true;
   const ids = await accessibleClassIds(user);
   return ids === null || ids.includes(classId);
+}
+
+function parseTargetClassIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))];
+}
+
+async function getAssignmentTargetMap(assignmentIds: number[]) {
+  const targetMap = new Map<number, Array<{ id: number; name: string; academicYear: string }>>();
+  if (!assignmentIds.length) return targetMap;
+  const rows = await db.select({
+    assignmentId: assignmentClasses.assignmentId,
+    id: classes.id,
+    name: classes.name,
+    academicYear: classes.academicYear,
+  }).from(assignmentClasses).innerJoin(classes, eq(assignmentClasses.classId, classes.id)).where(inArray(assignmentClasses.assignmentId, assignmentIds));
+  for (const row of rows) {
+    const current = targetMap.get(row.assignmentId) || [];
+    current.push({ id: row.id, name: row.name, academicYear: row.academicYear });
+    targetMap.set(row.assignmentId, current);
+  }
+  return targetMap;
+}
+
+async function serializeAssignments(items: typeof assignments.$inferSelect[]) {
+  const targetMap = await getAssignmentTargetMap(items.map((item) => item.id));
+  return items.map((item) => {
+    const targetClasses = targetMap.get(item.id) || [];
+    return {
+      ...item,
+      targetClassIds: targetClasses.map((target) => target.id),
+      targetClasses,
+    };
+  });
+}
+
+async function canManageAssignmentTargets(user: AuthUser, targetClassIds: number[]) {
+  if (!targetClassIds.length) return false;
+  const existingClasses = await db.select({ id: classes.id }).from(classes).where(inArray(classes.id, targetClassIds));
+  if (existingClasses.length !== targetClassIds.length) return false;
+  return (await Promise.all(targetClassIds.map((classId) => mayAccessClass(user, classId)))).every(Boolean);
 }
 
 async function mayTeachSubject(user: AuthUser, classId: number, subject: string) {
@@ -414,7 +455,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/')));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements')) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/')));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -1897,8 +1938,20 @@ app.delete('/api/grades/assessment', async (c) => {
 // GET all assignments/materials
 app.get('/api/assignments', async (c) => {
   try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+    const permittedClassIds = await accessibleClassIds(authenticatedUser);
     const list = await db.select().from(assignments);
-    return c.json(list);
+    const targetMap = await getAssignmentTargetMap(list.map((item) => item.id));
+    const visibleItems = list.filter((item) => {
+      const targets = targetMap.get(item.id) || [];
+      return permittedClassIds === null || targets.some((target) => permittedClassIds.includes(target.id));
+    });
+    return c.json(visibleItems.map((item) => ({
+      ...item,
+      targetClassIds: (targetMap.get(item.id) || []).map((target) => target.id),
+      targetClasses: targetMap.get(item.id) || [],
+    })));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -1907,21 +1960,57 @@ app.get('/api/assignments', async (c) => {
 // POST create assignment/material
 app.post('/api/assignments', async (c) => {
   try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !(authenticatedUser.roles.includes('teacher') || canManageClass(authenticatedUser))) {
+      return c.json({ error: 'Anda tidak memiliki hak untuk membagikan materi atau tugas.' }, 403);
+    }
     const body = await c.req.json();
     const { title, description, type, filePath, dueDate } = body;
-    if (!title || !type) {
-      return c.json({ error: 'Title and Type are required' }, 400);
-    }
+    const targetClassIds = parseTargetClassIds(body.targetClassIds);
+    if (typeof title !== 'string' || !title.trim() || !['tugas', 'materi'].includes(type)) return c.json({ error: 'Judul dan tipe materi/tugas wajib diisi.' }, 400);
+    if (!await canManageAssignmentTargets(authenticatedUser, targetClassIds)) return c.json({ error: 'Pilih kelas tujuan yang berada dalam kewenangan Anda.' }, 403);
     
     const inserted = await db.insert(assignments).values({
-      title,
-      description,
+      title: title.trim(),
+      description: typeof description === 'string' ? description.trim() || null : null,
       type,
-      filePath,
-      dueDate: dueDate ? new Date(dueDate) : null
+      filePath: typeof filePath === 'string' ? filePath.trim() || null : null,
+      dueDate: type === 'tugas' && dueDate ? new Date(dueDate) : null
     }).returning();
-    
-    return c.json(inserted[0] || { success: true });
+    if (!inserted[0]) return c.json({ error: 'Materi atau tugas gagal dibuat.' }, 500);
+    await db.insert(assignmentClasses).values(targetClassIds.map((classId) => ({ assignmentId: inserted[0].id, classId })));
+    return c.json((await serializeAssignments(inserted))[0]);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// PUT update assignment/material and its target classes
+app.put('/api/assignments/:id', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !(authenticatedUser.roles.includes('teacher') || canManageClass(authenticatedUser))) return c.json({ error: 'Anda tidak memiliki hak untuk mengubah materi atau tugas.' }, 403);
+    if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'ID materi atau tugas tidak valid.' }, 400);
+    const existing = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+    if (!existing[0]) return c.json({ error: 'Materi atau tugas tidak ditemukan.' }, 404);
+    const currentTargetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
+    if (!currentTargetRows.length || !await canManageAssignmentTargets(authenticatedUser, currentTargetRows.map((row) => row.classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas tujuan item ini.' }, 403);
+    const body = await c.req.json();
+    const targetClassIds = parseTargetClassIds(body.targetClassIds);
+    if (typeof body.title !== 'string' || !body.title.trim() || !['tugas', 'materi'].includes(body.type)) return c.json({ error: 'Judul dan tipe materi/tugas wajib diisi.' }, 400);
+    if (!await canManageAssignmentTargets(authenticatedUser, targetClassIds)) return c.json({ error: 'Pilih kelas tujuan yang berada dalam kewenangan Anda.' }, 403);
+    await db.update(assignments).set({
+      title: body.title.trim(),
+      description: typeof body.description === 'string' ? body.description.trim() || null : null,
+      type: body.type,
+      filePath: typeof body.filePath === 'string' ? body.filePath.trim() || null : null,
+      dueDate: body.type === 'tugas' && body.dueDate ? new Date(body.dueDate) : null,
+    }).where(eq(assignments.id, id));
+    await db.delete(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
+    await db.insert(assignmentClasses).values(targetClassIds.map((classId) => ({ assignmentId: id, classId })));
+    const updated = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+    return c.json((await serializeAssignments(updated))[0]);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -1930,9 +2019,15 @@ app.post('/api/assignments', async (c) => {
 // DELETE assignment/material
 app.delete('/api/assignments/:id', async (c) => {
   try {
-    const id = parseInt(c.req.param('id'));
+    const id = Number(c.req.param('id'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !(authenticatedUser.roles.includes('teacher') || canManageClass(authenticatedUser))) return c.json({ error: 'Anda tidak memiliki hak untuk menghapus materi atau tugas.' }, 403);
+    if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'ID materi atau tugas tidak valid.' }, 400);
+    const targetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
+    if (!targetRows.length || !await canManageAssignmentTargets(authenticatedUser, targetRows.map((row) => row.classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas tujuan item ini.' }, 403);
     // Delete associated submissions first
     await db.delete(submissions).where(eq(submissions.assignmentId, id));
+    await db.delete(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
     // Delete assignment
     await db.delete(assignments).where(eq(assignments.id, id));
     return c.json({ success: true });
@@ -1949,6 +2044,11 @@ app.get('/api/assignments/:id/submissions', async (c) => {
     const authenticatedUser = getAuthenticatedUser(c);
     if (!Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas wajib dipilih.' }, 400);
     if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const target = await db.select({ id: assignmentClasses.id }).from(assignmentClasses).where(and(
+      eq(assignmentClasses.assignmentId, id),
+      eq(assignmentClasses.classId, classId),
+    )).limit(1);
+    if (!target[0]) return c.json({ error: 'Tugas tidak ditujukan ke kelas ini.' }, 403);
 
     const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const allSubmissions = await db.select().from(submissions).where(eq(submissions.assignmentId, id));
@@ -1978,6 +2078,13 @@ app.post('/api/assignments/:assignmentId/student/:studentId/grade', async (c) =>
   try {
     const assignmentId = parseInt(c.req.param('assignmentId'));
     const studentId = parseInt(c.req.param('studentId'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, studentId)).limit(1);
+    const target = student[0]?.classId ? await db.select({ id: assignmentClasses.id }).from(assignmentClasses).where(and(
+      eq(assignmentClasses.assignmentId, assignmentId),
+      eq(assignmentClasses.classId, student[0].classId),
+    )).limit(1) : [];
+    if (!authenticatedUser || !student[0]?.classId || !target[0] || !(await mayAccessClass(authenticatedUser, student[0].classId))) return c.json({ error: 'Anda tidak memiliki akses untuk menilai siswa ini.' }, 403);
     const body = await c.req.json();
     const { grade } = body;
     
@@ -2010,13 +2117,18 @@ app.get('/api/student/:studentId/assignments', async (c) => {
     const studentId = parseInt(c.req.param('studentId'));
     const authenticatedUser = getAuthenticatedUser(c);
     if (!authenticatedUser || authenticatedUser.role !== 'student' || authenticatedUser.id !== studentId) return c.json({ error: 'Anda tidak memiliki akses ke data siswa ini.' }, 403);
+    const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, studentId)).limit(1);
+    if (!student[0]?.classId) return c.json({ error: 'Kelas siswa belum ditentukan.' }, 403);
     const allAssignments = await db.select().from(assignments);
+    const targetMap = await getAssignmentTargetMap(allAssignments.map((item) => item.id));
     const studentSubmissions = await db.select().from(submissions).where(eq(submissions.userId, studentId));
-    
-    const result = allAssignments.map(item => {
+    const visibleAssignments = allAssignments.filter((item) => (targetMap.get(item.id) || []).some((target) => target.id === student[0].classId));
+    const result = visibleAssignments.map(item => {
       const sub = studentSubmissions.find(s => s.assignmentId === item.id);
       return {
         ...item,
+        targetClassIds: (targetMap.get(item.id) || []).map((target) => target.id),
+        targetClasses: targetMap.get(item.id) || [],
         submission: sub ? {
           id: sub.id,
           filePath: sub.filePath,
@@ -2045,8 +2157,14 @@ app.post('/api/student/:studentId/submissions', async (c) => {
       return c.json({ error: 'assignmentId and filePath are required' }, 400);
     }
 
+    const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, studentId)).limit(1);
     const assignment = await db.select({ title: assignments.title, type: assignments.type }).from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
     if (!assignment[0] || assignment[0].type !== 'tugas') return c.json({ error: 'Tugas tidak ditemukan.' }, 404);
+    const target = student[0]?.classId ? await db.select({ id: assignmentClasses.id }).from(assignmentClasses).where(and(
+      eq(assignmentClasses.assignmentId, assignmentId),
+      eq(assignmentClasses.classId, student[0].classId),
+    )).limit(1) : [];
+    if (!target[0]) return c.json({ error: 'Tugas tidak ditujukan ke kelas siswa ini.' }, 403);
     
     const existing = await db.select().from(submissions).where(
       and(

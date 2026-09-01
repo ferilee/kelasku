@@ -39,3 +39,13 @@ Rentang penggunaan portal oleh seorang siswa yang dimulai saat login dan berakhi
 ### Aktivitas Belajar
 
 Peristiwa penting selama Sesi Akses siswa, seperti membuka halaman belajar, membuka materi, membuka tugas, dan mengumpulkan tugas. Aktivitas Belajar menunjukkan tindakan di portal, bukan bukti bahwa seluruh isi materi telah dibaca.
+
+## Materi & Tugas
+
+### Kelas Tujuan
+
+Kelas yang menerima satu materi atau tugas. Satu materi atau tugas dapat memiliki satu atau beberapa Kelas Tujuan; siswa hanya melihat item yang menargetkan kelas tempat ia terdaftar.
+
+### Penugasan Materi/Tugas
+
+Pemberian materi atau tugas oleh guru kepada Kelas Tujuan yang berada dalam kewenangan guru tersebut. Mengubah Kelas Tujuan tidak menghapus pengumpulan tugas yang sudah tersimpan.

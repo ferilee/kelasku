@@ -388,7 +388,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   }, [activeTab, reportCategory, fetchReportData]);
 
   const [reportSubTab, setReportSubTab] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
-  const [statsTab, setStatsTab] = useState<'harian' | 'mingguan' | 'bulanan'>('bulanan');
+  const [statsTab, setStatsTab] = useState<'harian' | 'mingguan' | 'bulanan'>('harian');
   const [classStats, setClassStats] = useState<any>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
 
@@ -411,6 +411,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     fetchClassStats();
   }, [fetchClassStats, classData.students]);
+
+  useEffect(() => {
+    if (workspaceMode === 'teaching') setStatsTab('harian');
+  }, [workspaceMode, activeTeachingSubject]);
 
   // Academic & Gradebook states
   const [gradesList, setGradesList] = useState<any[]>([]);
@@ -1579,7 +1583,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         Statistik Presensi Kelas
                       </h3>
                       
-                      <div className="flex bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl w-fit">
+                      {workspaceMode !== 'teaching' && (<div className="flex bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl w-fit">
                         {(['harian', 'mingguan', 'bulanan'] as const).map((tab) => (
                           <button
                             key={tab}
@@ -1593,7 +1597,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             {tab}
                           </button>
                         ))}
-                      </div>
+                      </div>)}
                     </div>
 
                     {isLoadingStats || !classStats ? (
@@ -1619,6 +1623,65 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         const jumatTotal = data.jumat.total;
                         const jumatSholat = data.jumat.Berjamaah + data.jumat.Munfarid;
                         const jumatSholatPct = jumatTotal > 0 ? Math.round((jumatSholat / jumatTotal) * 100) : 0;
+
+                        if (workspaceMode === 'teaching') {
+                          const periodOptions = [
+                            { key: 'harian' as const, label: 'Harian', description: 'Hari ini', source: 'daily' },
+                            { key: 'mingguan' as const, label: 'Mingguan', description: '7 hari terakhir', source: 'weekly' },
+                            { key: 'bulanan' as const, label: 'Bulanan', description: 'Bulan berjalan', source: 'monthly' },
+                          ];
+                          const selectedDaily = data.harian;
+                          const selectedTotal = selectedDaily.total;
+                          const selectedHadirPct = selectedTotal > 0 ? Math.round((selectedDaily.Hadir / selectedTotal) * 100) : 0;
+
+                          return (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                {periodOptions.map((period) => {
+                                  const periodData = classStats[period.source].harian;
+                                  const periodTotal = periodData.total;
+                                  const periodHadirPct = periodTotal > 0 ? Math.round((periodData.Hadir / periodTotal) * 100) : 0;
+                                  const isActive = statsTab === period.key;
+                                  return (
+                                    <button
+                                      key={period.key}
+                                      type="button"
+                                      onClick={() => setStatsTab(period.key)}
+                                      aria-pressed={isActive}
+                                      className={`rounded-xl border p-4 text-left transition-all ${isActive ? 'border-blue-400 bg-blue-50 shadow-sm dark:border-blue-600 dark:bg-blue-950/30' : 'border-slate-200 bg-slate-50/60 hover:border-blue-200 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-800/40 dark:hover:border-blue-800 dark:hover:bg-blue-950/20'}`}
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <span className={`text-sm font-bold ${isActive ? 'text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'}`}>Presensi {period.label}</span>
+                                        <span className="text-xs text-slate-400">Tot: {periodTotal}</span>
+                                      </div>
+                                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{period.description}</p>
+                                      <div className="mt-3 flex items-center justify-between text-xs">
+                                        <span className="text-slate-500 dark:text-slate-400">Hadir</span>
+                                        <span className="font-bold text-emerald-600">{periodData.Hadir} ({periodHadirPct}%)</span>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 dark:border-slate-700/50 dark:bg-slate-800/30">
+                                <div className="flex items-center justify-between gap-3">
+                                  <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">Presensi Harian</h4>
+                                  <span className="text-xs text-slate-400">Total: {selectedTotal}</span>
+                                </div>
+                                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                                  <div className="h-full rounded-full bg-emerald-500" style={{ width: `${selectedHadirPct}%` }} />
+                                </div>
+                                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                  <div><p className="text-xs text-slate-500 dark:text-slate-400">Hadir</p><p className="mt-1 text-lg font-bold text-emerald-600">{selectedDaily.Hadir}</p></div>
+                                  <div><p className="text-xs text-slate-500 dark:text-slate-400">Sakit</p><p className="mt-1 text-lg font-bold text-amber-500">{selectedDaily.Sakit}</p></div>
+                                  <div><p className="text-xs text-slate-500 dark:text-slate-400">Izin</p><p className="mt-1 text-lg font-bold text-blue-500">{selectedDaily.Izin}</p></div>
+                                  <div><p className="text-xs text-slate-500 dark:text-slate-400">Alfa</p><p className="mt-1 text-lg font-bold text-red-500">{selectedDaily.Alfa}</p></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
 
                         return (
                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">

@@ -71,6 +71,9 @@ sqlite.run(`
     assignment_id INTEGER NOT NULL REFERENCES assignments(id),
     user_id INTEGER NOT NULL REFERENCES users(id),
     file_path TEXT NOT NULL,
+    original_name TEXT,
+    mime_type TEXT,
+    size_bytes INTEGER,
     grade INTEGER,
     submitted_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
@@ -256,6 +259,9 @@ addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 addColumnIfMissing('attendance', 'subject', 'subject TEXT');
 addColumnIfMissing('schedules', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+addColumnIfMissing('submissions', 'original_name', 'original_name TEXT');
+addColumnIfMissing('submissions', 'mime_type', 'mime_type TEXT');
+addColumnIfMissing('submissions', 'size_bytes', 'size_bytes INTEGER');
 
 // Older installations created `assignments` before material types existed and
 // required a due date for every item. Rebuild only that legacy table so both

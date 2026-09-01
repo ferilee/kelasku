@@ -3512,7 +3512,51 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><select value={monitoringClassFilter} onChange={(event) => setMonitoringClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input type="date" value={activityFrom} onChange={(event) => setActivityFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="date" value={activityTo} onChange={(event) => setActivityTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><select value={activityActionFilter} onChange={(event) => setActivityActionFilter(event.target.value as typeof activityActionFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua aktivitas</option>{Object.entries(activityLabels).filter(([key]) => key !== 'logout').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Cari nama siswa..." className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
                     {isLoadingActivity && !studentActivityReport ? <p className="py-10 text-center text-sm text-slate-400">Memuat aktivitas siswa…</p> : (() => { const rows = (studentActivityReport?.students || []).filter((student) => !activitySearch.trim() || student.name.toLowerCase().includes(activitySearch.trim().toLowerCase()) || student.identifier.includes(activitySearch.trim())); return rows.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada data aktivitas pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Waktu aktif</th><th className="px-3 py-3">Aktivitas</th><th className="px-3 py-3">Terakhir aktif</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{rows.map((student) => <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-800 dark:text-slate-100">{student.name}</p><p className="text-[11px] text-slate-400">{student.className} · {student.identifier}</p></td><td className="px-3 py-3">{student.online ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span> : <span className="text-xs text-slate-400">Offline</span>}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</td><td className="px-3 py-3"><span className="font-semibold text-slate-700 dark:text-slate-200">{student.activityCount}</span><span className="ml-1 text-xs text-slate-400">event</span>{student.latestActivity && <p className="mt-1 max-w-[230px] truncate text-[11px] text-slate-400">{activityLabels[student.latestActivity.action]}{student.latestActivity.resourceTitle ? ` · ${student.latestActivity.resourceTitle}` : ''}</p>}</td><td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{student.lastActiveAt ? new Date(student.lastActiveAt).toLocaleString('id-ID') : 'Belum aktif'}</td><td className="px-3 py-3 text-right"><button onClick={() => setSelectedActivityStudentId(selectedActivityStudentId === student.id ? null : student.id)} className="rounded-lg px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30">{selectedActivityStudentId === student.id ? 'Tutup' : 'Detail'}</button></td></tr>)}</tbody></table></div>; })()}
                   </section>
-                  {selectedActivityStudentId && studentActivityReport && <section className="rounded-2xl border border-cyan-200 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800"><div className="flex items-center justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Kronologi Aktivitas</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{studentActivityReport.students.find((student) => student.id === selectedActivityStudentId)?.name || 'Siswa'}</p></div><button onClick={() => setSelectedActivityStudentId(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><div className="mt-4 space-y-2">{studentActivityReport.activities.filter((activity) => activity.studentId === selectedActivityStudentId).slice(0, 100).map((activity) => <div key={activity.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 dark:border-slate-700"><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-500" /><div><p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{activityLabels[activity.action]}{activity.resourceTitle ? ` · ${activity.resourceTitle}` : ''}</p><p className="mt-1 text-xs text-slate-400">{new Date(activity.occurredAt).toLocaleString('id-ID')}{activity.page ? ` · ${activity.page}` : ''}</p></div></div>)}{studentActivityReport.activities.filter((activity) => activity.studentId === selectedActivityStudentId).length === 0 && <p className="py-6 text-center text-sm text-slate-400">Belum ada aktivitas detail pada periode ini.</p>}</div></section>}
+                  {selectedActivityStudentId && studentActivityReport && (() => {
+                    const student = studentActivityReport.students.find((item) => item.id === selectedActivityStudentId);
+                    const activities = studentActivityReport.activities.filter((item) => item.studentId === selectedActivityStudentId);
+                    const sessions = studentActivityReport.sessions.filter((item) => item.studentId === selectedActivityStudentId);
+                    if (!student) return null;
+                    return (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="activity-detail-title">
+                        <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={() => setSelectedActivityStudentId(null)} />
+                        <div className="relative flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                          <div className="flex items-start justify-between border-b border-slate-100 p-6 dark:border-slate-700">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Detail Aktivitas Siswa</p>
+                              <h4 id="activity-detail-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{student.name}</h4>
+                              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{student.className} · {student.identifier}</p>
+                            </div>
+                            <button onClick={() => setSelectedActivityStudentId(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup detail aktivitas"><X className="h-5 w-5" /></button>
+                          </div>
+                          <div className="overflow-y-auto p-6">
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Status</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{student.online ? 'Online' : 'Offline'}</p></div>
+                              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Waktu aktif</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</p></div>
+                              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Sesi / aktivitas</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{student.sessionCount} / {student.activityCount}</p></div>
+                            </div>
+                            <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
+                              <section>
+                                <h5 className="font-bold text-slate-800 dark:text-slate-100">Kronologi Aktivitas</h5>
+                                <div className="mt-3 space-y-2">
+                                  {activities.slice(0, 100).map((activity) => <div key={activity.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-3 dark:border-slate-700"><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-cyan-500" /><div><p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{activityLabels[activity.action]}{activity.resourceTitle ? ` · ${activity.resourceTitle}` : ''}</p><p className="mt-1 text-xs text-slate-400">{new Date(activity.occurredAt).toLocaleString('id-ID')}{activity.page ? ` · ${activity.page}` : ''}</p></div></div>)}
+                                  {activities.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada aktivitas detail pada periode ini.</p>}
+                                </div>
+                              </section>
+                              <section>
+                                <h5 className="font-bold text-slate-800 dark:text-slate-100">Riwayat Sesi</h5>
+                                <div className="mt-3 space-y-2">
+                                  {sessions.map((session) => <div key={session.id} className="rounded-xl border border-slate-100 p-3 dark:border-slate-700"><p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{new Date(session.startedAt).toLocaleString('id-ID')}</p><p className="mt-1 text-xs text-slate-400">{formatActivityDuration(session.activeSeconds)} · {session.endReason || (student.online ? 'Aktif' : 'Selesai')}</p></div>)}
+                                  {sessions.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-400 dark:border-slate-700">Belum ada sesi pada periode ini.</p>}
+                                </div>
+                              </section>
+                            </div>
+                          </div>
+                          <div className="flex justify-end border-t border-slate-100 p-4 dark:border-slate-700"><button onClick={() => setSelectedActivityStudentId(null)} className="rounded-xl bg-cyan-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-cyan-700">Tutup</button></div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -4284,14 +4328,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                               }
                             </td>
                             <td className="px-6 py-4 text-xs font-mono">
-                              {sub.hasSubmitted && sub.filePath ? (
+                              {sub.hasSubmitted && sub.downloadUrl ? (
                                 <a 
-                                  href={sub.filePath} 
+                                  href={sub.downloadUrl}
                                   target="_blank" 
                                   rel="noreferrer"
                                   className="text-blue-600 hover:underline font-bold"
                                 >
-                                  {sub.filePath.split('/').pop()}
+                                  {sub.originalName || 'Lihat PDF'}
                                 </a>
                               ) : (
                                 <span className="text-slate-400">-</span>

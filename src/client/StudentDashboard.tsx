@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
@@ -54,7 +54,9 @@ const StudentDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null);
-  const [submitFilePath, setSubmitFilePath] = useState('');
+  const [submitFile, setSubmitFile] = useState<File | null>(null);
+  const [existingSubmissionName, setExistingSubmissionName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -82,28 +84,35 @@ const StudentDashboard = () => {
 
   const handleSubmitTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentStudentId || !selectedAssignmentId || !submitFilePath.trim()) return;
+    if (!currentStudentId || !selectedAssignmentId || !submitFile) {
+      notify('Pilih file PDF terlebih dahulu.', 'warning');
+      return;
+    }
 
+    setIsSubmitting(true);
     try {
+      const formData = new FormData();
+      formData.append('assignmentId', String(selectedAssignmentId));
+      formData.append('file', submitFile);
       const res = await fetch(`/api/student/${currentStudentId}/submissions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assignmentId: selectedAssignmentId,
-          filePath: submitFilePath.trim()
-        })
+        body: formData
       });
       if (res.ok) {
         notify('Tugas berhasil dikumpulkan!', 'success');
         setShowSubmitModal(false);
-        setSubmitFilePath('');
+        setSubmitFile(null);
+        setExistingSubmissionName('');
         fetchAssignments();
       } else {
-        notify('Gagal mengumpulkan tugas.', 'error');
+        const payload = await res.json().catch(() => null) as { error?: string } | null;
+        notify(payload?.error || 'Gagal mengumpulkan tugas.', 'error');
       }
     } catch (err) {
       console.error('Error submitting task:', err);
       notify('Terjadi kesalahan saat mengumpulkan tugas.', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -353,7 +362,8 @@ const StudentDashboard = () => {
                                   sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title });
                                   setActiveTab('assignments');
                                   setSelectedAssignmentId(item.id);
-                                  setSubmitFilePath('');
+                                  setSubmitFile(null);
+                                  setExistingSubmissionName('');
                                   setShowSubmitModal(true);
                                 }}
                                 className="text-[10px] bg-orange-650 hover:bg-orange-700 text-white font-bold px-2.5 py-1.5 rounded-lg transition-colors"
@@ -548,7 +558,8 @@ const StudentDashboard = () => {
                             onClick={() => {
                               sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title });
                               setSelectedAssignmentId(item.id);
-                              setSubmitFilePath(item.submission?.filePath || '');
+                              setSubmitFile(null);
+                              setExistingSubmissionName(item.submission?.originalName || 'PDF yang sudah dikumpulkan');
                               setShowSubmitModal(true);
                             }}
                             className={`px-4 py-2 rounded-lg font-bold text-xs transition-all ${
@@ -877,16 +888,34 @@ const StudentDashboard = () => {
                 
                 <form onSubmit={handleSubmitTask} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Link/Path Tugas Anda</label>
-                    <input 
-                      type="text" 
-                      value={submitFilePath}
-                      onChange={(e) => setSubmitFilePath(e.target.value)}
-                      placeholder="Masukkan link Google Drive, GitHub, atau file path tugas Anda" 
-                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      required
-                    />
-                    <p className="text-[10px] text-slate-400 mt-1">Pastikan link dapat diakses oleh guru Anda.</p>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Unggah Jawaban PDF</label>
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-200 bg-emerald-50/50 px-4 py-6 text-center transition-colors hover:border-emerald-400 dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                      <Upload className="mb-2 h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+                      <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">Pilih file PDF</span>
+                      <span className="mt-1 text-[11px] text-slate-400">Maksimal 10 MB</span>
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null;
+                          if (!file) return;
+                          if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                            notify('File jawaban harus berformat PDF.', 'warning');
+                            event.currentTarget.value = '';
+                            return;
+                          }
+                          if (file.size > 10 * 1024 * 1024) {
+                            notify('Ukuran PDF maksimal 10 MB.', 'warning');
+                            event.currentTarget.value = '';
+                            return;
+                          }
+                          setSubmitFile(file);
+                        }}
+                      />
+                    </label>
+                    {(submitFile || existingSubmissionName) && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900"><FileText className="h-5 w-5 shrink-0 text-red-500" /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{submitFile?.name || existingSubmissionName}</p><p className="text-[10px] text-slate-400">{submitFile ? `${(submitFile.size / 1024 / 1024).toFixed(2)} MB · siap diunggah` : 'Pilih PDF baru untuk mengganti file.'}</p></div></div>}
+                    <p className="mt-1 text-[10px] text-slate-400">File akan disimpan secara aman di penyimpanan sekolah.</p>
                   </div>
 
                   <div className="flex gap-3 pt-4">
@@ -899,9 +928,10 @@ const StudentDashboard = () => {
                     </button>
                     <button 
                       type="submit"
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all"
+                      disabled={isSubmitting || !submitFile}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 text-white font-bold py-3 rounded-xl transition-all"
                     >
-                      Kumpulkan
+                      {isSubmitting ? 'Mengunggah...' : 'Unggah & Kumpulkan'}
                     </button>
                   </div>
                 </form>

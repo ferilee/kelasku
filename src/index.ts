@@ -4,6 +4,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
 import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
+import { deleteObject, isRustFsReference, MAX_SUBMISSION_FILE_SIZE, readObject, uploadPdf } from './server/storage';
 
 const app = new Hono();
 
@@ -184,6 +185,18 @@ async function canManageAssignmentTargets(user: AuthUser, targetClassIds: number
   const existingClasses = await db.select({ id: classes.id }).from(classes).where(inArray(classes.id, targetClassIds));
   if (existingClasses.length !== targetClassIds.length) return false;
   return (await Promise.all(targetClassIds.map((classId) => mayAccessClass(user, classId)))).every(Boolean);
+}
+
+function submissionDownloadUrl(submissionId: number | null | undefined, filePath: string | null | undefined) {
+  if (!submissionId || !filePath || filePath === 'N/A') return null;
+  if (isRustFsReference(filePath)) return `/api/submissions/${submissionId}/download`;
+  return /^https?:\/\//i.test(filePath) ? filePath : null;
+}
+
+function submissionFileName(submission: { originalName?: string | null; filePath?: string | null } | null | undefined) {
+  if (!submission?.filePath || submission.filePath === 'N/A') return null;
+  if (submission.originalName) return submission.originalName;
+  return submission.filePath.split('/').pop() || 'File tugas';
 }
 
 async function mayTeachSubject(user: AuthUser, classId: number, subject: string) {
@@ -2062,6 +2075,8 @@ app.get('/api/assignments/:id/submissions', async (c) => {
         hasSubmitted: !!sub && sub.filePath !== 'N/A',
         submissionId: sub?.id ?? null,
         filePath: sub?.filePath ?? null,
+        downloadUrl: submissionDownloadUrl(sub?.id, sub?.filePath),
+        originalName: submissionFileName(sub),
         grade: sub?.grade ?? null,
         submittedAt: sub?.submittedAt ?? null
       };
@@ -2070,6 +2085,38 @@ app.get('/api/assignments/:id/submissions', async (c) => {
     return c.json(result);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
+  }
+});
+
+// Download a submission through an authorized WebKelas session
+app.get('/api/submissions/:id/download', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !Number.isInteger(id) || id <= 0) return c.json({ error: 'File pengumpulan tidak ditemukan.' }, 404);
+    const submission = await db.select().from(submissions).where(eq(submissions.id, id)).limit(1);
+    if (!submission[0]) return c.json({ error: 'File pengumpulan tidak ditemukan.' }, 404);
+    if (authenticatedUser.role === 'student') {
+      if (submission[0].userId !== authenticatedUser.id) return c.json({ error: 'Anda tidak memiliki akses ke file ini.' }, 403);
+    } else {
+      const targetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, submission[0].assignmentId));
+      if (!targetRows.length || !(await Promise.all(targetRows.map((row) => mayAccessClass(authenticatedUser, row.classId)))).some(Boolean)) return c.json({ error: 'Anda tidak memiliki akses ke file ini.' }, 403);
+    }
+    if (!isRustFsReference(submission[0].filePath)) {
+      if (/^https?:\/\//i.test(submission[0].filePath)) return c.redirect(submission[0].filePath);
+      return c.json({ error: 'File pengumpulan tidak tersedia.' }, 404);
+    }
+    const object = await readObject(submission[0].filePath);
+    const responseBody = new Uint8Array(object.body.byteLength);
+    responseBody.set(object.body);
+    return new Response(responseBody.buffer, { headers: {
+      'Content-Type': object.contentType,
+      'Content-Disposition': `attachment; filename="${(submission[0].originalName || 'tugas.pdf').replace(/["\\\r\n]/g, '_')}"`,
+      'Cache-Control': 'private, no-store',
+    } });
+  } catch (err: any) {
+    console.error('Error downloading submission:', err);
+    return c.json({ error: 'File pengumpulan tidak dapat diambil.' }, 404);
   }
 });
 
@@ -2132,6 +2179,8 @@ app.get('/api/student/:studentId/assignments', async (c) => {
         submission: sub ? {
           id: sub.id,
           filePath: sub.filePath,
+          downloadUrl: submissionDownloadUrl(sub.id, sub.filePath),
+          originalName: submissionFileName(sub),
           grade: sub.grade,
           submittedAt: sub.submittedAt
         } : null
@@ -2146,26 +2195,34 @@ app.get('/api/student/:studentId/assignments', async (c) => {
 
 // POST submit assignment by a student
 app.post('/api/student/:studentId/submissions', async (c) => {
+  let uploadedReference: string | null = null;
   try {
     const studentId = parseInt(c.req.param('studentId'));
     const authenticatedUser = getAuthenticatedUser(c);
     if (!authenticatedUser || authenticatedUser.role !== 'student' || authenticatedUser.id !== studentId) return c.json({ error: 'Anda tidak memiliki akses untuk mengumpulkan tugas ini.' }, 403);
-    const body = await c.req.json();
-    const assignmentId = Number(body.assignmentId);
-    const filePath = typeof body.filePath === 'string' ? body.filePath.trim() : '';
-    if (!assignmentId || !filePath) {
-      return c.json({ error: 'assignmentId and filePath are required' }, 400);
-    }
+    const formData = await c.req.raw.formData();
+    const assignmentId = Number(formData.get('assignmentId'));
+    const uploadedFile = formData.get('file');
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0 || !(uploadedFile instanceof File)) return c.json({ error: 'Pilih file PDF untuk dikumpulkan.' }, 400);
+    if (uploadedFile.size <= 0 || uploadedFile.size > MAX_SUBMISSION_FILE_SIZE) return c.json({ error: 'Ukuran PDF harus lebih dari 0 dan maksimal 10 MB.' }, 400);
+    const originalName = uploadedFile.name.trim().replace(/[\\/\r\n]/g, '_') || 'tugas.pdf';
+    if (!originalName.toLowerCase().endsWith('.pdf')) return c.json({ error: 'File tugas harus berformat PDF.' }, 400);
+    if (uploadedFile.type && !['application/pdf', 'application/octet-stream'].includes(uploadedFile.type)) return c.json({ error: 'Tipe file yang diizinkan hanya PDF.' }, 400);
+    const signature = new TextDecoder().decode(new Uint8Array(await uploadedFile.slice(0, 4).arrayBuffer()));
+    if (signature !== '%PDF') return c.json({ error: 'Isi file tidak dikenali sebagai PDF.' }, 400);
 
     const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, studentId)).limit(1);
     const assignment = await db.select({ title: assignments.title, type: assignments.type }).from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
     if (!assignment[0] || assignment[0].type !== 'tugas') return c.json({ error: 'Tugas tidak ditemukan.' }, 404);
+    if (!student[0]?.classId) return c.json({ error: 'Kelas siswa belum ditentukan.' }, 403);
     const target = student[0]?.classId ? await db.select({ id: assignmentClasses.id }).from(assignmentClasses).where(and(
       eq(assignmentClasses.assignmentId, assignmentId),
       eq(assignmentClasses.classId, student[0].classId),
     )).limit(1) : [];
     if (!target[0]) return c.json({ error: 'Tugas tidak ditujukan ke kelas siswa ini.' }, 403);
-    
+
+    const key = `submissions/${new Date().getFullYear()}/${student[0].classId}/${assignmentId}/${studentId}/${crypto.randomUUID()}.pdf`;
+    uploadedReference = await uploadPdf(key, uploadedFile, originalName);
     const existing = await db.select().from(submissions).where(
       and(
         eq(submissions.assignmentId, assignmentId),
@@ -2175,17 +2232,27 @@ app.post('/api/student/:studentId/submissions', async (c) => {
     
     if (existing.length > 0) {
       await db.update(submissions).set({ 
-        filePath,
+        filePath: uploadedReference,
+        originalName,
+        mimeType: 'application/pdf',
+        sizeBytes: uploadedFile.size,
         submittedAt: new Date()
       }).where(eq(submissions.id, existing[0].id));
     } else {
       await db.insert(submissions).values({
         assignmentId,
         userId: studentId,
-        filePath,
+        filePath: uploadedReference,
+        originalName,
+        mimeType: 'application/pdf',
+        sizeBytes: uploadedFile.size,
         submittedAt: new Date()
       });
     }
+    if (existing[0]?.filePath && isRustFsReference(existing[0].filePath)) {
+      await deleteObject(existing[0].filePath).catch((error) => console.error('Error deleting replaced submission:', error));
+    }
+    uploadedReference = null;
 
     const token = getCookie(c as any, 'webkelas_session');
     const authSession = token ? activeSessions.get(token) : undefined;
@@ -2196,6 +2263,7 @@ app.post('/api/student/:studentId/submissions', async (c) => {
     
     return c.json({ success: true });
   } catch (err: any) {
+    if (uploadedReference) await deleteObject(uploadedReference).catch((cleanupError) => console.error('Error cleaning failed submission upload:', cleanupError));
     return c.json({ error: err.message }, 500);
   }
 });

@@ -69,6 +69,9 @@ export const submissions = sqliteTable('submissions', {
   assignmentId: integer('assignment_id').notNull().references(() => assignments.id),
   userId: integer('user_id').notNull().references(() => users.id),
   filePath: text('file_path').notNull(),
+  originalName: text('original_name'),
+  mimeType: text('mime_type'),
+  sizeBytes: integer('size_bytes'),
   grade: integer('grade'),
   submittedAt: integer('submitted_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });

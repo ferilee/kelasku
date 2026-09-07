@@ -379,7 +379,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       await fetch('/api/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...item, classId: data.classId })
+        body: JSON.stringify({ ...item, classId })
       });
       fetchClassData();
     } catch (err) {
@@ -389,8 +389,8 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const removeSchedule = async (id: string) => {
     try {
-      if (!data.classId) return;
-      await fetch(`/api/schedules/${id}?classId=${encodeURIComponent(data.classId)}`, {
+      if (!classId) return;
+      await fetch(`/api/schedules/${id}?classId=${encodeURIComponent(classId)}`, {
         method: 'DELETE'
       });
       fetchClassData();

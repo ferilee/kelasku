@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
 import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
-import { deleteObject, isRustFsReference, MAX_SUBMISSION_FILE_SIZE, readObject, uploadPdf } from './server/storage';
+import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
 const app = new Hono();
 
@@ -176,6 +176,8 @@ async function serializeAssignments(items: typeof assignments.$inferSelect[]) {
       ...item,
       targetClassIds: targetClasses.map((target) => target.id),
       targetClasses,
+      fileName: assignmentFileName(item),
+      fileDownloadUrl: assignmentDownloadUrl(item.id, item.filePath),
     };
   });
 }
@@ -197,6 +199,33 @@ function submissionFileName(submission: { originalName?: string | null; filePath
   if (!submission?.filePath || submission.filePath === 'N/A') return null;
   if (submission.originalName) return submission.originalName;
   return submission.filePath.split('/').pop() || 'File tugas';
+}
+
+function assignmentFileName(assignment: { fileOriginalName?: string | null; filePath?: string | null } | null | undefined) {
+  if (!assignment?.filePath) return null;
+  return assignment.fileOriginalName || assignment.filePath.split('/').pop() || 'File pendukung';
+}
+
+function assignmentDownloadUrl(assignmentId: number | null | undefined, filePath: string | null | undefined) {
+  if (!assignmentId || !filePath) return null;
+  if (isRustFsReference(filePath)) return `/api/assignments/${assignmentId}/file`;
+  return /^https?:\/\//i.test(filePath) ? filePath : null;
+}
+
+function storageFailure(c: any, error: unknown) {
+  const code = getStorageErrorCode(error);
+  return code ? c.json(storageErrorResponse(code), code === 'STORAGE_FORBIDDEN' ? 403 : 503) : null;
+}
+
+async function readPdfUpload(value: FormDataEntryValue | null, label: string) {
+  if (!(value instanceof File)) throw new Error(`Pilih file PDF ${label}.`);
+  if (value.size <= 0 || value.size > MAX_ASSIGNMENT_FILE_SIZE) throw new Error('Ukuran PDF harus lebih dari 0 dan maksimal 10 MB.');
+  const originalName = value.name.trim().replace(/[\\/\r\n]/g, '_') || 'materi.pdf';
+  if (!originalName.toLowerCase().endsWith('.pdf')) throw new Error('File pendukung harus berformat PDF.');
+  if (value.type && !['application/pdf', 'application/octet-stream'].includes(value.type)) throw new Error('Tipe file yang diizinkan hanya PDF.');
+  const signature = new TextDecoder().decode(new Uint8Array(await value.slice(0, 4).arrayBuffer()));
+  if (signature !== '%PDF') throw new Error('Isi file tidak dikenali sebagai PDF.');
+  return { file: value, originalName };
 }
 
 async function mayTeachSubject(user: AuthUser, classId: number, subject: string) {
@@ -532,6 +561,9 @@ async function buildStudentActivityReport(user: AuthUser, query: ActivityReportQ
   if (query.studentId && !visibleStudents.some((student) => student.id === query.studentId)) return null;
   const studentIds = visibleStudents.map((student) => student.id);
   const classRows = await db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes);
+  const allAssignments = await db.select().from(assignments);
+  const assignmentTargetMap = await getAssignmentTargetMap(allAssignments.map((item) => item.id));
+  const submissionRows = studentIds.length ? await db.select().from(submissions).where(inArray(submissions.userId, studentIds)) : [];
   if (!studentIds.length) {
     return { generatedAt: new Date().toISOString(), from: query.from || null, to: query.to || null, summary: { onlineCount: 0, activeStudentCount: 0, totalActiveSeconds: 0, sessionCount: 0, activityCount: 0 }, students: [], sessions: [], activities: [] };
   }
@@ -565,6 +597,21 @@ async function buildStudentActivityReport(user: AuthUser, query: ActivityReportQ
       totalActiveSeconds: studentSessions.reduce((total, session) => total + session.activeSeconds, 0),
       sessionCount: studentSessions.length, activityCount: studentActivities.length,
       latestActivity: latestActivity ? { action: latestActivity.action, occurredAt: latestActivity.occurredAt.toISOString(), page: latestActivity.page, resourceTitle: latestActivity.resourceTitle } : null,
+      assignmentStats: (() => {
+        const classAssignments = allAssignments.filter((item) => item.status === 'published' && item.type === 'tugas' && (assignmentTargetMap.get(item.id) || []).some((target) => target.id === student.classId));
+        const studentSubmissions = submissionRows.filter((submission) => submission.userId === student.id && submission.filePath !== 'N/A');
+        const submittedIds = new Set(studentSubmissions.map((submission) => submission.assignmentId));
+        const openedIds = new Set(studentActivities.filter((activity) => activity.action === 'assignment_opened' && activity.resourceId).map((activity) => Number(activity.resourceId)));
+        const overdueCount = classAssignments.filter((item) => Boolean(item.dueDate && item.dueDate.getTime() < now && !submittedIds.has(item.id))).length;
+        const openedPendingCount = classAssignments.filter((item) => openedIds.has(item.id) && !submittedIds.has(item.id)).length;
+        const pendingCount = classAssignments.filter((item) => !submittedIds.has(item.id)).length;
+        const lateCount = studentSubmissions.filter((submission) => {
+          const assignment = allAssignments.find((item) => item.id === submission.assignmentId);
+          return Boolean(assignment?.dueDate && submission.submittedAt.getTime() > assignment.dueDate.getTime());
+        }).length;
+        const attention = overdueCount > 0 ? 'overdue' : openedPendingCount > 0 ? 'opened_pending' : pendingCount > 0 ? 'not_started' : 'none';
+        return { total: classAssignments.length, pendingCount, overdueCount, lateCount, attention };
+      })(),
     };
   });
   return {
@@ -1958,12 +2005,14 @@ app.get('/api/assignments', async (c) => {
     const targetMap = await getAssignmentTargetMap(list.map((item) => item.id));
     const visibleItems = list.filter((item) => {
       const targets = targetMap.get(item.id) || [];
-      return permittedClassIds === null || targets.some((target) => permittedClassIds.includes(target.id));
+      return (authenticatedUser.role !== 'student' || item.status === 'published') && (permittedClassIds === null || targets.some((target) => permittedClassIds.includes(target.id)));
     });
     return c.json(visibleItems.map((item) => ({
       ...item,
       targetClassIds: (targetMap.get(item.id) || []).map((target) => target.id),
       targetClasses: targetMap.get(item.id) || [],
+      fileName: assignmentFileName(item),
+      fileDownloadUrl: assignmentDownloadUrl(item.id, item.filePath),
     })));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -1979,6 +2028,7 @@ app.post('/api/assignments', async (c) => {
     }
     const body = await c.req.json();
     const { title, description, type, filePath, dueDate } = body;
+    const status: 'draft' | 'published' | 'archived' = ['draft', 'published', 'archived'].includes(body.status) ? body.status : 'published';
     const targetClassIds = parseTargetClassIds(body.targetClassIds);
     if (typeof title !== 'string' || !title.trim() || !['tugas', 'materi'].includes(type)) return c.json({ error: 'Judul dan tipe materi/tugas wajib diisi.' }, 400);
     if (!await canManageAssignmentTargets(authenticatedUser, targetClassIds)) return c.json({ error: 'Pilih kelas tujuan yang berada dalam kewenangan Anda.' }, 403);
@@ -1987,8 +2037,10 @@ app.post('/api/assignments', async (c) => {
       title: title.trim(),
       description: typeof description === 'string' ? description.trim() || null : null,
       type,
+      status,
       filePath: typeof filePath === 'string' ? filePath.trim() || null : null,
-      dueDate: type === 'tugas' && dueDate ? new Date(dueDate) : null
+      dueDate: type === 'tugas' && dueDate ? new Date(dueDate) : null,
+      publishedAt: status === 'published' ? new Date() : null,
     }).returning();
     if (!inserted[0]) return c.json({ error: 'Materi atau tugas gagal dibuat.' }, 500);
     await db.insert(assignmentClasses).values(targetClassIds.map((classId) => ({ assignmentId: inserted[0].id, classId })));
@@ -2011,14 +2063,17 @@ app.put('/api/assignments/:id', async (c) => {
     if (!currentTargetRows.length || !await canManageAssignmentTargets(authenticatedUser, currentTargetRows.map((row) => row.classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas tujuan item ini.' }, 403);
     const body = await c.req.json();
     const targetClassIds = parseTargetClassIds(body.targetClassIds);
+    const status: 'draft' | 'published' | 'archived' = ['draft', 'published', 'archived'].includes(body.status) ? body.status : (existing[0].status as 'draft' | 'published' | 'archived');
     if (typeof body.title !== 'string' || !body.title.trim() || !['tugas', 'materi'].includes(body.type)) return c.json({ error: 'Judul dan tipe materi/tugas wajib diisi.' }, 400);
     if (!await canManageAssignmentTargets(authenticatedUser, targetClassIds)) return c.json({ error: 'Pilih kelas tujuan yang berada dalam kewenangan Anda.' }, 403);
     await db.update(assignments).set({
       title: body.title.trim(),
       description: typeof body.description === 'string' ? body.description.trim() || null : null,
       type: body.type,
+      status,
       filePath: typeof body.filePath === 'string' ? body.filePath.trim() || null : null,
       dueDate: body.type === 'tugas' && body.dueDate ? new Date(body.dueDate) : null,
+      publishedAt: status === 'published' ? (existing[0].publishedAt || new Date()) : null,
     }).where(eq(assignments.id, id));
     await db.delete(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
     await db.insert(assignmentClasses).values(targetClassIds.map((classId) => ({ assignmentId: id, classId })));
@@ -2026,6 +2081,57 @@ app.put('/api/assignments/:id', async (c) => {
     return c.json((await serializeAssignments(updated))[0]);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
+  }
+});
+
+// Upload a PDF supporting file for an assignment/material.
+app.post('/api/assignments/:id/file', async (c) => {
+  let uploadedReference: string | null = null;
+  try {
+    const id = Number(c.req.param('id'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !(authenticatedUser.roles.includes('teacher') || canManageClass(authenticatedUser))) return c.json({ error: 'Anda tidak memiliki hak untuk mengunggah file materi.' }, 403);
+    const existing = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+    if (!existing[0]) return c.json({ error: 'Materi atau tugas tidak ditemukan.' }, 404);
+    const targetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
+    if (!targetRows.length || !(await canManageAssignmentTargets(authenticatedUser, targetRows.map((row) => row.classId)))) return c.json({ error: 'Anda tidak memiliki akses ke kelas tujuan item ini.' }, 403);
+    const { file, originalName } = await readPdfUpload((await c.req.raw.formData()).get('file'), 'pendukung');
+    const key = `assignments/${new Date().getFullYear()}/${id}/${crypto.randomUUID()}.pdf`;
+    uploadedReference = await uploadPdf(key, file, originalName);
+    await db.update(assignments).set({ filePath: uploadedReference, fileOriginalName: originalName, fileMimeType: 'application/pdf', fileSizeBytes: file.size }).where(eq(assignments.id, id));
+    if (existing[0].filePath && isRustFsReference(existing[0].filePath)) await deleteObject(existing[0].filePath).catch((error) => console.error('Error deleting replaced assignment file:', error));
+    uploadedReference = null;
+    const updated = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+    return c.json((await serializeAssignments(updated))[0]);
+  } catch (error: any) {
+    if (uploadedReference) await deleteObject(uploadedReference).catch((cleanupError) => console.error('Error cleaning assignment upload:', cleanupError));
+    const storageResponse = storageFailure(c, error);
+    if (storageResponse) return storageResponse;
+    return c.json({ error: error.message || 'File materi gagal diunggah.' }, 400);
+  }
+});
+
+// Download an authorized assignment/material file.
+app.get('/api/assignments/:id/file', async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !Number.isInteger(id) || id <= 0) return c.json({ error: 'File materi tidak ditemukan.' }, 404);
+    const assignment = await db.select().from(assignments).where(eq(assignments.id, id)).limit(1);
+    if (!assignment[0] || !assignment[0].filePath) return c.json({ error: 'File materi tidak ditemukan.' }, 404);
+    if (authenticatedUser.role === 'student' && assignment[0].status !== 'published') return c.json({ error: 'File materi tidak ditemukan.' }, 404);
+    const targetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
+    if (!targetRows.length || !(await Promise.all(targetRows.map((row) => mayAccessClass(authenticatedUser, row.classId)))).some(Boolean)) return c.json({ error: 'Anda tidak memiliki akses ke file ini.' }, 403);
+    if (!isRustFsReference(assignment[0].filePath)) return /^https?:\/\//i.test(assignment[0].filePath) ? c.redirect(assignment[0].filePath) : c.json({ error: 'File materi tidak tersedia.' }, 404);
+    const object = await readObject(assignment[0].filePath);
+    const body = new Uint8Array(object.body.byteLength);
+    body.set(object.body);
+    return new Response(body.buffer, { headers: { 'Content-Type': object.contentType, 'Content-Disposition': `inline; filename="${(assignment[0].fileOriginalName || 'materi.pdf').replace(/["\\\r\n]/g, '_')}"`, 'Cache-Control': 'private, no-store' } });
+  } catch (error: any) {
+    const storageResponse = storageFailure(c, error);
+    if (storageResponse) return storageResponse;
+    console.error('Error downloading assignment file:', error);
+    return c.json({ error: 'File materi tidak dapat diambil.' }, 404);
   }
 });
 
@@ -2038,11 +2144,13 @@ app.delete('/api/assignments/:id', async (c) => {
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'ID materi atau tugas tidak valid.' }, 400);
     const targetRows = await db.select({ classId: assignmentClasses.classId }).from(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
     if (!targetRows.length || !await canManageAssignmentTargets(authenticatedUser, targetRows.map((row) => row.classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas tujuan item ini.' }, 403);
+    const assignment = await db.select({ filePath: assignments.filePath }).from(assignments).where(eq(assignments.id, id)).limit(1);
     // Delete associated submissions first
     await db.delete(submissions).where(eq(submissions.assignmentId, id));
     await db.delete(assignmentClasses).where(eq(assignmentClasses.assignmentId, id));
     // Delete assignment
     await db.delete(assignments).where(eq(assignments.id, id));
+    if (assignment[0]?.filePath && isRustFsReference(assignment[0].filePath)) await deleteObject(assignment[0].filePath).catch((error) => console.error('Error deleting assignment file:', error));
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -2062,6 +2170,7 @@ app.get('/api/assignments/:id/submissions', async (c) => {
       eq(assignmentClasses.classId, classId),
     )).limit(1);
     if (!target[0]) return c.json({ error: 'Tugas tidak ditujukan ke kelas ini.' }, 403);
+    const assignment = await db.select({ dueDate: assignments.dueDate }).from(assignments).where(eq(assignments.id, id)).limit(1);
 
     const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const allSubmissions = await db.select().from(submissions).where(eq(submissions.assignmentId, id));
@@ -2078,7 +2187,8 @@ app.get('/api/assignments/:id/submissions', async (c) => {
         downloadUrl: submissionDownloadUrl(sub?.id, sub?.filePath),
         originalName: submissionFileName(sub),
         grade: sub?.grade ?? null,
-        submittedAt: sub?.submittedAt ?? null
+        submittedAt: sub?.submittedAt ?? null,
+        late: Boolean(sub?.submittedAt && assignment[0]?.dueDate && sub.submittedAt.getTime() > assignment[0].dueDate.getTime()),
       };
     });
     
@@ -2169,13 +2279,15 @@ app.get('/api/student/:studentId/assignments', async (c) => {
     const allAssignments = await db.select().from(assignments);
     const targetMap = await getAssignmentTargetMap(allAssignments.map((item) => item.id));
     const studentSubmissions = await db.select().from(submissions).where(eq(submissions.userId, studentId));
-    const visibleAssignments = allAssignments.filter((item) => (targetMap.get(item.id) || []).some((target) => target.id === student[0].classId));
+    const visibleAssignments = allAssignments.filter((item) => item.status === 'published' && (targetMap.get(item.id) || []).some((target) => target.id === student[0].classId));
     const result = visibleAssignments.map(item => {
       const sub = studentSubmissions.find(s => s.assignmentId === item.id);
       return {
         ...item,
         targetClassIds: (targetMap.get(item.id) || []).map((target) => target.id),
         targetClasses: targetMap.get(item.id) || [],
+        fileName: assignmentFileName(item),
+        fileDownloadUrl: assignmentDownloadUrl(item.id, item.filePath),
         submission: sub ? {
           id: sub.id,
           filePath: sub.filePath,
@@ -2212,8 +2324,8 @@ app.post('/api/student/:studentId/submissions', async (c) => {
     if (signature !== '%PDF') return c.json({ error: 'Isi file tidak dikenali sebagai PDF.' }, 400);
 
     const student = await db.select({ classId: users.classId }).from(users).where(eq(users.id, studentId)).limit(1);
-    const assignment = await db.select({ title: assignments.title, type: assignments.type }).from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
-    if (!assignment[0] || assignment[0].type !== 'tugas') return c.json({ error: 'Tugas tidak ditemukan.' }, 404);
+    const assignment = await db.select({ title: assignments.title, type: assignments.type, status: assignments.status }).from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
+    if (!assignment[0] || assignment[0].type !== 'tugas' || assignment[0].status !== 'published') return c.json({ error: 'Tugas tidak ditemukan.' }, 404);
     if (!student[0]?.classId) return c.json({ error: 'Kelas siswa belum ditentukan.' }, 403);
     const target = student[0]?.classId ? await db.select({ id: assignmentClasses.id }).from(assignmentClasses).where(and(
       eq(assignmentClasses.assignmentId, assignmentId),
@@ -2264,6 +2376,8 @@ app.post('/api/student/:studentId/submissions', async (c) => {
     return c.json({ success: true });
   } catch (err: any) {
     if (uploadedReference) await deleteObject(uploadedReference).catch((cleanupError) => console.error('Error cleaning failed submission upload:', cleanupError));
+    const storageResponse = storageFailure(c, err);
+    if (storageResponse) return storageResponse;
     return c.json({ error: err.message }, 500);
   }
 });

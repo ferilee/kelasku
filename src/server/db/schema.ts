@@ -52,8 +52,13 @@ export const assignments = sqliteTable('assignments', {
   title: text('title').notNull(),
   description: text('description'),
   type: text('type').notNull().default('tugas'), // 'tugas' or 'materi'
+  status: text('status', { enum: ['draft', 'published', 'archived'] }).notNull().default('published'),
   filePath: text('file_path'),
+  fileOriginalName: text('file_original_name'),
+  fileMimeType: text('file_mime_type'),
+  fileSizeBytes: integer('file_size_bytes'),
   dueDate: integer('due_date', { mode: 'timestamp' }),
+  publishedAt: integer('published_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

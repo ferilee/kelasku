@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
@@ -13,7 +13,7 @@ const LandingPage = ({
   userSession: 'admin' | 'teacher' | 'counselor' | 'student' | null;
   onLogout: () => void;
 }) => {
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, setSelectedClass, setSelectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -127,7 +127,7 @@ const LandingPage = ({
               {userSession && (
                 <button 
                   onClick={onLogout}
-                  className="px-3 sm:px-4 py-2 text-xs font-bold text-red-500 hover:text-white border border-red-200 dark:border-red-900/50 hover:bg-red-500 dark:hover:bg-red-650 rounded-full transition-all"
+                  className="px-3 sm:px-4 py-2 text-xs font-bold text-red-500 hover:text-white border border-red-200 dark:border-red-900/50 hover:bg-red-500 dark:hover:bg-red-900 rounded-full transition-all"
                 >
                   Keluar
                 </button>
@@ -154,7 +154,7 @@ const LandingPage = ({
                 {userSession ? (
                   <button 
                     onClick={() => onLoginSuccess(userSession)}
-                    className="inline-flex items-center justify-center bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-650 hover:to-teal-650 text-white px-8 py-3.5 rounded-full font-bold text-sm transition-all shadow-lg dark:shadow-[0_0_25px_rgba(16,185,129,0.5)] tracking-wide"
+                    className="inline-flex items-center justify-center bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-8 py-3.5 rounded-full font-bold text-sm transition-all shadow-lg dark:shadow-[0_0_25px_rgba(16,185,129,0.5)] tracking-wide"
                   >
                     Kembali ke Dashboard ({userSession === 'student' ? 'Siswa' : 'Guru'})
                   </button>

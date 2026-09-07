@@ -17,7 +17,7 @@ type StudentAttendanceSummary = {
 
 const StudentDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const { selectedClass, selectedYear, students, schedules, agenda, announcements, teachingAnnouncements, behaviorRecords, achievements } = useClassData();
+  const { selectedClass, selectedYear, schedules, agenda, announcements, teachingAnnouncements, behaviorRecords, achievements } = useClassData();
   const [authenticatedStudent, setAuthenticatedStudent] = useState<{ id: number; name: string } | null>(null);
   const [attendanceSummary, setAttendanceSummary] = useState<StudentAttendanceSummary | null>(null);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
@@ -57,6 +57,14 @@ const StudentDashboard = () => {
   const [submitFile, setSubmitFile] = useState<File | null>(null);
   const [existingSubmissionName, setExistingSubmissionName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && showSubmitModal && !isSubmitting) setShowSubmitModal(false);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [showSubmitModal, isSubmitting]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -343,13 +351,13 @@ const StudentDashboard = () => {
                       </div>
                     ) : (
                       assignments.filter(a => a.type === 'tugas' && !a.submission).slice(0, 3).map((item) => (
-                        <div key={item.id} className="p-4 rounded-xl border border-orange-150 dark:border-orange-950/30 bg-orange-50/30 dark:bg-orange-950/10 flex gap-4 items-start">
+                        <div key={item.id} className="p-4 rounded-xl border border-orange-200 dark:border-orange-950/30 bg-orange-50/30 dark:bg-orange-950/10 flex gap-4 items-start">
                           <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center shrink-0">
                             <FileText className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-200 truncate">{item.title}</h4>
-                            <p className="text-xs text-slate-505 dark:text-slate-400 mt-1 line-clamp-2">{item.description || 'Tidak ada deskripsi.'}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{item.description || 'Tidak ada deskripsi.'}</p>
                             <div className="flex justify-between items-center mt-3">
                               <span className="text-[10px] font-semibold text-red-500">
                                 {item.dueDate 
@@ -366,7 +374,7 @@ const StudentDashboard = () => {
                                   setExistingSubmissionName('');
                                   setShowSubmitModal(true);
                                 }}
-                                className="text-[10px] bg-orange-650 hover:bg-orange-700 text-white font-bold px-2.5 py-1.5 rounded-lg transition-colors"
+                                className="text-[10px] bg-orange-600 hover:bg-orange-700 text-white font-bold px-2.5 py-1.5 rounded-lg transition-colors"
                               >
                                 Kumpulkan
                               </button>
@@ -455,10 +463,10 @@ const StudentDashboard = () => {
                             <div key={sched.id} className={`p-3 rounded-r-xl border-l-4 border bg-slate-50/50 dark:bg-slate-900/20 border-slate-200 dark:border-slate-700/50 ${colorStyle} flex justify-between items-center`}>
                               <div>
                                 <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">{sched.subject}</h4>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">{sched.timeStart} - {sched.timeEnd}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sched.timeStart} - {sched.timeEnd}</p>
                               </div>
                               {sched.teacherName && (
-                                <span className="text-[9px] font-medium text-slate-500 bg-slate-200 dark:bg-slate-750 dark:text-slate-400 px-2 py-0.5 rounded-full max-w-[110px] truncate" title={sched.teacherName}>
+                                <span className="text-[9px] font-medium text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-full max-w-[110px] truncate" title={sched.teacherName}>
                                   {sched.teacherName.split(',')[0]}
                                 </span>
                               )}
@@ -488,9 +496,9 @@ const StudentDashboard = () => {
               </div>
 
               {isLoading ? (
-                <div className="text-center py-12 text-slate-450">Memuat tugas...</div>
+                <div className="text-center py-12 text-slate-400">Memuat tugas...</div>
               ) : assignments.filter(a => a.type === 'tugas').length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-770">
+                <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <FileText className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
                   <h4 className="font-semibold text-slate-600 dark:text-slate-400">Tidak ada tugas baru</h4>
                   <p className="text-sm text-slate-400 mt-1">Selamat! Semua tugas Anda telah selesai atau belum ada tugas yang dipublish.</p>
@@ -500,16 +508,14 @@ const StudentDashboard = () => {
                   {assignments.filter(a => a.type === 'tugas').map((item) => {
                     const hasSubmitted = !!item.submission;
                     const grade = item.submission?.grade;
-                    const subDate = item.submission?.submittedAt;
-
                     return (
                       <div key={item.id} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:shadow-md transition-shadow">
                         <div>
                           <div className="flex justify-between items-start mb-4">
                             <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg ${
                               hasSubmitted 
-                                ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-250 dark:border-emerald-900/50' 
-                                : 'bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 border border-orange-250 dark:border-orange-900/50'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50'
+                                : 'bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50'
                             }`}>
                               {hasSubmitted ? 'Terkumpul' : 'Belum Dikumpulkan'}
                             </span>
@@ -527,11 +533,11 @@ const StudentDashboard = () => {
                           {item.filePath && (
                             <div className="flex items-center gap-2 mb-4 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                               <FileText className="h-4 w-4 text-blue-600" />
-                              <span className="text-xs font-mono text-slate-650 dark:text-slate-400 truncate max-w-[200px]" title={item.filePath}>
-                                {item.filePath.split('/').pop()}
+                              <span className="text-xs text-slate-600 dark:text-slate-400 truncate max-w-[200px]" title={item.fileName || item.filePath}>
+                                {item.fileName || 'File pendukung'}
                               </span>
                               <a
-                                href={item.filePath}
+                                href={item.fileDownloadUrl || item.filePath}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={() => sendStudentActivity('material_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title })}
@@ -587,9 +593,9 @@ const StudentDashboard = () => {
               </div>
 
               {isLoading ? (
-                <div className="text-center py-12 text-slate-450">Memuat materi...</div>
+                <div className="text-center py-12 text-slate-400">Memuat materi...</div>
               ) : assignments.filter(a => a.type === 'materi').length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-770">
+                <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <BookOpen className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
                   <h4 className="font-semibold text-slate-600 dark:text-slate-400">Belum ada materi belajar</h4>
                   <p className="text-sm text-slate-400 mt-1">Guru Anda belum membagikan modul atau materi pelajaran.</p>
@@ -600,7 +606,7 @@ const StudentDashboard = () => {
                     <div key={item.id} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:shadow-md transition-shadow">
                       <div>
                         <div className="flex justify-between items-start mb-4">
-                          <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-250 dark:border-indigo-900/50">
+                          <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50">
                             Materi
                           </span>
                         </div>
@@ -611,11 +617,11 @@ const StudentDashboard = () => {
                         {item.filePath && (
                           <div className="flex items-center gap-2 mb-4 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                             <FileText className="h-4 w-4 text-blue-600" />
-                            <span className="text-xs font-mono text-slate-600 dark:text-slate-400 truncate max-w-[200px]" title={item.filePath}>
-                              {item.filePath.split('/').pop()}
+                            <span className="text-xs text-slate-600 dark:text-slate-400 truncate max-w-[200px]" title={item.fileName || item.filePath}>
+                              {item.fileName || 'File pendukung'}
                             </span>
                               <a
-                                href={item.filePath}
+                                href={item.fileDownloadUrl || item.filePath}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={() => sendStudentActivity('material_opened', { page: 'materials', resourceType: 'material', resourceId: item.id, resourceTitle: item.title })}
@@ -658,7 +664,7 @@ const StudentDashboard = () => {
                 {/* Weekly Timetable */}
                 <div className="lg:col-span-2 space-y-6">
                   <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2 border-b border-slate-105 dark:border-slate-700 pb-3">
+                    <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2 border-b border-slate-100 dark:border-slate-700 pb-3">
                       <Clock className="h-5 w-5 text-blue-500" />
                       Jadwal Pelajaran Mingguan
                     </h4>
@@ -669,7 +675,7 @@ const StudentDashboard = () => {
                           .sort((a, b) => a.timeStart.localeCompare(b.timeStart));
 
                         return (
-                          <div key={day} className="border-b border-slate-100 dark:border-slate-750 pb-5 last:border-0 last:pb-0">
+                          <div key={day} className="border-b border-slate-100 dark:border-slate-700 pb-5 last:border-0 last:pb-0">
                             <h5 className="font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
                               <span className="h-2 w-2 rounded-full bg-emerald-500" />
                               {day}
@@ -718,7 +724,7 @@ const StudentDashboard = () => {
                 {/* Academic Agenda (1/3 width) */}
                 <div className="space-y-6">
                   <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2 border-b border-slate-105 dark:border-slate-700 pb-3">
+                    <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-6 flex items-center gap-2 border-b border-slate-100 dark:border-slate-700 pb-3">
                       <CalendarDays className="h-5 w-5 text-emerald-500" />
                       Agenda Akademik
                     </h4>
@@ -728,14 +734,14 @@ const StudentDashboard = () => {
                         <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-6">Belum ada agenda akademik.</p>
                       ) : (
                         agenda.map((item) => (
-                          <div key={item.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-750">
+                          <div key={item.id} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700">
                             <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400 min-w-10 bg-blue-50 dark:bg-blue-950/40 p-1.5 rounded-lg">
                               <span className="text-[9px] font-bold uppercase">{item.date.split(' ')[1] || 'AGS'}</span>
                               <span className="text-lg font-extrabold leading-none">{item.date.split(' ')[0] || '1'}</span>
                             </div>
                             <div>
                               <h5 className="font-semibold text-xs text-slate-800 dark:text-slate-200">{item.title}</h5>
-                              <span className="inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-650 dark:text-slate-400 uppercase">{item.type}</span>
+                              <span className="inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 uppercase">{item.type}</span>
                             </div>
                           </div>
                         ))
@@ -771,7 +777,7 @@ const StudentDashboard = () => {
                     </div>
                     <div className="rounded-xl border-l border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/30 sm:p-4">
                       <span className="mb-1 block text-[10px] text-slate-400 sm:text-xs">Positif</span>
-                      <span className="text-2xl font-black text-emerald-650 sm:text-3xl">+{posPoints}</span>
+                      <span className="text-2xl font-black text-emerald-600 sm:text-3xl">+{posPoints}</span>
                       <span className="mt-1 block text-[9px] text-slate-500 sm:text-[10px]">Apresiasi</span>
                     </div>
                     <div className="rounded-xl border-l border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/30 sm:p-4">
@@ -799,7 +805,7 @@ const StudentDashboard = () => {
                               : 'bg-rose-50/20 dark:bg-rose-950/5 border-rose-100 dark:border-rose-900/30'
                           }`}>
                             <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
-                              rec.type === 'positif' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700' : 'bg-rose-100 dark:bg-rose-900/40 text-rose-705'
+                              rec.type === 'positif' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700' : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700'
                             }`}>
                               {rec.type === 'positif' ? <ThumbsUp className="h-4 w-4" /> : <ThumbsDown className="h-4 w-4" />}
                             </div>
@@ -873,7 +879,7 @@ const StudentDashboard = () => {
                 className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
               ></div>
               
-              <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
+              <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative" role="dialog" aria-modal="true" aria-labelledby="submission-modal-title">
                 <button 
                   onClick={() => setShowSubmitModal(false)}
                   className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
@@ -881,7 +887,7 @@ const StudentDashboard = () => {
                   <X className="h-5 w-5" />
                 </button>
 
-                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+                <h3 id="submission-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
                   <CheckSquare className="h-5 w-5 text-emerald-600" />
                   Kumpulkan Hasil Tugas
                 </h3>

@@ -32,6 +32,26 @@ function getStorageClient() {
 }
 
 export const MAX_SUBMISSION_FILE_SIZE = 10 * 1024 * 1024;
+export const MAX_ASSIGNMENT_FILE_SIZE = 10 * 1024 * 1024;
+
+export type StorageErrorCode = 'STORAGE_FORBIDDEN' | 'STORAGE_NOT_FOUND' | 'STORAGE_UNAVAILABLE';
+
+export function getStorageErrorCode(error: unknown): StorageErrorCode | null {
+  const candidate = error as { name?: string; Code?: string; code?: string; message?: string; $metadata?: { httpStatusCode?: number } } | null;
+  const status = candidate?.$metadata?.httpStatusCode;
+  const code = candidate?.Code || candidate?.code || candidate?.name || '';
+  const message = candidate?.message || '';
+  if (status === 403 || /access key|access denied|forbidden/i.test(message) || /AccessDenied|InvalidAccessKeyId/i.test(code)) return 'STORAGE_FORBIDDEN';
+  if (status === 404 || /NoSuchBucket|NotFound/i.test(code) || /bucket does not exist/i.test(message)) return 'STORAGE_NOT_FOUND';
+  if ((status !== undefined && status >= 500) || /Konfigurasi credential RustFS|Timeout|NetworkingError|ECONNREFUSED|Unable to connect|fetch failed/i.test(`${code} ${message}`)) return 'STORAGE_UNAVAILABLE';
+  return null;
+}
+
+export function storageErrorResponse(code: StorageErrorCode) {
+  if (code === 'STORAGE_FORBIDDEN') return { error: 'Penyimpanan sekolah menolak akses. Hubungi administrator untuk memeriksa konfigurasi penyimpanan.', code, retryable: false };
+  if (code === 'STORAGE_NOT_FOUND') return { error: 'Penyimpanan sekolah belum siap karena lokasi file tidak ditemukan. Hubungi administrator.', code, retryable: false };
+  return { error: 'Penyimpanan sekolah sedang tidak tersedia. Silakan coba lagi beberapa saat.', code, retryable: true };
+}
 
 export const isRustFsReference = (value: string | null | undefined) => Boolean(value?.startsWith('rustfs://'));
 

@@ -53,8 +53,13 @@ sqlite.run(`
     title TEXT NOT NULL,
     description TEXT,
     type TEXT NOT NULL DEFAULT 'tugas',
+    status TEXT NOT NULL DEFAULT 'published',
     file_path TEXT,
+    file_original_name TEXT,
+    file_mime_type TEXT,
+    file_size_bytes INTEGER,
     due_date INTEGER,
+    published_at INTEGER,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
@@ -262,6 +267,11 @@ addColumnIfMissing('schedules', 'class_id', 'class_id INTEGER REFERENCES classes
 addColumnIfMissing('submissions', 'original_name', 'original_name TEXT');
 addColumnIfMissing('submissions', 'mime_type', 'mime_type TEXT');
 addColumnIfMissing('submissions', 'size_bytes', 'size_bytes INTEGER');
+addColumnIfMissing('assignments', 'status', "status TEXT NOT NULL DEFAULT 'published'");
+addColumnIfMissing('assignments', 'file_original_name', 'file_original_name TEXT');
+addColumnIfMissing('assignments', 'file_mime_type', 'file_mime_type TEXT');
+addColumnIfMissing('assignments', 'file_size_bytes', 'file_size_bytes INTEGER');
+addColumnIfMissing('assignments', 'published_at', 'published_at INTEGER');
 
 // Older installations created `assignments` before material types existed and
 // required a due date for every item. Rebuild only that legacy table so both
@@ -279,14 +289,19 @@ if (!assignmentHasType || legacyDueDate) {
         title TEXT NOT NULL,
         description TEXT,
         type TEXT NOT NULL DEFAULT 'tugas',
+        status TEXT NOT NULL DEFAULT 'published',
         file_path TEXT,
+        file_original_name TEXT,
+        file_mime_type TEXT,
+        file_size_bytes INTEGER,
         due_date INTEGER,
+        published_at INTEGER,
         created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
       )
     `);
     sqlite.run(`
-      INSERT INTO assignments_migrated (id, title, description, type, file_path, due_date, created_at)
-      SELECT id, title, description, ${assignmentHasType ? 'type' : "'tugas'"}, file_path, due_date, created_at
+      INSERT INTO assignments_migrated (id, title, description, type, status, file_path, file_original_name, file_mime_type, file_size_bytes, due_date, published_at, created_at)
+      SELECT id, title, description, ${assignmentHasType ? 'type' : "'tugas'"}, 'published', file_path, NULL, NULL, NULL, due_date, NULL, created_at
       FROM assignments
     `);
     sqlite.run('DROP TABLE assignments');

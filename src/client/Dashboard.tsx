@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ThumbsUp, ThumbsDown, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw } from 'lucide-react';
-import { useClassData, Announcement, AgendaItem, Student } from './ClassContext';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw } from 'lucide-react';
+import { useClassData, Student } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 
@@ -35,6 +35,14 @@ type CaseStatus = 'terbuka' | 'ditangani' | 'selesai';
 type CasePriority = 'rendah' | 'sedang' | 'tinggi' | 'mendesak';
 type CaseVisibility = 'ringkasan' | 'sensitif';
 type CaseCategory = 'akademik' | 'presensi' | 'sikap' | 'sosial-emosional' | 'kesehatan' | 'keluarga-lingkungan' | 'lainnya';
+type AssignmentStatus = 'draft' | 'published' | 'archived';
+
+function apiErrorMessage(payload: { error?: string; code?: string } | null, fallback: string) {
+  if (payload?.code === 'STORAGE_FORBIDDEN') return 'Penyimpanan sekolah menolak akses. Hubungi administrator.';
+  if (payload?.code === 'STORAGE_NOT_FOUND') return 'Penyimpanan sekolah belum siap. Hubungi administrator.';
+  if (payload?.code === 'STORAGE_UNAVAILABLE') return 'Penyimpanan sekolah sedang tidak tersedia. Silakan coba lagi.';
+  return payload?.error || fallback;
+}
 
 interface StudentCase {
   id: string;
@@ -73,8 +81,10 @@ type ActivityStudent = {
   id: string; name: string; identifier: string; status: string; classId: string | null; className: string;
   online: boolean; lastActiveAt: string | null; totalActiveSeconds: number; sessionCount: number; activityCount: number;
   latestActivity: { action: ActivityAction; occurredAt: string; page: string | null; resourceTitle: string | null } | null;
+  assignmentStats: { total: number; pendingCount: number; overdueCount: number; lateCount: number; attention: 'overdue' | 'opened_pending' | 'not_started' | 'none' };
 };
 type ActivityReport = {
+  generatedAt: string;
   summary: { onlineCount: number; activeStudentCount: number; totalActiveSeconds: number; sessionCount: number; activityCount: number };
   students: ActivityStudent[];
   sessions: Array<{ id: string; studentId: string; studentName: string; className: string; startedAt: string; lastSeenAt: string; endedAt: string | null; endReason: string | null; activeSeconds: number }>;
@@ -85,6 +95,13 @@ const activityLabels: Record<ActivityAction, string> = {
   login: 'Masuk', logout: 'Keluar', page_view: 'Membuka halaman', material_opened: 'Membuka materi', material_downloaded: 'Mengunduh materi', assignment_opened: 'Membuka tugas', assignment_submitted: 'Mengumpulkan tugas',
 };
 
+const activityAttentionLabels = {
+  overdue: 'Lewat tenggat',
+  opened_pending: 'Sudah membuka, belum mengumpulkan',
+  not_started: 'Belum mulai tugas',
+  none: 'Tidak ada tindak lanjut',
+} as const;
+
 const formatActivityDuration = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 1) return '< 1 menit';
@@ -93,11 +110,11 @@ const formatActivityDuration = (seconds: number) => {
 };
 
 const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
-  const [activeTab, setActiveTab] = useState('workspace');
+  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'workspace');
   const classData = useClassData();
   const { notify, confirm } = useNotifications();
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
-  const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(null);
+  const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(() => new URLSearchParams(window.location.search).get('subject'));
   const canManageStudents = userRole === 'admin';
   const [workspace, setWorkspace] = useState<{ user: { id: string; name: string; roles: string[] }; homeroomClasses: { id: string; name: string; academicYear: string }[]; subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[] } | null>(null);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
@@ -115,6 +132,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     };
     fetchWorkspace();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', activeTab);
+    if (classData.classId) params.set('classId', classData.classId);
+    else params.delete('classId');
+    if (activeTeachingSubject) params.set('subject', activeTeachingSubject);
+    else params.delete('subject');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [activeTab, classData.classId, activeTeachingSubject]);
+
+  useEffect(() => {
+    const requestedClassId = new URLSearchParams(window.location.search).get('classId');
+    if (requestedClassId && classData.classes.some((item) => item.id === requestedClassId) && classData.classId !== requestedClassId) {
+      classData.selectClass(requestedClassId).catch(() => undefined);
+    }
+  }, [classData.classes, classData.classId, classData.selectClass]);
 
   const openTeachingClass = async (classId: string, subjectName: string) => {
     await classData.selectClass(classId);
@@ -249,6 +283,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [activityFrom, setActivityFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [activityActionFilter, setActivityActionFilter] = useState<'all' | ActivityAction>('all');
+  const [activityAttentionFilter, setActivityAttentionFilter] = useState<'all' | ActivityStudent['assignmentStats']['attention']>('all');
   const [activitySearch, setActivitySearch] = useState('');
   const [studentActivityReport, setStudentActivityReport] = useState<ActivityReport | null>(null);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
@@ -484,7 +519,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [newAssessmentName, setNewAssessmentName] = useState('');
   const [newAssessmentType, setNewAssessmentType] = useState<'Tugas' | 'Ulangan' | 'PTS' | 'PAS'>('Tugas');
   const [academicSearch, setAcademicSearch] = useState('');
-  const [tempScores, setTempScores] = useState<Record<string, number>>({});
+  const [tempScores, setTempScores] = useState<Record<string, number | ''>>({});
   const [sessionAssessments, setSessionAssessments] = useState<{ name: string; type: string }[]>([]);
 
   useEffect(() => {
@@ -669,6 +704,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [newAssignmentType, setNewAssignmentType] = useState<'tugas' | 'materi'>('tugas');
   const [newAssignmentDueDate, setNewAssignmentDueDate] = useState('');
   const [newAssignmentFilePath, setNewAssignmentFilePath] = useState('');
+  const [newAssignmentFile, setNewAssignmentFile] = useState<File | null>(null);
+  const [newAssignmentStatus, setNewAssignmentStatus] = useState<AssignmentStatus>('published');
+  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
   const [newAssignmentTargetClassIds, setNewAssignmentTargetClassIds] = useState<string[]>([]);
   const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
   
@@ -676,18 +714,50 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [submissionClassId, setSubmissionClassId] = useState('');
   const [submissionsList, setSubmissionsList] = useState<any[]>([]);
   const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
-  const [tempSubGrades, setTempSubGrades] = useState<Record<number, number>>({});
+  const [tempSubGrades, setTempSubGrades] = useState<Record<number, number | ''>>({});
   const [submissionSearch, setSubmissionSearch] = useState('');
-  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | 'submitted' | 'pending'>('all');
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | 'submitted' | 'pending' | 'ungraded' | 'late'>('all');
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (selectedActivityStudentId) setSelectedActivityStudentId(null);
+      else if (viewSubmissionsAssignmentId !== null) setViewSubmissionsAssignmentId(null);
+      else if (showAddAssignmentModal) setShowAddAssignmentModal(false);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [selectedActivityStudentId, viewSubmissionsAssignmentId, showAddAssignmentModal]);
 
   const filteredSubmissions = submissionsList.filter((submission) => {
     const query = submissionSearch.trim().toLowerCase();
     const matchesSearch = !query || submission.studentName.toLowerCase().includes(query) || String(submission.studentNisn || '').includes(query);
     const matchesStatus = submissionStatusFilter === 'all'
       || (submissionStatusFilter === 'submitted' && submission.hasSubmitted)
-      || (submissionStatusFilter === 'pending' && !submission.hasSubmitted);
+      || (submissionStatusFilter === 'pending' && !submission.hasSubmitted)
+      || (submissionStatusFilter === 'ungraded' && submission.hasSubmitted && submission.grade === null)
+      || (submissionStatusFilter === 'late' && submission.late);
     return matchesSearch && matchesStatus;
   });
+
+  const [assignmentSearch, setAssignmentSearch] = useState('');
+  const [assignmentTypeFilter, setAssignmentTypeFilter] = useState<'all' | 'tugas' | 'materi'>('all');
+  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<'all' | AssignmentStatus>('all');
+  const [assignmentClassFilter, setAssignmentClassFilter] = useState('all');
+  const [assignmentSort, setAssignmentSort] = useState<'newest' | 'dueSoon'>('newest');
+
+  const filteredAssignments = assignmentsList
+    .filter((item) => {
+      const query = assignmentSearch.trim().toLowerCase();
+      const matchesQuery = !query || item.title.toLowerCase().includes(query) || (item.description || '').toLowerCase().includes(query);
+      const matchesType = assignmentTypeFilter === 'all' || item.type === assignmentTypeFilter;
+      const matchesStatus = assignmentStatusFilter === 'all' || (item.status || 'published') === assignmentStatusFilter;
+      const matchesClass = assignmentClassFilter === 'all' || (item.targetClassIds || []).includes(Number(assignmentClassFilter));
+      return matchesQuery && matchesType && matchesStatus && matchesClass;
+    })
+    .sort((a, b) => assignmentSort === 'dueSoon'
+      ? (a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER) - (b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER)
+      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const fetchAssignments = useCallback(async () => {
     setIsLoadingAssignments(true);
@@ -711,6 +781,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setNewAssignmentType('tugas');
     setNewAssignmentDueDate('');
     setNewAssignmentFilePath('');
+    setNewAssignmentFile(null);
+    setNewAssignmentStatus('published');
     setNewAssignmentTargetClassIds(classData.classId ? [classData.classId] : []);
     setShowAddAssignmentModal(true);
   };
@@ -722,6 +794,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setNewAssignmentType(item.type === 'materi' ? 'materi' : 'tugas');
     setNewAssignmentDueDate(item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : '');
     setNewAssignmentFilePath(item.filePath || '');
+    setNewAssignmentFile(null);
+    setNewAssignmentStatus(item.status || 'published');
     setNewAssignmentTargetClassIds((item.targetClassIds || []).map((id: number | string) => String(id)));
     setShowAddAssignmentModal(true);
   };
@@ -737,6 +811,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       return;
     }
 
+    setIsSavingAssignment(true);
     try {
       const res = await fetch(editingAssignmentId ? `/api/assignments/${editingAssignmentId}` : '/api/assignments', {
         method: editingAssignmentId ? 'PUT' : 'POST',
@@ -745,6 +820,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           title: newAssignmentTitle.trim(),
           description: newAssignmentDesc.trim(),
           type: newAssignmentType,
+          status: newAssignmentStatus,
           filePath: newAssignmentFilePath.trim() || null,
           dueDate: newAssignmentType === 'tugas' && newAssignmentDueDate ? newAssignmentDueDate : null,
           targetClassIds: newAssignmentTargetClassIds,
@@ -752,17 +828,32 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       });
 
       if (res.ok) {
+        const savedAssignment = await res.json();
+        if (newAssignmentFile) {
+          const fileForm = new FormData();
+          fileForm.append('file', newAssignmentFile);
+          const fileResponse = await fetch(`/api/assignments/${savedAssignment.id}/file`, { method: 'POST', body: fileForm });
+          if (!fileResponse.ok) {
+            const payload = await fileResponse.json().catch(() => null) as { error?: string; code?: string } | null;
+            notify(apiErrorMessage(payload, 'File pendukung gagal diunggah.'), 'error');
+            setIsSavingAssignment(false);
+            fetchAssignments();
+            return;
+          }
+        }
         notify(editingAssignmentId ? 'Materi atau tugas berhasil diperbarui!' : (newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!'));
         setShowAddAssignmentModal(false);
         setEditingAssignmentId(null);
         fetchAssignments();
       } else {
         const payload = await res.json().catch(() => null) as { error?: string } | null;
-        notify(payload?.error || 'Gagal menyimpan.');
+        notify(apiErrorMessage(payload, 'Gagal menyimpan.'), 'error');
       }
     } catch (err) {
       console.error('Error saving assignment:', err);
-      notify('Terjadi kesalahan saat menyimpan.');
+      notify('Terjadi kesalahan saat menyimpan.', 'error');
+    } finally {
+      setIsSavingAssignment(false);
     }
   };
 
@@ -803,6 +894,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           }
         });
         setTempSubGrades(initialTempGrades);
+      } else {
+        const payload = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+        notify(apiErrorMessage(payload, 'Gagal memuat pengumpulan tugas.'), 'error');
       }
     } catch (err) {
       console.error('Error fetching submissions:', err);
@@ -821,6 +915,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       });
       if (res.ok) {
         fetchSubmissions(viewSubmissionsAssignmentId, submissionClassId);
+        notify('Nilai berhasil disimpan.', 'success');
+      } else {
+        const payload = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+        notify(apiErrorMessage(payload, 'Gagal menyimpan nilai.'), 'error');
       }
     } catch (err) {
       console.error('Error grading submission:', err);
@@ -1207,28 +1305,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [reportAlfaFilter, setReportAlfaFilter] = useState<'all' | 'alfa-only' | 'no-alfa'>('all');
 
   let avgHadir = 0;
-  let avgDhuha = 0;
-  let avgDzuhur = 0;
-  
   let totalHarian = 0;
   let totalHadirCount = 0;
-  let totalDhuha = 0;
-  let totalDhuhaBerjamaah = 0;
-  let totalDzuhur = 0;
-  let totalDzuhurBerjamaah = 0;
 
   dashboardSummary.forEach(s => {
     totalHarian += s.harian.total;
     totalHadirCount += s.harian.Hadir;
-    totalDhuha += s.dhuha.total;
-    totalDhuhaBerjamaah += s.dhuha.Berjamaah;
-    totalDzuhur += s.dzuhur.total;
-    totalDzuhurBerjamaah += s.dzuhur.Berjamaah;
   });
 
   if (totalHarian > 0) avgHadir = Math.round((totalHadirCount / totalHarian) * 100);
-  if (totalDhuha > 0) avgDhuha = Math.round((totalDhuhaBerjamaah / totalDhuha) * 100);
-  if (totalDzuhur > 0) avgDzuhur = Math.round((totalDzuhurBerjamaah / totalDzuhur) * 100);
 
   const stats = [
     { title: "Total Siswa", value: classData.stats.totalStudents, icon: Users, color: "text-blue-500" },
@@ -1507,6 +1592,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         ? items
         : [...items, { name: grade.name, type: grade.type }]
     ), []);
+  const activeContext = workspaceMode === 'teaching'
+    ? `${classData.selectedClass || 'Kelas belum dipilih'}${activeTeachingSubject ? ` · ${activeTeachingSubject}` : ''}`
+    : classData.selectedClass || 'Kelas belum dipilih';
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
@@ -1551,9 +1639,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       <main className="min-w-0 flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
-          <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate mr-2">
-            {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
-          </h2>
+          <div className="min-w-0 mr-2">
+            <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate">
+              {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
+            </h2>
+            {activeTab !== 'workspace' && <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">Konteks kerja: {activeContext}</p>}
+          </div>
           <div className="flex items-center gap-2 sm:gap-4">
             <select
               value={classData.classId || ''}
@@ -1957,10 +2048,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             <div key={sched.id} className={`p-3 rounded-r-xl border-l-4 border bg-slate-50/50 dark:bg-slate-900/20 border-slate-200 dark:border-slate-700/50 ${colorStyle} flex justify-between items-center`}>
                               <div>
                                 <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">{sched.subject}</h4>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">{sched.timeStart} - {sched.timeEnd}</p>
+                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sched.timeStart} - {sched.timeEnd}</p>
                               </div>
                               {sched.teacherName && (
-                                <span className="text-[9px] font-medium text-slate-500 bg-slate-200 dark:bg-slate-750 dark:text-slate-400 px-2 py-0.5 rounded-full max-w-[110px] truncate" title={sched.teacherName}>
+                                <span className="text-[9px] font-medium text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-full max-w-[110px] truncate" title={sched.teacherName}>
                                   {sched.teacherName.split(',')[0]}
                                 </span>
                               )}
@@ -2494,7 +2585,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                             ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
                                             : status === 'Izin'
                                               ? 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                                              : 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-250 dark:border-red-900/40'
+                                              : 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/40'
                                         : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                     }`}
                                   >
@@ -2519,7 +2610,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                               ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
                                               : status === 'Berhalangan'
                                                 ? 'bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800'
-                                                : 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-250 dark:border-red-900/40'
+                                                : 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/40'
                                             : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                                       }`}
                                       title={status}
@@ -2911,7 +3002,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     academicSubTab === 'grades'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   Buku Nilai Digital
@@ -2921,7 +3012,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     academicSubTab === 'materials'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   Bank Materi & Tugas
@@ -2931,7 +3022,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     academicSubTab === 'schedule'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   Jadwal & Kalender
@@ -3100,7 +3191,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                             const scoreVal = valStr === '' ? '' : Math.min(100, Math.max(0, parseInt(valStr) || 0));
                                             setTempScores(prev => ({
                                               ...prev,
-                                              [scoreKey]: scoreVal as number
+                                              [scoreKey]: scoreVal
                                             }));
                                           }}
                                           className={`w-16 px-2 py-1 text-center text-sm font-semibold rounded-lg border focus:outline-none transition-colors ${
@@ -3152,17 +3243,27 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     </button>
                   </div>
 
+                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-5">
+                    <label className="relative lg:col-span-2"><span className="sr-only">Cari materi atau tugas</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)} placeholder="Cari materi atau tugas..." className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" /></label>
+                    <select aria-label="Filter tipe konten" value={assignmentTypeFilter} onChange={(event) => setAssignmentTypeFilter(event.target.value as typeof assignmentTypeFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua tipe</option><option value="tugas">Tugas</option><option value="materi">Materi</option></select>
+                    <select aria-label="Filter status konten" value={assignmentStatusFilter} onChange={(event) => setAssignmentStatusFilter(event.target.value as typeof assignmentStatusFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua status</option><option value="draft">Draft</option><option value="published">Terbit</option><option value="archived">Arsip</option></select>
+                    <select aria-label="Filter kelas tujuan" value={assignmentClassFilter} onChange={(event) => setAssignmentClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                    <select aria-label="Urutkan materi dan tugas" value={assignmentSort} onChange={(event) => setAssignmentSort(event.target.value as typeof assignmentSort)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="newest">Terbaru dibuat</option><option value="dueSoon">Tenggat terdekat</option></select>
+                  </div>
+
                   {isLoadingAssignments ? (
                     <div className="text-center py-12 text-slate-400">Memuat data bank materi...</div>
                   ) : assignmentsList.length === 0 ? (
-                    <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-750">
+                    <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                       <FileText className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
                       <h4 className="font-semibold text-slate-600 dark:text-slate-400">Belum ada materi atau tugas</h4>
                       <p className="text-sm text-slate-400 mt-1">Klik tombol di atas untuk membagikan materi pertama Anda.</p>
                     </div>
+                  ) : filteredAssignments.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center dark:border-slate-700 dark:bg-slate-800"><Search className="mx-auto mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" /><h4 className="font-semibold text-slate-600 dark:text-slate-400">Tidak ada item yang sesuai</h4><p className="mt-1 text-sm text-slate-400">Ubah kata kunci atau filter pencarian.</p></div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {assignmentsList.map((item) => (
+                      {filteredAssignments.map((item) => (
                         <div key={item.id} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:shadow-md transition-all duration-300">
                           <div>
                             <div className="flex justify-between items-start mb-4">
@@ -3174,6 +3275,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                 }`}>
                                   {item.type === 'tugas' ? 'Tugas' : 'Materi'}
                                 </span>
+                                <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${item.status === 'draft' ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' : item.status === 'archived' ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'}`}>{item.status === 'draft' ? 'Draft' : item.status === 'archived' ? 'Arsip' : 'Terbit'}</span>
                                 <div className="flex flex-wrap gap-1">
                                   {(item.targetClasses || []).map((target: any) => (
                                     <span key={target.id} className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-300" title={`${target.name} · ${target.academicYear}`}>
@@ -3187,6 +3289,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                   onClick={() => openEditAssignmentModal(item)}
                                   className="text-slate-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
                                   title="Edit"
+                                  aria-label={`Edit ${item.title}`}
                                 >
                                   <Edit2 className="h-4 w-4" />
                                 </button>
@@ -3194,6 +3297,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                   onClick={() => handleDeleteAssignment(item.id)}
                                   className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                                   title="Hapus"
+                                  aria-label={`Hapus ${item.title}`}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
@@ -3206,11 +3310,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             {item.filePath && (
                               <div className="flex items-center gap-2 mb-4 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                                 <FileText className="h-4 w-4 text-blue-600" />
-                                <span className="text-xs font-mono text-slate-600 dark:text-slate-400 truncate max-w-[220px]" title={item.filePath}>
-                                  {item.filePath.split('/').pop()}
+                                <span className="text-xs text-slate-600 dark:text-slate-400 truncate max-w-[220px]" title={item.fileName || item.filePath}>
+                                  {item.fileName || 'File pendukung'}
                                 </span>
                                 <a 
-                                  href={item.filePath} 
+                                  href={item.fileDownloadUrl || item.filePath}
                                   target="_blank" 
                                   rel="noreferrer"
                                   className="text-xs text-blue-600 hover:underline font-bold ml-auto"
@@ -3296,8 +3400,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             .sort((a, b) => a.timeStart.localeCompare(b.timeStart));
 
                           return (
-                            <div key={day} className="border-b border-slate-105 dark:border-slate-750 pb-6 last:border-0 last:pb-0">
-                              <h4 className="font-bold text-slate-750 dark:text-slate-200 mb-3 flex items-center gap-2">
+                            <div key={day} className="border-b border-slate-100 dark:border-slate-700 pb-6 last:border-0 last:pb-0">
+                              <h4 className="font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
                                 <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
                                 {day}
                               </h4>
@@ -3366,11 +3470,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       </p>
 
                       {/* Add Agenda Form */}
-                      <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-750 mb-6 space-y-4">
-                        <h4 className="font-bold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">Tambah Agenda Baru</h4>
+                      <div className="bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700 mb-6 space-y-4">
+                        <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wider">Tambah Agenda Baru</h4>
                         <div className="space-y-3">
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Tanggal</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tanggal</label>
                             <input
                               type="text"
                               value={newAgendaDate}
@@ -3380,7 +3484,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Judul Kegiatan</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Judul Kegiatan</label>
                             <input
                               type="text"
                               value={newAgendaTitle}
@@ -3390,7 +3494,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-450 uppercase mb-1">Tipe</label>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tipe</label>
                             <select
                               value={newAgendaType}
                               onChange={e => setNewAgendaType(e.target.value)}
@@ -3431,7 +3535,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                           <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-4">Belum ada agenda akademik.</p>
                         ) : (
                           classData.agenda.map((item) => (
-                            <div key={item.id} className="flex items-start justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-750 gap-2">
+                            <div key={item.id} className="flex items-start justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-700 gap-2">
                               <div className="flex items-start gap-3">
                                 <div className="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400 min-w-10 bg-blue-50 dark:bg-blue-950/40 p-1.5 rounded-lg">
                                   <span className="text-[9px] font-bold uppercase">{item.date.split(' ')[1] || 'AGS'}</span>
@@ -3508,9 +3612,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   </div>
                   <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20"><p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Online sekarang</p><p className="mt-1 text-3xl font-black text-emerald-800 dark:text-emerald-200">{studentActivityReport?.summary.onlineCount || 0}</p></div><div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900/50 dark:bg-blue-950/20"><p className="text-xs font-semibold text-blue-700 dark:text-blue-300">Siswa beraktivitas</p><p className="mt-1 text-3xl font-black text-blue-800 dark:text-blue-200">{studentActivityReport?.summary.activeStudentCount || 0}</p></div><div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 dark:border-violet-900/50 dark:bg-violet-950/20"><p className="text-xs font-semibold text-violet-700 dark:text-violet-300">Total waktu aktif</p><p className="mt-1 text-2xl font-black text-violet-800 dark:text-violet-200">{formatActivityDuration(studentActivityReport?.summary.totalActiveSeconds || 0)}</p></div></div>
                   <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Daftar Aktivitas Siswa</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Durasi dihitung dari waktu aktif; materi yang dibuka bukan bukti seluruh isi telah dibaca.</p></div><button onClick={fetchStudentActivity} className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Segarkan</button></div>
-                    <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5"><select value={monitoringClassFilter} onChange={(event) => setMonitoringClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input type="date" value={activityFrom} onChange={(event) => setActivityFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="date" value={activityTo} onChange={(event) => setActivityTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><select value={activityActionFilter} onChange={(event) => setActivityActionFilter(event.target.value as typeof activityActionFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua aktivitas</option>{Object.entries(activityLabels).filter(([key]) => key !== 'logout').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Cari nama siswa..." className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
-                    {isLoadingActivity && !studentActivityReport ? <p className="py-10 text-center text-sm text-slate-400">Memuat aktivitas siswa…</p> : (() => { const rows = (studentActivityReport?.students || []).filter((student) => !activitySearch.trim() || student.name.toLowerCase().includes(activitySearch.trim().toLowerCase()) || student.identifier.includes(activitySearch.trim())); return rows.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada data aktivitas pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Waktu aktif</th><th className="px-3 py-3">Aktivitas</th><th className="px-3 py-3">Terakhir aktif</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{rows.map((student) => <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-800 dark:text-slate-100">{student.name}</p><p className="text-[11px] text-slate-400">{student.className} · {student.identifier}</p></td><td className="px-3 py-3">{student.online ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span> : <span className="text-xs text-slate-400">Offline</span>}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</td><td className="px-3 py-3"><span className="font-semibold text-slate-700 dark:text-slate-200">{student.activityCount}</span><span className="ml-1 text-xs text-slate-400">event</span>{student.latestActivity && <p className="mt-1 max-w-[230px] truncate text-[11px] text-slate-400">{activityLabels[student.latestActivity.action]}{student.latestActivity.resourceTitle ? ` · ${student.latestActivity.resourceTitle}` : ''}</p>}</td><td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{student.lastActiveAt ? new Date(student.lastActiveAt).toLocaleString('id-ID') : 'Belum aktif'}</td><td className="px-3 py-3 text-right"><button onClick={() => setSelectedActivityStudentId(selectedActivityStudentId === student.id ? null : student.id)} className="rounded-lg px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30">{selectedActivityStudentId === student.id ? 'Tutup' : 'Detail'}</button></td></tr>)}</tbody></table></div>; })()}
+                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Daftar Aktivitas Siswa</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Durasi dihitung dari waktu aktif; materi yang dibuka bukan bukti seluruh isi telah dibaca.</p>{studentActivityReport?.generatedAt && <p className="mt-1 text-[11px] text-slate-400">Diperbarui {new Date(studentActivityReport.generatedAt).toLocaleString('id-ID')}</p>}</div><button onClick={fetchStudentActivity} className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"><RefreshCw className="h-3.5 w-3.5" /> Segarkan</button></div>
+                    <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6"><select value={monitoringClassFilter} onChange={(event) => setMonitoringClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input type="date" value={activityFrom} onChange={(event) => setActivityFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input type="date" value={activityTo} onChange={(event) => setActivityTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><select value={activityActionFilter} onChange={(event) => setActivityActionFilter(event.target.value as typeof activityActionFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua aktivitas</option>{Object.entries(activityLabels).filter(([key]) => key !== 'logout').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={activityAttentionFilter} onChange={(event) => setActivityAttentionFilter(event.target.value as typeof activityAttentionFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua tindak lanjut</option><option value="overdue">Lewat tenggat</option><option value="opened_pending">Sudah membuka</option><option value="not_started">Belum mulai</option><option value="none">Tidak perlu tindak lanjut</option></select><input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Cari nama siswa..." className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
+                    {studentActivityReport && (() => {
+                      const students = studentActivityReport.students;
+                      const count = (attention: ActivityStudent['assignmentStats']['attention']) => students.filter((student) => student.assignmentStats.attention === attention).length;
+                      return <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-3 dark:border-rose-900/40 dark:bg-rose-950/15"><p className="text-[11px] font-bold uppercase text-rose-600 dark:text-rose-300">Lewat tenggat</p><p className="mt-1 text-xl font-black text-rose-700 dark:text-rose-200">{count('overdue')} siswa</p></div>
+                        <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-3 dark:border-amber-900/40 dark:bg-amber-950/15"><p className="text-[11px] font-bold uppercase text-amber-600 dark:text-amber-300">Sudah membuka</p><p className="mt-1 text-xl font-black text-amber-700 dark:text-amber-200">{count('opened_pending')} siswa</p></div>
+                        <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 dark:border-blue-900/40 dark:bg-blue-950/15"><p className="text-[11px] font-bold uppercase text-blue-600 dark:text-blue-300">Belum mulai</p><p className="mt-1 text-xl font-black text-blue-700 dark:text-blue-200">{count('not_started')} siswa</p></div>
+                        <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/15"><p className="text-[11px] font-bold uppercase text-emerald-600 dark:text-emerald-300">Tidak perlu tindak lanjut</p><p className="mt-1 text-xl font-black text-emerald-700 dark:text-emerald-200">{count('none')} siswa</p></div>
+                      </div>;
+                    })()}
+                    {isLoadingActivity && !studentActivityReport ? <p className="py-10 text-center text-sm text-slate-400">Memuat aktivitas siswa…</p> : (() => { const rows = (studentActivityReport?.students || []).filter((student) => (activityAttentionFilter === 'all' || student.assignmentStats.attention === activityAttentionFilter) && (!activitySearch.trim() || student.name.toLowerCase().includes(activitySearch.trim().toLowerCase()) || student.identifier.includes(activitySearch.trim()))); return rows.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada data aktivitas pada periode ini.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Waktu aktif</th><th className="px-3 py-3">Aktivitas</th><th className="px-3 py-3">Tindak lanjut</th><th className="px-3 py-3">Terakhir aktif</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{rows.map((student) => <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-800 dark:text-slate-100">{student.name}</p><p className="text-[11px] text-slate-400">{student.className} · {student.identifier}</p></td><td className="px-3 py-3">{student.online ? <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Online</span> : <span className="text-xs text-slate-400">Offline</span>}</td><td className="px-3 py-3 font-semibold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</td><td className="px-3 py-3"><span className="font-semibold text-slate-700 dark:text-slate-200">{student.activityCount}</span><span className="ml-1 text-xs text-slate-400">event</span>{student.latestActivity && <p className="mt-1 max-w-[230px] truncate text-[11px] text-slate-400">{activityLabels[student.latestActivity.action]}{student.latestActivity.resourceTitle ? ` · ${student.latestActivity.resourceTitle}` : ''}</p>}</td><td className="px-3 py-3"><span className={student.assignmentStats.attention === 'overdue' ? 'font-bold text-rose-600 dark:text-rose-300' : student.assignmentStats.attention === 'none' ? 'text-emerald-600 dark:text-emerald-300' : 'font-semibold text-amber-600 dark:text-amber-300'}>{activityAttentionLabels[student.assignmentStats.attention]}</span><p className="mt-1 text-[11px] text-slate-400">{student.assignmentStats.pendingCount} tertunda · {student.assignmentStats.lateCount} terlambat</p></td><td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{student.lastActiveAt ? new Date(student.lastActiveAt).toLocaleString('id-ID') : 'Belum aktif'}</td><td className="px-3 py-3 text-right"><button onClick={() => setSelectedActivityStudentId(selectedActivityStudentId === student.id ? null : student.id)} className="rounded-lg px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30">{selectedActivityStudentId === student.id ? 'Tutup' : 'Detail'}</button></td></tr>)}</tbody></table></div>; })()}
                   </section>
                   {selectedActivityStudentId && studentActivityReport && (() => {
                     const student = studentActivityReport.students.find((item) => item.id === selectedActivityStudentId);
@@ -3530,10 +3644,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             <button onClick={() => setSelectedActivityStudentId(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup detail aktivitas"><X className="h-5 w-5" /></button>
                           </div>
                           <div className="overflow-y-auto p-6">
-                            <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                               <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Status</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{student.online ? 'Online' : 'Offline'}</p></div>
                               <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Waktu aktif</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{formatActivityDuration(student.totalActiveSeconds)}</p></div>
                               <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Sesi / aktivitas</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{student.sessionCount} / {student.activityCount}</p></div>
+                              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-900/50"><p className="text-xs text-slate-400">Tugas tertunda</p><p className="mt-1 font-bold text-slate-700 dark:text-slate-200">{student.assignmentStats.pendingCount} · {student.assignmentStats.lateCount} terlambat</p></div>
                             </div>
                             <div className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
                               <section>
@@ -3571,7 +3686,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     behaviorSubTab === 'sikap'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   {workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Catatan Sikap & Karakter'}
@@ -3581,7 +3696,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
                     behaviorSubTab === 'prestasi'
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-750'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   Prestasi Siswa
@@ -3788,7 +3903,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                 </td>
                                 <td className="px-6 py-4">
                                   <div className="font-medium text-slate-700 dark:text-slate-300">{item.title}</div>
-                                  {item.description && <div className="text-xs text-slate-450 italic mt-0.5">{item.description}</div>}
+                                  {item.description && <div className="text-xs text-slate-400 italic mt-0.5">{item.description}</div>}
                                 </td>
                                 <td className="px-6 py-4 text-center">
                                   <span className="inline-block text-xs font-bold px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50">
@@ -3912,7 +4027,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
             <button 
               onClick={() => setShowAddModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-750 transition-colors"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -4106,7 +4221,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
           ></div>
           
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="assignment-modal-title">
             <button 
               onClick={() => setShowAddAssignmentModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
@@ -4114,7 +4229,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <h3 id="assignment-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
               {editingAssignmentId ? <Edit2 className="h-5 w-5 text-blue-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
               {editingAssignmentId ? 'Edit Materi / Tugas' : 'Tambah Materi / Tugas'}
             </h3>
@@ -4155,6 +4270,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Status publikasi</label>
+                <select value={newAssignmentStatus} onChange={(event) => setNewAssignmentStatus(event.target.value as AssignmentStatus)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
+                  <option value="draft">Draft — belum tampil ke siswa</option>
+                  <option value="published">Terbit — tampil ke siswa</option>
+                  <option value="archived">Arsip — tidak tampil ke siswa</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kelas Tujuan</label>
                 <div className="max-h-36 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
                   {classData.classes.filter((item) => item.status === 'Aktif').map((item) => {
@@ -4189,12 +4313,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Link File Pendukung (Opsional)</label>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">File Pendukung PDF (Opsional)</label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 text-sm text-blue-700 hover:border-blue-400 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
+                  <Upload className="h-5 w-5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{newAssignmentFile?.name || 'Pilih PDF dari perangkat (maks. 10 MB)'}</span>
+                  <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    if (!file) return;
+                    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && !['application/pdf', 'application/octet-stream'].includes(file.type))) { notify('File pendukung harus berformat PDF.', 'warning'); event.currentTarget.value = ''; return; }
+                    if (file.size > 10 * 1024 * 1024) { notify('Ukuran PDF maksimal 10 MB.', 'warning'); event.currentTarget.value = ''; return; }
+                    setNewAssignmentFile(file);
+                  }} />
+                </label>
+                {newAssignmentFile && <p className="mt-1 text-xs text-slate-400">{(newAssignmentFile.size / 1024 / 1024).toFixed(2)} MB · siap diunggah ke penyimpanan sekolah</p>}
+                <p className="mb-2 mt-3 text-[11px] text-slate-400">Atau gunakan link eksternal yang sudah tersedia.</p>
                 <input 
                   type="text" 
                   value={newAssignmentFilePath}
                   onChange={(e) => setNewAssignmentFilePath(e.target.value)}
-                  placeholder="Misal: https://drive.google.com/... atau path file" 
+                  placeholder="Misal: https://drive.google.com/..."
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -4209,9 +4346,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)]"
+                  disabled={isSavingAssignment}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)]"
                 >
-                  Simpan
+                  {isSavingAssignment ? 'Menyimpan…' : newAssignmentStatus === 'draft' ? 'Simpan Draft' : 'Simpan & Terbitkan'}
                 </button>
               </div>
             </form>
@@ -4272,25 +4410,27 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
               <select
                 value={submissionStatusFilter}
-                onChange={(event) => setSubmissionStatusFilter(event.target.value as 'all' | 'submitted' | 'pending')}
+                onChange={(event) => setSubmissionStatusFilter(event.target.value as typeof submissionStatusFilter)}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
                 <option value="all">Semua Status</option>
                 <option value="submitted">Sudah Mengumpulkan</option>
                 <option value="pending">Belum Mengumpulkan</option>
+                <option value="ungraded">Belum Dinilai</option>
+                <option value="late">Terlambat</option>
               </select>
             </div>
 
             <div className="overflow-y-auto flex-1 pr-1">
               {isLoadingSubmissions ? (
-                <div className="text-center py-12 text-slate-450">Memuat data pengumpulan...</div>
+                <div className="text-center py-12 text-slate-400">Memuat data pengumpulan...</div>
               ) : submissionsList.length === 0 ? (
-                <div className="text-center py-12 text-slate-455">Belum ada siswa terdaftar di kelas ini.</div>
+                <div className="text-center py-12 text-slate-400">Belum ada siswa terdaftar di kelas ini.</div>
               ) : filteredSubmissions.length === 0 ? (
                 <div className="py-12 text-center text-sm text-slate-400">Tidak ada siswa yang sesuai dengan pencarian atau filter.</div>
               ) : (
                 <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
-                  <table className="w-full text-left text-sm text-slate-600 dark:text-slate-350">
+                  <table className="w-full min-w-[760px] text-left text-sm text-slate-600 dark:text-slate-300">
                     <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                       <tr>
                         <th className="px-6 py-4">Nama Siswa</th>
@@ -4312,8 +4452,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             </td>
                             <td className="px-6 py-4 text-center">
                               {sub.hasSubmitted ? (
-                                <span className="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 px-2.5 py-1 rounded-full text-xs font-bold border border-emerald-200 dark:border-emerald-900/50">
-                                  Terkumpul
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${sub.late ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-300 dark:border-rose-900/50' : 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-300 dark:border-emerald-900/50'}`}>
+                                  {sub.late ? 'Terlambat' : 'Terkumpul'}
                                 </span>
                               ) : (
                                 <span className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full text-xs font-medium">
@@ -4353,7 +4493,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                     const gradeVal = valStr === '' ? '' : Math.min(100, Math.max(0, parseInt(valStr) || 0));
                                     setTempSubGrades(prev => ({
                                       ...prev,
-                                      [sub.studentId]: gradeVal as number
+                                      [sub.studentId]: gradeVal
                                     }));
                                   }}
                                   className="w-16 px-2 py-1 text-center font-bold text-sm bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"

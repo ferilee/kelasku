@@ -31,6 +31,7 @@ export interface Student {
 
 export interface ScheduleItem {
   id: string;
+  teacherId: string | null;
   day: string;
   subject: string;
   timeStart: string;

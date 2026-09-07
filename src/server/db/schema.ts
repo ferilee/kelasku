@@ -153,12 +153,22 @@ export const classOfficers = sqliteTable('class_officers', {
 export const schedules = sqliteTable('schedules', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   classId: integer('class_id').notNull().references(() => classes.id),
+  teacherId: integer('teacher_id').references(() => users.id),
   day: text('day').notNull(), // 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'
   subject: text('subject').notNull(),
   timeStart: text('time_start').notNull(), // e.g. "07:00"
   timeEnd: text('time_end').notNull(), // e.g. "08:30"
   teacherName: text('teacher_name'), // e.g. "Feri Dwi Hermawan, S.Pd."
   color: text('color').notNull().default('blue'), // e.g. "blue", "emerald", "amber", "rose", "indigo", "violet"
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const attendanceReminderExceptions = sqliteTable('attendance_reminder_exceptions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scheduleId: integer('schedule_id').notNull().references(() => schedules.id),
+  teacherId: integer('teacher_id').notNull().references(() => users.id),
+  date: text('date').notNull(), // YYYY-MM-DD
+  reason: text('reason').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

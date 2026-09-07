@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -15,6 +15,10 @@ const activeSessions = new Map<string, ActivitySession>();
 const ACTIVITY_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const ACTIVITY_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const CLIENT_ACTIVITY_ACTIONS = new Set<ActivityAction>(['page_view', 'material_opened', 'material_downloaded', 'assignment_opened', 'assignment_submitted']);
+const JAKARTA_TIME_ZONE = 'Asia/Jakarta';
+const REMINDER_GRACE_MS = 15 * 60 * 1000;
+const REMINDER_LOOKBACK_DAYS = 7;
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
 const DEFAULT_OFFICER_DUTIES = [
   { key: 'ketua', label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
@@ -239,6 +243,134 @@ async function mayTeachSubject(user: AuthUser, classId: number, subject: string)
     eq(teachingAssignments.subjectId, subjectRow[0].id),
   )).limit(1);
   return Boolean(assignment[0]);
+}
+
+function jakartaDateParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: JAKARTA_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(value);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
+  return { year: part('year'), month: part('month'), day: part('day') };
+}
+
+function jakartaDateString(value = new Date()) {
+  const parts = jakartaDateParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addCalendarDays(dateString: string, amount: number) {
+  const date = new Date(`${dateString}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayNameForDate(dateString: string) {
+  return DAY_NAMES[new Date(`${dateString}T12:00:00Z`).getUTCDay()];
+}
+
+function scheduleEndTimestamp(dateString: string, time: string) {
+  if (!/^\d{2}:\d{2}$/.test(time)) return Number.NaN;
+  const [hour, minute] = time.split(':').map(Number);
+  if (hour > 23 || minute > 59) return Number.NaN;
+  return new Date(`${dateString}T${time}:00+07:00`).getTime() + REMINDER_GRACE_MS;
+}
+
+type AttendanceReminder = {
+  id: string;
+  scheduleId: string;
+  scheduleIds: string[];
+  classId: string;
+  className: string;
+  subject: string;
+  date: string;
+  day: string;
+  timeStart: string;
+  timeEnd: string;
+  dueAt: string;
+  studentCount: number;
+  recordedCount: number;
+  status: 'missing' | 'incomplete';
+};
+
+async function buildAttendanceReminders(user: AuthUser, requestedClassId?: number) {
+  const [assignmentRows, scheduleRows, classRows, studentRows, attendanceRows] = await Promise.all([
+    db.select({ classId: teachingAssignments.classId, subjectId: teachingAssignments.subjectId })
+      .from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)),
+    db.select().from(schedules).where(eq(schedules.teacherId, user.id)),
+    db.select().from(classes),
+    db.select({ id: users.id, classId: users.classId, status: users.status })
+      .from(users).where(eq(users.role, 'student')),
+    db.select({ userId: attendance.userId, date: attendance.date, subject: attendance.subject })
+      .from(attendance).where(eq(attendance.type, 'mapel')),
+  ]);
+  const assignedKeys = new Set(assignmentRows.map((row) => `${row.classId}|${row.subjectId}`));
+  const classMap = new Map(classRows.map((row) => [row.id, row]));
+  const subjectRows = await db.select({ id: subjects.id, name: subjects.name }).from(subjects);
+  const subjectMap = new Map(subjectRows.map((row) => [row.name, row]));
+  const activeStudentsByClass = new Map<number, Set<number>>();
+  for (const student of studentRows) {
+    if (student.status !== 'Aktif' || student.classId === null) continue;
+    const ids = activeStudentsByClass.get(student.classId) || new Set<number>();
+    ids.add(student.id);
+    activeStudentsByClass.set(student.classId, ids);
+  }
+  const dates = Array.from({ length: REMINDER_LOOKBACK_DAYS + 1 }, (_, index) => addCalendarDays(jakartaDateString(), -index));
+  const scheduleIds = scheduleRows.map((row) => row.id);
+  const exceptionRows = scheduleIds.length
+    ? await db.select().from(attendanceReminderExceptions).where(inArray(attendanceReminderExceptions.scheduleId, scheduleIds))
+    : [];
+  const exceptionKeys = new Set(exceptionRows.map((row) => `${row.scheduleId}|${row.date}`));
+  const now = Date.now();
+  const groups = new Map<string, { date: string; classId: number; subject: string; schedules: typeof scheduleRows; endMs: number }>();
+
+  for (const date of dates) {
+    const day = dayNameForDate(date);
+    for (const schedule of scheduleRows) {
+      if (requestedClassId && schedule.classId !== requestedClassId) continue;
+      if (schedule.day !== day || !classMap.get(schedule.classId)?.status || classMap.get(schedule.classId)?.status !== 'Aktif') continue;
+      const subject = subjectMap.get(schedule.subject);
+      if (!subject || !assignedKeys.has(`${schedule.classId}|${subject.id}`)) continue;
+      const endMs = scheduleEndTimestamp(date, schedule.timeEnd);
+      if (!Number.isFinite(endMs) || endMs > now) continue;
+      const key = `${schedule.classId}|${schedule.subject}|${date}`;
+      const current = groups.get(key);
+      if (current) {
+        current.schedules.push(schedule);
+        current.endMs = Math.max(current.endMs, endMs);
+      } else {
+        groups.set(key, { date, classId: schedule.classId, subject: schedule.subject, schedules: [schedule], endMs });
+      }
+    }
+  }
+
+  const reminders: AttendanceReminder[] = [];
+  for (const group of groups.values()) {
+    const activeStudentIds = activeStudentsByClass.get(group.classId) || new Set<number>();
+    if (!activeStudentIds.size || group.schedules.some((schedule) => exceptionKeys.has(`${schedule.id}|${group.date}`))) continue;
+    const recordedStudentIds = new Set(attendanceRows
+      .filter((record) => record.date === group.date && record.subject === group.subject && activeStudentIds.has(record.userId))
+      .map((record) => record.userId));
+    if (recordedStudentIds.size >= activeStudentIds.size) continue;
+    const latestSchedule = [...group.schedules].sort((a, b) => b.timeEnd.localeCompare(a.timeEnd))[0];
+    const earliestSchedule = [...group.schedules].sort((a, b) => a.timeStart.localeCompare(b.timeStart))[0];
+    reminders.push({
+      id: `${group.classId}|${group.subject}|${group.date}`,
+      scheduleId: latestSchedule.id.toString(),
+      scheduleIds: group.schedules.map((schedule) => schedule.id.toString()),
+      classId: group.classId.toString(),
+      className: classMap.get(group.classId)?.name || 'Kelas',
+      subject: group.subject,
+      date: group.date,
+      day: dayNameForDate(group.date),
+      timeStart: earliestSchedule.timeStart,
+      timeEnd: latestSchedule.timeEnd,
+      dueAt: new Date(group.endMs).toISOString(),
+      studentCount: activeStudentIds.size,
+      recordedCount: recordedStudentIds.size,
+      status: recordedStudentIds.size ? 'incomplete' : 'missing',
+    });
+  }
+  return reminders.sort((first, second) => second.date.localeCompare(first.date) || first.timeEnd.localeCompare(second.timeEnd) || first.className.localeCompare(second.className, 'id'));
 }
 
 // Helper to seed data if database is empty
@@ -497,7 +629,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements')) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/')));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -947,6 +1079,7 @@ app.get('/api/class-data', async (c) => {
       agenda: allAgenda.map(g => ({ id: g.id.toString(), date: g.date, title: g.title, type: g.type })),
       schedules: allSchedules.map(s => ({
         id: s.id.toString(),
+        teacherId: s.teacherId?.toString() || null,
         day: s.day,
         subject: s.subject,
         timeStart: s.timeStart,
@@ -1379,6 +1512,66 @@ app.post('/api/attendance', async (c) => {
         }))
       );
     }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.get('/api/attendance-reminders', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !user.roles.includes('teacher')) {
+      return c.json({ error: 'Pengingat ini hanya tersedia untuk guru pengajar.' }, 403);
+    }
+    const classIdValue = c.req.query('classId');
+    const classId = classIdValue ? Number(classIdValue) : undefined;
+    if (classIdValue && (!Number.isInteger(classId) || classId! <= 0)) return c.json({ error: 'Kelas tidak valid.' }, 400);
+    const reminders = await buildAttendanceReminders(user, classId);
+    return c.json({ generatedAt: new Date().toISOString(), reminders });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.post('/api/attendance-reminders/:scheduleId/skip', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const scheduleId = Number(c.req.param('scheduleId'));
+    const body = await c.req.json().catch(() => ({}));
+    const date = typeof body.date === 'string' ? body.date : '';
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!user || user.role === 'student' || !user.roles.includes('teacher')) return c.json({ error: 'Hanya guru pengajar yang dapat menandai jadwal.' }, 403);
+    if (!Number.isInteger(scheduleId) || scheduleId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'Jadwal dan tanggal tidak valid.' }, 400);
+    if (reason.length < 3 || reason.length > 200) return c.json({ error: 'Alasan wajib diisi (3–200 karakter).' }, 400);
+    const schedule = await db.select().from(schedules).where(eq(schedules.id, scheduleId)).limit(1);
+    if (!schedule[0] || schedule[0].teacherId !== user.id) return c.json({ error: 'Jadwal ini bukan bagian dari penugasan Anda.' }, 403);
+    const existing = await db.select({ id: attendanceReminderExceptions.id }).from(attendanceReminderExceptions).where(and(
+      eq(attendanceReminderExceptions.scheduleId, scheduleId), eq(attendanceReminderExceptions.date, date),
+    )).limit(1);
+    if (existing[0]) {
+      await db.update(attendanceReminderExceptions).set({ reason, createdAt: new Date() }).where(eq(attendanceReminderExceptions.id, existing[0].id));
+    } else {
+      await db.insert(attendanceReminderExceptions).values({ scheduleId, teacherId: user.id, date, reason });
+    }
+    return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+app.delete('/api/attendance-reminders/:scheduleId/skip', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const scheduleId = Number(c.req.param('scheduleId'));
+    const date = c.req.query('date') || '';
+    if (!user || user.role === 'student' || !user.roles.includes('teacher')) return c.json({ error: 'Hanya guru pengajar yang dapat membatalkan penandaan.' }, 403);
+    if (!Number.isInteger(scheduleId) || scheduleId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: 'Jadwal dan tanggal tidak valid.' }, 400);
+    const schedule = await db.select({ teacherId: schedules.teacherId }).from(schedules).where(eq(schedules.id, scheduleId)).limit(1);
+    if (!schedule[0] || schedule[0].teacherId !== user.id) return c.json({ error: 'Jadwal ini bukan bagian dari penugasan Anda.' }, 403);
+    await db.delete(attendanceReminderExceptions).where(and(
+      eq(attendanceReminderExceptions.scheduleId, scheduleId), eq(attendanceReminderExceptions.date, date),
+    ));
     return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -2400,22 +2593,34 @@ app.get('/api/schedules', async (c) => {
 app.post('/api/schedules', async (c) => {
   try {
     const body = await c.req.json();
-    const { id, classId, day, subject, timeStart, timeEnd, teacherName, color } = body;
+    const { id, classId, day, subject, timeStart, timeEnd, color } = body;
     const normalizedClassId = Number(classId);
+    const normalizedTeacherId = Number(body.teacherId);
     const authenticatedUser = getAuthenticatedUser(c);
-    if (!Number.isInteger(normalizedClassId) || normalizedClassId <= 0 || !day || !subject || !timeStart || !timeEnd) {
-      return c.json({ error: 'classId, day, subject, timeStart, timeEnd wajib diisi.' }, 400);
+    if (!Number.isInteger(normalizedClassId) || normalizedClassId <= 0 || !Number.isInteger(normalizedTeacherId) || normalizedTeacherId <= 0 || !day || !subject || !/^\d{2}:\d{2}$/.test(timeStart) || !/^\d{2}:\d{2}$/.test(timeEnd)) {
+      return c.json({ error: 'Kelas, guru, mata pelajaran, dan jam yang valid wajib diisi.' }, 400);
     }
     if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, normalizedClassId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const [teacher, classItem, subjectRow] = await Promise.all([
+      db.select({ id: users.id, name: users.name }).from(users).where(and(eq(users.id, normalizedTeacherId), eq(users.role, 'teacher'), eq(users.status, 'Aktif'))).limit(1),
+      db.select({ id: classes.id, academicYear: classes.academicYear }).from(classes).where(eq(classes.id, normalizedClassId)).limit(1),
+      db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject.trim())).limit(1),
+    ]);
+    if (!teacher[0] || !classItem[0] || !subjectRow[0]) return c.json({ error: 'Guru, kelas, atau mata pelajaran tidak ditemukan.' }, 400);
+    const teachingAssignment = await db.select({ id: teachingAssignments.id }).from(teachingAssignments).where(and(
+      eq(teachingAssignments.teacherId, normalizedTeacherId), eq(teachingAssignments.classId, normalizedClassId), eq(teachingAssignments.subjectId, subjectRow[0].id), eq(teachingAssignments.academicYear, classItem[0].academicYear),
+    )).limit(1);
+    if (!teachingAssignment[0]) return c.json({ error: 'Guru belum memiliki penugasan pada kelas dan mata pelajaran ini.' }, 400);
 
     if (id) {
       // Update
       await db.update(schedules).set({
+        teacherId: normalizedTeacherId,
         day,
-        subject,
+        subject: subject.trim(),
         timeStart,
         timeEnd,
-        teacherName: teacherName || null,
+        teacherName: teacher[0].name,
         color: color || 'blue'
       }).where(and(eq(schedules.id, id), eq(schedules.classId, normalizedClassId)));
       return c.json({ success: true, id });
@@ -2423,11 +2628,12 @@ app.post('/api/schedules', async (c) => {
       // Insert
       const inserted = await db.insert(schedules).values({
         classId: normalizedClassId,
+        teacherId: normalizedTeacherId,
         day,
-        subject,
+        subject: subject.trim(),
         timeStart,
         timeEnd,
-        teacherName: teacherName || null,
+        teacherName: teacher[0].name,
         color: color || 'blue'
       }).returning();
       return c.json({ success: true, item: inserted[0] });

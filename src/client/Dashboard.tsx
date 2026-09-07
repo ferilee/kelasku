@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw } from 'lucide-react';
+import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw, Bell } from 'lucide-react';
 import { useClassData, Student } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
@@ -92,6 +92,23 @@ type ActivityReport = {
   activities: Array<{ id: string; sessionId: string; studentId: string; studentName: string; action: ActivityAction; page: string | null; resourceType: string | null; resourceId: string | null; resourceTitle: string | null; occurredAt: string }>;
 };
 
+type AttendanceReminder = {
+  id: string;
+  scheduleId: string;
+  scheduleIds: string[];
+  classId: string;
+  className: string;
+  subject: string;
+  date: string;
+  day: string;
+  timeStart: string;
+  timeEnd: string;
+  dueAt: string;
+  studentCount: number;
+  recordedCount: number;
+  status: 'missing' | 'incomplete';
+};
+
 const activityLabels: Record<ActivityAction, string> = {
   login: 'Masuk', logout: 'Keluar', page_view: 'Membuka halaman', material_opened: 'Membuka materi', material_downloaded: 'Mengunduh materi', assignment_opened: 'Membuka tugas', assignment_submitted: 'Mengumpulkan tugas',
 };
@@ -124,6 +141,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [attendanceReminders, setAttendanceReminders] = useState<AttendanceReminder[]>([]);
+  const [showAttendanceReminders, setShowAttendanceReminders] = useState(false);
+  const [selectedReminder, setSelectedReminder] = useState<AttendanceReminder | null>(null);
+  const [reminderReason, setReminderReason] = useState('');
+  const [isSavingReminderException, setIsSavingReminderException] = useState(false);
 
   useEffect(() => {
     const fetchWorkspace = async () => {
@@ -134,6 +156,26 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     };
     fetchWorkspace();
   }, []);
+
+  const fetchAttendanceReminders = useCallback(async () => {
+    if (userRole !== 'teacher') return;
+    try {
+      const response = await fetch('/api/attendance-reminders');
+      if (response.ok) {
+        const result = await response.json();
+        setAttendanceReminders(result.reminders || []);
+      }
+    } catch (error) {
+      console.error('Gagal memuat pengingat presensi:', error);
+    }
+  }, [userRole]);
+
+  useEffect(() => {
+    if (userRole !== 'teacher') return undefined;
+    fetchAttendanceReminders();
+    const intervalId = window.setInterval(fetchAttendanceReminders, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchAttendanceReminders, userRole]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -159,6 +201,38 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setBehaviorSubTab('sikap');
     setSelectedSubject(subjectName);
     setActiveTab('academic');
+  };
+
+  const openAttendanceReminder = async (reminder: AttendanceReminder) => {
+    await classData.selectClass(reminder.classId);
+    setWorkspaceMode('teaching');
+    setActiveTeachingSubject(reminder.subject);
+    setTeachingAttendanceDate(reminder.date);
+    setActiveTab('teaching-attendance');
+    setShowAttendanceReminders(false);
+  };
+
+  const handleSkipAttendanceReminder = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedReminder || !reminderReason.trim() || isSavingReminderException) return;
+    setIsSavingReminderException(true);
+    try {
+      const response = await fetch(`/api/attendance-reminders/${selectedReminder.scheduleId}/skip`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: selectedReminder.date, reason: reminderReason.trim() }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal menandai jadwal.', 'error');
+      setSelectedReminder(null);
+      setReminderReason('');
+      await fetchAttendanceReminders();
+      notify('Jadwal ditandai tidak ada pertemuan.', 'success');
+    } catch (error) {
+      console.error('Gagal menandai jadwal:', error);
+      notify('Terjadi kesalahan saat menandai jadwal.', 'error');
+    } finally {
+      setIsSavingReminderException(false);
+    }
   };
 
   const handleAddTeachingAnnouncement = async (event: React.FormEvent) => {
@@ -675,8 +749,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [newScheduleSubject, setNewScheduleSubject] = useState('');
   const [newScheduleTimeStart, setNewScheduleTimeStart] = useState('07:30');
   const [newScheduleTimeEnd, setNewScheduleTimeEnd] = useState('09:00');
-  const [newScheduleTeacher, setNewScheduleTeacher] = useState('');
+  const [newScheduleTeacherId, setNewScheduleTeacherId] = useState('');
   const [newScheduleColor, setNewScheduleColor] = useState('blue');
+
+  useEffect(() => {
+    if (activeTab === 'academic' && academicSubTab === 'schedule' && userRole === 'admin') fetchTeachingSetup();
+  }, [activeTab, academicSubTab, fetchTeachingSetup, userRole]);
 
   // Behavior & Achievements States
   const [behaviorSubTab, setBehaviorSubTab] = useState<'sikap' | 'prestasi'>('sikap');
@@ -1607,6 +1685,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const activeContext = workspaceMode === 'teaching'
     ? `${classData.selectedClass || 'Kelas belum dipilih'}${activeTeachingSubject ? ` · ${activeTeachingSubject}` : ''}`
     : classData.selectedClass || 'Kelas belum dipilih';
+  const scheduleAssignments = teachingAssignments.filter((item) => item.classId === classData.classId);
+  const scheduleSubjects = [...new Set(scheduleAssignments.map((item) => item.subjectName))];
+  const scheduleTeachers = scheduleAssignments.filter((item) => item.subjectName === newScheduleSubject);
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
@@ -1650,7 +1731,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       {/* Main Content */}
       <main className="min-w-0 flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
+        <header className="relative z-30 h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <div className="min-w-0 mr-2">
             <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate">
               {activeTab === 'workspace' ? 'Dashboard Saya' : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
@@ -1666,6 +1747,16 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             >
               {classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name} · {item.academicYear}</option>)}
             </select>
+            {userRole === 'teacher' && <div className="relative">
+              <button type="button" onClick={() => setShowAttendanceReminders((current) => !current)} className={`relative rounded-xl p-2 transition-colors ${attendanceReminders.length ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`} aria-label={`Pengingat presensi${attendanceReminders.length ? `, ${attendanceReminders.length} belum selesai` : ''}`} aria-expanded={showAttendanceReminders}>
+                <Bell className="h-5 w-5" />
+                {attendanceReminders.length > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-amber-500 px-1 text-center text-[10px] font-black leading-5 text-white">{attendanceReminders.length > 9 ? '9+' : attendanceReminders.length}</span>}
+              </button>
+              {showAttendanceReminders && <div className="absolute right-0 top-12 w-[min(23rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Pengingat Presensi</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Jadwal yang belum memiliki presensi lengkap.</p></div><button type="button" onClick={() => setShowAttendanceReminders(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup pengingat"><X className="h-4 w-4" /></button></div>
+                {attendanceReminders.length ? <div className="mt-3 max-h-[min(26rem,60vh)] space-y-2 overflow-y-auto">{attendanceReminders.map((reminder) => <div key={reminder.id} className="rounded-xl border border-amber-100 bg-amber-50/70 p-3 dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold text-sm text-slate-800 dark:text-slate-100">{reminder.subject}</p><p className="text-xs text-slate-600 dark:text-slate-300">{reminder.className} · {reminder.day}, {reminder.date}</p><p className="text-xs text-slate-500 dark:text-slate-400">{reminder.timeStart}–{reminder.timeEnd} · {reminder.recordedCount}/{reminder.studentCount} siswa</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => openAttendanceReminder(reminder)} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-violet-700">Isi Presensi</button><button type="button" onClick={() => { setSelectedReminder(reminder); setReminderReason(''); setShowAttendanceReminders(false); }} className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/50">Tidak ada pertemuan</button></div></div></div></div>)}</div> : <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-center text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Semua presensi mapel sudah lengkap.</p>}
+              </div>}
+            </div>}
             {/* Dark Mode Toggle */}
             <ThemePicker />
             {workspaceMode === 'teaching' && <button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); }} className="p-2 text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 rounded-full transition-colors" title="Ubah password"><Key className="h-5 w-5" /></button>}
@@ -1681,6 +1772,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
         {/* Content Scrollable Area */}
         <div className="min-w-0 flex-1 overflow-auto p-4 pb-[calc(10rem+env(safe-area-inset-bottom))] md:p-8 md:pb-8">
+          {userRole === 'teacher' && attendanceReminders.length > 0 && <div className="mx-auto mb-5 flex max-w-6xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100" role="status"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold">Ada {attendanceReminders.length} presensi mapel yang perlu dilengkapi.</p><p className="mt-1 text-sm text-amber-800/80 dark:text-amber-200/80">Pengingat mencakup kelas ampuan hari ini dan tujuh hari terakhir.</p></div><button type="button" onClick={() => setShowAttendanceReminders(true)} className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700">Lihat</button></div>}
           {activeTab === 'workspace' && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>
@@ -3392,10 +3484,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         <button
                           onClick={() => {
                             setNewScheduleDay('Senin');
-                            setNewScheduleSubject('');
+                            const firstSubject = scheduleSubjects[0] || '';
+                            setNewScheduleSubject(firstSubject);
                             setNewScheduleTimeStart('07:30');
                             setNewScheduleTimeEnd('09:00');
-                            setNewScheduleTeacher('');
+                            setNewScheduleTeacherId(scheduleAssignments.find((item) => item.subjectName === firstSubject)?.teacherId || '');
                             setNewScheduleColor('blue');
                             setShowAddScheduleModal(true);
                           }}
@@ -4550,6 +4643,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         </div>
       )}
 
+      {selectedReminder && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="skip-attendance-title">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-300">Pengingat Presensi</p><h3 id="skip-attendance-title" className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Tandai tidak ada pertemuan</h3></div><button type="button" onClick={() => setSelectedReminder(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog"><X className="h-5 w-5" /></button></div>
+          <p className="mt-4 text-sm text-slate-600 dark:text-slate-300"><b>{selectedReminder.subject}</b> · {selectedReminder.className}<br />{selectedReminder.day}, {selectedReminder.date} · {selectedReminder.timeStart}–{selectedReminder.timeEnd}</p>
+          <form onSubmit={handleSkipAttendanceReminder} className="mt-5 space-y-4"><div><label htmlFor="reminder-reason" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Alasan</label><textarea id="reminder-reason" value={reminderReason} onChange={(event) => setReminderReason(event.target.value)} maxLength={200} rows={3} placeholder="Contoh: Kelas diliburkan karena kegiatan sekolah." className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /><p className="mt-1 text-right text-[11px] text-slate-400">{reminderReason.length}/200</p></div><div className="flex gap-3"><button type="button" onClick={() => setSelectedReminder(null)} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Batal</button><button type="submit" disabled={isSavingReminderException || reminderReason.trim().length < 3} className="flex-1 rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingReminderException ? 'Menyimpan…' : 'Simpan alasan'}</button></div></form>
+        </div>
+      </div>}
+
       {/* Add Schedule Modal */}
       {showAddScheduleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -4586,15 +4687,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Mata Pelajaran</label>
-                <input 
-                  type="text" 
-                  value={newScheduleSubject}
-                  onChange={(e) => setNewScheduleSubject(e.target.value)}
-                  placeholder="Misal: Fisika, Matematika" 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  required
-                />
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mata Pelajaran</label>
+                <select value={newScheduleSubject} onChange={(event) => { const subject = event.target.value; setNewScheduleSubject(subject); setNewScheduleTeacherId(scheduleAssignments.find((item) => item.subjectName === subject)?.teacherId || ''); }} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" required>
+                  <option value="">Pilih mata pelajaran</option>
+                  {scheduleSubjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                </select>
+                {!scheduleSubjects.length && <p className="mt-2 text-xs text-amber-600">Belum ada penugasan mengajar pada kelas ini.</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -4623,14 +4721,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Guru Pengajar (Opsional)</label>
-                <input 
-                  type="text" 
-                  value={newScheduleTeacher}
-                  onChange={(e) => setNewScheduleTeacher(e.target.value)}
-                  placeholder="Misal: Ahmad Fauzi, S.Pd." 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Guru Pengajar</label>
+                <select value={newScheduleTeacherId} onChange={(event) => setNewScheduleTeacherId(event.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" required>
+                  <option value="">Pilih guru pengajar</option>
+                  {scheduleTeachers.map((item) => <option key={item.teacherId} value={item.teacherId}>{item.teacherName}</option>)}
+                </select>
               </div>
 
               <div>
@@ -4670,7 +4765,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 <button 
                   type="button"
                   onClick={async () => {
-                    if (!newScheduleSubject || !newScheduleTimeStart || !newScheduleTimeEnd) {
+                    if (!newScheduleSubject || !newScheduleTimeStart || !newScheduleTimeEnd || !newScheduleTeacherId) {
                       notify('Isi semua data wajib!');
                       return;
                     }
@@ -4680,7 +4775,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         subject: newScheduleSubject,
                         timeStart: newScheduleTimeStart,
                         timeEnd: newScheduleTimeEnd,
-                        teacherName: newScheduleTeacher,
+                        teacherId: newScheduleTeacherId,
+                        teacherName: scheduleTeachers.find((item) => item.teacherId === newScheduleTeacherId)?.teacherName || '',
                         color: newScheduleColor
                       });
                       setShowAddScheduleModal(false);

@@ -165,6 +165,7 @@ sqlite.run(`
   CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     class_id INTEGER REFERENCES classes(id),
+    teacher_id INTEGER REFERENCES users(id),
     day TEXT NOT NULL,
     subject TEXT NOT NULL,
     time_start TEXT NOT NULL,
@@ -172,6 +173,16 @@ sqlite.run(`
     teacher_name TEXT,
     color TEXT NOT NULL DEFAULT 'blue',
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS attendance_reminder_exceptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL REFERENCES schedules(id),
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    date TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(schedule_id, date)
   );
 
   CREATE TABLE IF NOT EXISTS behavior_records (
@@ -264,6 +275,7 @@ addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 addColumnIfMissing('attendance', 'subject', 'subject TEXT');
 addColumnIfMissing('schedules', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+addColumnIfMissing('schedules', 'teacher_id', 'teacher_id INTEGER REFERENCES users(id)');
 addColumnIfMissing('submissions', 'original_name', 'original_name TEXT');
 addColumnIfMissing('submissions', 'mime_type', 'mime_type TEXT');
 addColumnIfMissing('submissions', 'size_bytes', 'size_bytes INTEGER');
@@ -272,6 +284,21 @@ addColumnIfMissing('assignments', 'file_original_name', 'file_original_name TEXT
 addColumnIfMissing('assignments', 'file_mime_type', 'file_mime_type TEXT');
 addColumnIfMissing('assignments', 'file_size_bytes', 'file_size_bytes INTEGER');
 addColumnIfMissing('assignments', 'published_at', 'published_at INTEGER');
+
+// Link legacy schedules to a teacher account when the old free-text name is
+// an exact match and that teacher is assigned to the same class and subject.
+sqlite.run(`
+  UPDATE schedules
+  SET teacher_id = (
+    SELECT u.id
+    FROM users u
+    INNER JOIN teaching_assignments ta ON ta.teacher_id = u.id AND ta.class_id = schedules.class_id
+    INNER JOIN subjects s ON s.id = ta.subject_id AND s.name = schedules.subject
+    WHERE lower(trim(u.name)) = lower(trim(schedules.teacher_name))
+    LIMIT 1
+  )
+  WHERE teacher_id IS NULL AND teacher_name IS NOT NULL AND trim(teacher_name) <> ''
+`);
 
 // Older installations created `assignments` before material types existed and
 // required a due date for every item. Rebuild only that legacy table so both

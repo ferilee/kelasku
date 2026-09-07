@@ -3,6 +3,7 @@ import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus
 import { useClassData, Student } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
+import { useModalAccessibility } from './useModalAccessibility';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
   positif: {
@@ -110,6 +111,7 @@ const formatActivityDuration = (seconds: number) => {
 };
 
 const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
+  useModalAccessibility();
   const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'workspace');
   const classData = useClassData();
   const { notify, confirm } = useNotifications();
@@ -1327,17 +1329,27 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     notify('Kutipan berhasil diperbarui!');
   };
 
-  const handleAddAnnouncement = () => {
+  const handleAddAnnouncement = async () => {
     if (!newAnnText) return;
-    classData.addAnnouncement({ id: Date.now().toString(), type: newAnnType, text: newAnnText });
-    setNewAnnText('');
+    try {
+      await classData.addAnnouncement({ id: Date.now().toString(), type: newAnnType, text: newAnnText });
+      setNewAnnText('');
+      notify('Pengumuman berhasil ditampilkan.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Gagal menampilkan pengumuman.', 'error');
+    }
   };
 
-  const handleAddAgenda = () => {
+  const handleAddAgenda = async () => {
     if (!newAgendaTitle || !newAgendaDate) return;
-    classData.addAgenda({ id: Date.now().toString(), date: newAgendaDate, title: newAgendaTitle, type: newAgendaType });
-    setNewAgendaDate('');
-    setNewAgendaTitle('');
+    try {
+      await classData.addAgenda({ id: Date.now().toString(), date: newAgendaDate, title: newAgendaTitle, type: newAgendaType });
+      setNewAgendaDate('');
+      setNewAgendaTitle('');
+      notify('Agenda berhasil ditambahkan.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Gagal menambahkan agenda.', 'error');
+    }
   };
 
   const handleDownloadTemplate = () => {
@@ -1608,8 +1620,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         </div>
         <nav className="flex-1 p-4 space-y-2">
           {[
-            { id: 'workspace', label: 'Dashboard Saya', icon: LayoutDashboard },
-            { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+            { id: 'workspace', label: 'Beranda', icon: LayoutDashboard },
+            { id: 'dashboard', label: 'Ringkasan Kelas', icon: LayoutDashboard },
             { id: 'students', label: 'Siswa', icon: Users },
             ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
             ...((userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
@@ -3507,20 +3519,24 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             </select>
                           </div>
                           <button
-                            onClick={() => {
+                            onClick={async () => {
                               if (!newAgendaTitle || !newAgendaDate) {
                                 notify('Isi tanggal dan judul agenda!');
                                 return;
                               }
-                              classData.addAgenda({
-                                id: '',
-                                date: newAgendaDate,
-                                title: newAgendaTitle,
-                                type: newAgendaType
-                              });
-                              setNewAgendaDate('');
-                              setNewAgendaTitle('');
-                              notify('Agenda berhasil ditambahkan!');
+                              try {
+                                await classData.addAgenda({
+                                  id: '',
+                                  date: newAgendaDate,
+                                  title: newAgendaTitle,
+                                  type: newAgendaType
+                                });
+                                setNewAgendaDate('');
+                                setNewAgendaTitle('');
+                                notify('Agenda berhasil ditambahkan!', 'success');
+                              } catch (error) {
+                                notify(error instanceof Error ? error.message : 'Gagal menambahkan agenda.', 'error');
+                              }
                             }}
                             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1.5"
                           >
@@ -3980,9 +3996,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       {/* Bottom Navigation for Mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 items-center px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-lg">
         {[
-          { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+          { id: 'dashboard', label: 'Ringkasan', icon: LayoutDashboard },
           { id: 'students', label: 'Siswa', icon: Users },
-          { id: 'attendance', label: 'Presensi', icon: CheckSquare },
+          ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }] : workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
           { id: 'academic', label: 'Akademik', icon: BookOpen },
         ].map((item) => (
           <button
@@ -4024,7 +4040,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
           ></div>
           
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative" role="dialog" aria-modal="true" aria-labelledby="student-modal-title">
             <button 
               onClick={() => setShowAddModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
@@ -4032,7 +4048,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <X className="h-5 w-5" />
             </button>
             
-            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
+            <h3 id="student-modal-title" className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
               {editingStudent ? 'Edit Data Siswa' : 'Tambah Siswa Baru'}
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
@@ -4042,27 +4058,31 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             <form onSubmit={async (e) => {
               e.preventDefault();
               if (!manualNisn || !manualName) return;
-              if (editingStudent) {
-                await classData.updateStudent({
-                  id: editingStudent.id,
-                  nisn: manualNisn,
-                  name: manualName,
-                  gender: manualGender,
-                  status: manualStatus
-                });
-                notify('Siswa berhasil diperbarui!');
-              } else {
-                await classData.addStudent({
-                  id: '',
-                  nisn: manualNisn,
-                  name: manualName,
-                  gender: manualGender,
-                  status: manualStatus
-                });
-                notify('Siswa berhasil ditambahkan!');
+              try {
+                if (editingStudent) {
+                  await classData.updateStudent({
+                    id: editingStudent.id,
+                    nisn: manualNisn,
+                    name: manualName,
+                    gender: manualGender,
+                    status: manualStatus
+                  });
+                  notify('Siswa berhasil diperbarui!', 'success');
+                } else {
+                  await classData.addStudent({
+                    id: '',
+                    nisn: manualNisn,
+                    name: manualName,
+                    gender: manualGender,
+                    status: manualStatus
+                  });
+                  notify('Siswa berhasil ditambahkan!', 'success');
+                }
+                setShowAddModal(false);
+                setEditingStudent(null);
+              } catch (error) {
+                notify(error instanceof Error ? error.message : 'Gagal menyimpan data siswa.', 'error');
               }
-              setShowAddModal(false);
-              setEditingStudent(null);
             }} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">NISN</label>
@@ -4143,7 +4163,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
           ></div>
           
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative" role="dialog" aria-modal="true" aria-labelledby="assessment-modal-title">
             <button 
               onClick={() => setShowAddModalAcademic(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
@@ -4151,7 +4171,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <h3 id="assessment-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
               <Plus className="h-5 w-5 text-blue-600" />
               Tambah Kolom Penilaian
             </h3>
@@ -4365,7 +4385,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
           ></div>
           
-          <div className="bg-white dark:bg-slate-800 w-full max-w-3xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative max-h-[85vh] flex flex-col">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-3xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="submissions-modal-title">
             <button 
               onClick={() => setViewSubmissionsAssignmentId(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
@@ -4373,7 +4393,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
+            <h3 id="submissions-modal-title" className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
               <CheckSquare className="h-5 w-5 text-blue-600" />
               Pantau Pengumpulan Tugas & Beri Nilai
             </h3>
@@ -4538,7 +4558,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
           ></div>
           
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
             <button 
               onClick={() => setShowAddScheduleModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
@@ -4546,7 +4566,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <X className="h-5 w-5" />
             </button>
 
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+            <h3 id="schedule-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
               <Plus className="h-5 w-5 text-blue-600" />
               Tambah Jadwal Pelajaran
             </h3>
@@ -4654,16 +4674,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       notify('Isi semua data wajib!');
                       return;
                     }
-                    await classData.addSchedule({
-                      day: newScheduleDay,
-                      subject: newScheduleSubject,
-                      timeStart: newScheduleTimeStart,
-                      timeEnd: newScheduleTimeEnd,
-                      teacherName: newScheduleTeacher,
-                      color: newScheduleColor
-                    });
-                    setShowAddScheduleModal(false);
-                    notify('Jadwal pelajaran berhasil ditambahkan!');
+                    try {
+                      await classData.addSchedule({
+                        day: newScheduleDay,
+                        subject: newScheduleSubject,
+                        timeStart: newScheduleTimeStart,
+                        timeEnd: newScheduleTimeEnd,
+                        teacherName: newScheduleTeacher,
+                        color: newScheduleColor
+                      });
+                      setShowAddScheduleModal(false);
+                      notify('Jadwal pelajaran berhasil ditambahkan!', 'success');
+                    } catch (error) {
+                      notify(error instanceof Error ? error.message : 'Gagal menyimpan jadwal.', 'error');
+                    }
                   }}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] hover:shadow-[0_0_25px_rgba(37,99,235,0.3)]"
                 >
@@ -4677,8 +4701,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
       {showCaseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Pemantauan Siswa</p><h3 className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Buat Kasus Pembinaan</h3></div><button onClick={() => setShowCaseModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div>
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="case-modal-title">
+            <div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Pemantauan Siswa</p><h3 id="case-modal-title" className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Buat Kasus Pembinaan</h3></div><button onClick={() => setShowCaseModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog kasus"><X className="h-5 w-5" /></button></div>
             <form onSubmit={handleCreateStudentCase} className="space-y-4 p-5">
               <div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Siswa</label><select value={caseStudentId} onChange={(event) => setCaseStudentId(event.target.value)} required className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih siswa</option>{classData.students.map((student) => <option key={student.id} value={student.id}>{student.name}</option>)}</select></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Kelas</label><div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300">{classData.classes.find((item) => item.id === caseClassId)?.name || 'Kelas aktif'}</div></div></div>
               <div><label className="mb-1.5 block text-xs font-bold text-slate-500">Judul kasus</label><input value={caseTitle} onChange={(event) => setCaseTitle(event.target.value)} placeholder="Contoh: Penurunan kehadiran" required className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div>
@@ -4693,7 +4717,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       )}
 
       {showCaseUpdateModal && selectedCase && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Tambah Catatan">
           <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-600">Tindak Lanjut</p><h3 className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Tambah Catatan</h3></div><button onClick={() => setShowCaseUpdateModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"><X className="h-5 w-5" /></button></div><form onSubmit={handleAddCaseUpdate} className="space-y-4 p-5"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Catatan tindakan</label><textarea value={caseUpdateNote} onChange={(event) => setCaseUpdateNote(event.target.value)} rows={5} required placeholder="Tuliskan observasi, komunikasi, atau bantuan yang diberikan..." className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div><div className="grid gap-4 sm:grid-cols-2"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Tindak lanjut berikutnya</label><input type="date" value={caseNextFollowUpDate} onChange={(event) => setCaseNextFollowUpDate(event.target.value)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Visibilitas catatan</label><select value={caseUpdateVisibility} onChange={(event) => setCaseUpdateVisibility(event.target.value as CaseVisibility)} className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="ringkasan">Ringkasan</option><option value="sensitif">Sensitif</option></select></div></div><div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setShowCaseUpdateModal(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 dark:border-slate-600 dark:text-slate-300">Batal</button><button type="submit" className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700">Simpan Catatan</button></div></form></div>
         </div>
       )}
@@ -4701,9 +4725,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       {/* Modal Add Behavior */}
       {showAddBehaviorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="behavior-modal-title">
             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Catat Sikap & Karakter' : 'Catat Sikap Siswa'}</h3>
+              <h3 id="behavior-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Catat Sikap & Karakter' : 'Catat Sikap Siswa'}</h3>
               <button onClick={() => setShowAddBehaviorModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                 <X className="h-5 w-5" />
               </button>
@@ -4711,17 +4735,21 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             
             <form onSubmit={async (e) => {
               e.preventDefault();
-              await classData.addBehaviorRecord({
-                studentId: behaviorStudentId,
-                type: behaviorType,
-                points: behaviorPoints,
-                category: behaviorCategory,
-                description: behaviorDescription,
-                date: behaviorDate,
-                subject: workspaceMode === 'teaching' ? activeTeachingSubject || undefined : undefined
-              });
-              setShowAddBehaviorModal(false);
-              notify('Catatan sikap berhasil disimpan!');
+              try {
+                await classData.addBehaviorRecord({
+                  studentId: behaviorStudentId,
+                  type: behaviorType,
+                  points: behaviorPoints,
+                  category: behaviorCategory,
+                  description: behaviorDescription,
+                  date: behaviorDate,
+                  subject: workspaceMode === 'teaching' ? activeTeachingSubject || undefined : undefined
+                });
+                setShowAddBehaviorModal(false);
+                notify('Catatan sikap berhasil disimpan!', 'success');
+              } catch (error) {
+                notify(error instanceof Error ? error.message : 'Gagal menyimpan catatan sikap.', 'error');
+              }
             }} className="p-6 space-y-4">
               {workspaceMode === 'teaching' && <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3 text-sm text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/20 dark:text-violet-300"><span className="font-bold">Mata Pelajaran:</span> {activeTeachingSubject || 'Belum dipilih'}</div>}
               <div>
@@ -4862,9 +4890,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       {/* Modal Add Achievement */}
       {showAddAchievementModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in zoom-in-95 duration-200" role="dialog" aria-modal="true" aria-labelledby="achievement-modal-title">
             <div className="flex justify-between items-center p-6 border-b border-slate-200 dark:border-slate-700">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Catat Prestasi Siswa</h3>
+              <h3 id="achievement-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100">Catat Prestasi Siswa</h3>
               <button onClick={() => setShowAddAchievementModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                 <X className="h-5 w-5" />
               </button>
@@ -4872,16 +4900,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             
             <form onSubmit={async (e) => {
               e.preventDefault();
-              await classData.addAchievement({
-                studentId: achievementStudentId,
-                title: achievementTitle,
-                level: achievementLevel,
-                rank: achievementRank,
-                date: achievementDate,
-                description: achievementDescription
-              });
-              setShowAddAchievementModal(false);
-              notify('Prestasi berhasil dicatat!');
+              try {
+                await classData.addAchievement({
+                  studentId: achievementStudentId,
+                  title: achievementTitle,
+                  level: achievementLevel,
+                  rank: achievementRank,
+                  date: achievementDate,
+                  description: achievementDescription
+                });
+                setShowAddAchievementModal(false);
+                notify('Prestasi berhasil dicatat!', 'success');
+              } catch (error) {
+                notify(error instanceof Error ? error.message : 'Gagal menyimpan prestasi.', 'error');
+              }
             }} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Siswa</label>

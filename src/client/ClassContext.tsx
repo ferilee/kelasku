@@ -329,14 +329,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const addAnnouncement = async (ann: Announcement) => {
     try {
-      await fetch('/api/announcements', {
+      const response = await fetch('/api/announcements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: ann.type, text: ann.text })
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menampilkan informasi');
+      await fetchClassData();
     } catch (err) {
       console.error('Error adding announcement:', err);
+      throw err;
     }
   };
 
@@ -353,14 +355,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const addAgenda = async (item: AgendaItem) => {
     try {
-      await fetch('/api/agenda', {
+      const response = await fetch('/api/agenda', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: item.date, title: item.title, type: item.type })
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menyimpan agenda');
+      await fetchClassData();
     } catch (err) {
       console.error('Error adding agenda:', err);
+      throw err;
     }
   };
 
@@ -376,14 +380,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   };
   const addSchedule = async (item: Omit<ScheduleItem, 'id'> & { id?: string }) => {
     try {
-      await fetch('/api/schedules', {
+      const response = await fetch('/api/schedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...item, classId })
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menyimpan jadwal');
+      await fetchClassData();
     } catch (err) {
       console.error('Error adding schedule:', err);
+      throw err;
     }
   };
 
@@ -401,14 +407,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const addStudent = async (student: Student) => {
     try {
-      await fetch('/api/students', {
+      const response = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status, classId })
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menambahkan siswa');
+      await fetchClassData();
     } catch (err) {
       console.error('Error adding student:', err);
+      throw err;
     }
   };
 
@@ -435,27 +443,31 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const updateStudent = async (student: Student) => {
     try {
-      await fetch(`/api/students/${student.id}`, {
+      const response = await fetch(`/api/students/${student.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status })
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal memperbarui siswa');
+      await fetchClassData();
     } catch (err) {
       console.error('Error updating student:', err);
+      throw err;
     }
   };
 
   const addBehaviorRecord = async (record: Omit<BehaviorRecord, 'id'>) => {
     try {
-      await fetch('/api/behavior', {
+      const response = await fetch('/api/behavior', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(record)
       });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menyimpan catatan sikap');
       await fetchClassData(classId);
     } catch (err) {
       console.error('Error adding behavior record:', err);
+      throw err;
     }
   };
 
@@ -472,14 +484,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
 
   const addAchievement = async (achievement: Omit<Achievement, 'id'>) => {
     try {
-      await fetch('/api/achievements', {
+      const response = await fetch('/api/achievements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(achievement)
       });
-      fetchClassData();
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menyimpan prestasi');
+      await fetchClassData();
     } catch (err) {
       console.error('Error adding achievement:', err);
+      throw err;
     }
   };
 

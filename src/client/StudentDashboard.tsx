@@ -4,6 +4,7 @@ import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 import { sendStudentActivity, useStudentActivity } from './studentActivity';
+import { useModalAccessibility } from './useModalAccessibility';
 
 type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: number; total: number };
 type StudentAttendanceSummary = {
@@ -16,6 +17,7 @@ type StudentAttendanceSummary = {
 };
 
 const StudentDashboard = () => {
+  useModalAccessibility();
   const [activeTab, setActiveTab] = useState('dashboard');
   const { selectedClass, selectedYear, schedules, agenda, announcements, teachingAnnouncements, behaviorRecords, achievements } = useClassData();
   const [authenticatedStudent, setAuthenticatedStudent] = useState<{ id: number; name: string } | null>(null);

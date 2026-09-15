@@ -19,6 +19,7 @@ const JAKARTA_TIME_ZONE = 'Asia/Jakarta';
 const REMINDER_GRACE_MS = 15 * 60 * 1000;
 const REMINDER_LOOKBACK_DAYS = 7;
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const TEACHING_DAYS = new Set(['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']);
 
 const DEFAULT_OFFICER_DUTIES = [
   { key: 'ketua', label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
@@ -327,7 +328,7 @@ async function buildAttendanceReminders(user: AuthUser, requestedClassId?: numbe
     const day = dayNameForDate(date);
     for (const schedule of scheduleRows) {
       if (requestedClassId && schedule.classId !== requestedClassId) continue;
-      if (schedule.day !== day || !classMap.get(schedule.classId)?.status || classMap.get(schedule.classId)?.status !== 'Aktif') continue;
+      if (!TEACHING_DAYS.has(schedule.day) || schedule.day !== day || !classMap.get(schedule.classId)?.status || classMap.get(schedule.classId)?.status !== 'Aktif') continue;
       const subject = subjectMap.get(schedule.subject);
       if (!subject || !assignedKeys.has(`${schedule.classId}|${subject.id}`)) continue;
       const endMs = scheduleEndTimestamp(date, schedule.timeEnd);
@@ -794,9 +795,10 @@ app.get('/api/my-workspace', async (c) => {
   try {
     const user = getAuthenticatedUser(c);
     if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-    const [homeroomClasses, assignmentsForTeacher, classRows, subjectRows, studentRows, gradeRows] = await Promise.all([
+    const [homeroomClasses, assignmentsForTeacher, teachingScheduleRows, classRows, subjectRows, studentRows, gradeRows] = await Promise.all([
       db.select().from(classes).where(eq(classes.homeroomTeacherId, user.id)).orderBy(classes.name),
       db.select().from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)).orderBy(teachingAssignments.id),
+      db.select().from(schedules).where(eq(schedules.teacherId, user.id)),
       db.select().from(classes), db.select().from(subjects),
       db.select({ id: users.id, classId: users.classId }).from(users).where(eq(users.role, 'student')),
       db.select().from(grades),
@@ -821,6 +823,13 @@ app.get('/api/my-workspace', async (c) => {
       user: { id: user.id.toString(), name: user.name, roles: user.roles },
       homeroomClasses: homeroomClasses.map((item) => ({ id: item.id.toString(), name: item.name, academicYear: item.academicYear })),
       subjectGroups,
+      teachingSchedule: teachingScheduleRows
+        .filter((item) => TEACHING_DAYS.has(item.day) && classRows.find((classItem) => classItem.id === item.classId)?.status === 'Aktif')
+        .map((item) => ({
+          id: item.id.toString(), classId: item.classId.toString(), className: classRows.find((classItem) => classItem.id === item.classId)?.name || 'Kelas',
+          day: item.day, subject: item.subject, timeStart: item.timeStart, timeEnd: item.timeEnd,
+        }))
+        .sort((first, second) => `${['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].indexOf(first.day)}-${first.timeStart}`.localeCompare(`${['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].indexOf(second.day)}-${second.timeStart}`)),
     });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
@@ -1077,7 +1086,7 @@ app.get('/api/class-data', async (c) => {
         createdAt: item.createdAt.toISOString(),
       })) : [],
       agenda: allAgenda.map(g => ({ id: g.id.toString(), date: g.date, title: g.title, type: g.type })),
-      schedules: allSchedules.map(s => ({
+      schedules: allSchedules.filter((schedule) => TEACHING_DAYS.has(schedule.day)).map(s => ({
         id: s.id.toString(),
         teacherId: s.teacherId?.toString() || null,
         day: s.day,
@@ -2583,7 +2592,7 @@ app.get('/api/schedules', async (c) => {
     if (!Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas wajib dipilih.' }, 400);
     if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
     const list = await db.select().from(schedules).where(eq(schedules.classId, classId));
-    return c.json(list);
+    return c.json(list.filter((item) => TEACHING_DAYS.has(item.day)));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -2597,7 +2606,7 @@ app.post('/api/schedules', async (c) => {
     const normalizedClassId = Number(classId);
     const normalizedTeacherId = Number(body.teacherId);
     const authenticatedUser = getAuthenticatedUser(c);
-    if (!Number.isInteger(normalizedClassId) || normalizedClassId <= 0 || !Number.isInteger(normalizedTeacherId) || normalizedTeacherId <= 0 || !day || !subject || !/^\d{2}:\d{2}$/.test(timeStart) || !/^\d{2}:\d{2}$/.test(timeEnd)) {
+    if (!Number.isInteger(normalizedClassId) || normalizedClassId <= 0 || !Number.isInteger(normalizedTeacherId) || normalizedTeacherId <= 0 || !TEACHING_DAYS.has(day) || !subject || !/^\d{2}:\d{2}$/.test(timeStart) || !/^\d{2}:\d{2}$/.test(timeEnd)) {
       return c.json({ error: 'Kelas, guru, mata pelajaran, dan jam yang valid wajib diisi.' }, 400);
     }
     if (!authenticatedUser || !(await mayAccessClass(authenticatedUser, normalizedClassId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);

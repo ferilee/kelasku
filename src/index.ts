@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -374,6 +374,20 @@ async function buildAttendanceReminders(user: AuthUser, requestedClassId?: numbe
   return reminders.sort((first, second) => second.date.localeCompare(first.date) || first.timeEnd.localeCompare(second.timeEnd) || first.className.localeCompare(second.className, 'id'));
 }
 
+function timeToMinutes(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) return Number.NaN;
+  const [hour, minute] = value.split(':').map(Number);
+  if (hour > 23 || minute > 59) return Number.NaN;
+  return hour * 60 + minute;
+}
+
+function schedulesOverlap(firstStart: string, firstEnd: string, secondStart: string, secondEnd: string) {
+  const startA = timeToMinutes(firstStart), endA = timeToMinutes(firstEnd);
+  const startB = timeToMinutes(secondStart), endB = timeToMinutes(secondEnd);
+  return Number.isFinite(startA) && Number.isFinite(endA) && Number.isFinite(startB) && Number.isFinite(endB)
+    && startA < endA && startB < endB && startA < endB && startB < endA;
+}
+
 // Helper to seed data if database is empty
 async function seedIfNeeded() {
   try {
@@ -630,7 +644,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -2582,6 +2596,78 @@ app.post('/api/student/:studentId/submissions', async (c) => {
     if (storageResponse) return storageResponse;
     return c.json({ error: err.message }, 500);
   }
+});
+
+app.get('/api/schedule-change-requests', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || (!user.roles.includes('teacher') && !canManageClass(user))) return c.json({ error: 'Anda tidak memiliki akses ke permintaan perubahan jadwal.' }, 403);
+    const [requestRows, scheduleRows, classRows, teacherRows, reviewerRows] = await Promise.all([
+      db.select().from(scheduleChangeRequests).orderBy(scheduleChangeRequests.createdAt),
+      db.select().from(schedules), db.select().from(classes), db.select().from(users), db.select().from(users),
+    ]);
+    const visibleRows = user.roles.includes('teacher') && !canManageClass(user)
+      ? requestRows.filter((item) => item.teacherId === user.id)
+      : requestRows;
+    return c.json(visibleRows.map((item) => ({
+      id: item.id.toString(), scheduleId: item.scheduleId.toString(), teacherId: item.teacherId.toString(),
+      teacherName: teacherRows.find((teacher) => teacher.id === item.teacherId)?.name || 'Guru',
+      classId: item.classId.toString(), className: classRows.find((classItem) => classItem.id === item.classId)?.name || 'Kelas', subject: item.subject,
+      current: (() => { const schedule = scheduleRows.find((row) => row.id === item.scheduleId); return schedule ? { day: schedule.day, timeStart: schedule.timeStart, timeEnd: schedule.timeEnd } : null; })(),
+      requested: { day: item.requestedDay, timeStart: item.requestedTimeStart, timeEnd: item.requestedTimeEnd },
+      reason: item.reason, status: item.status, reviewNote: item.reviewNote || null,
+      reviewerName: reviewerRows.find((reviewer) => reviewer.id === item.reviewedBy)?.name || null,
+      createdAt: item.createdAt.toISOString(), reviewedAt: item.reviewedAt?.toISOString() || null,
+    })));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/schedule-change-requests', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !user.roles.includes('teacher')) return c.json({ error: 'Hanya guru pengajar yang dapat mengajukan perubahan jadwal.' }, 403);
+    const body = await c.req.json();
+    const scheduleId = Number(body.scheduleId);
+    const requestedDay = typeof body.day === 'string' ? body.day.trim() : '';
+    const requestedTimeStart = typeof body.timeStart === 'string' ? body.timeStart.trim() : '';
+    const requestedTimeEnd = typeof body.timeEnd === 'string' ? body.timeEnd.trim() : '';
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!Number.isInteger(scheduleId) || scheduleId <= 0 || !TEACHING_DAYS.has(requestedDay) || !Number.isFinite(timeToMinutes(requestedTimeStart)) || !Number.isFinite(timeToMinutes(requestedTimeEnd)) || timeToMinutes(requestedTimeStart) >= timeToMinutes(requestedTimeEnd)) return c.json({ error: 'Jadwal, hari, dan jam usulan tidak valid.' }, 400);
+    if (reason.length < 3 || reason.length > 500) return c.json({ error: 'Alasan wajib diisi (3–500 karakter).' }, 400);
+    const schedule = await db.select().from(schedules).where(eq(schedules.id, scheduleId)).limit(1);
+    if (!schedule[0] || schedule[0].teacherId !== user.id) return c.json({ error: 'Jadwal ini bukan bagian dari penugasan Anda.' }, 403);
+    const pending = await db.select({ id: scheduleChangeRequests.id }).from(scheduleChangeRequests).where(and(eq(scheduleChangeRequests.scheduleId, scheduleId), eq(scheduleChangeRequests.status, 'pending'))).limit(1);
+    if (pending[0]) return c.json({ error: 'Masih ada pengajuan perubahan yang menunggu persetujuan.' }, 409);
+    const conflicts = await db.select().from(schedules).where(eq(schedules.day, requestedDay));
+    if (conflicts.some((item) => item.id !== scheduleId && (item.classId === schedule[0].classId || item.teacherId === user.id) && schedulesOverlap(requestedTimeStart, requestedTimeEnd, item.timeStart, item.timeEnd))) return c.json({ error: 'Usulan jadwal bertabrakan dengan jadwal lain.' }, 409);
+    const inserted = await db.insert(scheduleChangeRequests).values({ scheduleId, teacherId: user.id, classId: schedule[0].classId, subject: schedule[0].subject, requestedDay, requestedTimeStart, requestedTimeEnd, reason }).returning({ id: scheduleChangeRequests.id });
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.patch('/api/schedule-change-requests/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageClass(user)) return c.json({ error: 'Hanya admin atau wali kelas yang dapat meninjau pengajuan.' }, 403);
+    const id = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const status = body.status === 'approved' || body.status === 'rejected' ? body.status : '';
+    const reviewNote = typeof body.reviewNote === 'string' ? body.reviewNote.trim().slice(0, 500) : '';
+    if (!Number.isInteger(id) || !status) return c.json({ error: 'Status peninjauan tidak valid.' }, 400);
+    const request = await db.select().from(scheduleChangeRequests).where(eq(scheduleChangeRequests.id, id)).limit(1);
+    if (!request[0]) return c.json({ error: 'Pengajuan tidak ditemukan.' }, 404);
+    if (request[0].status !== 'pending') return c.json({ error: 'Pengajuan ini sudah ditinjau.' }, 409);
+    const reviewedAt = new Date();
+    if (status === 'approved') {
+      const schedule = await db.select().from(schedules).where(eq(schedules.id, request[0].scheduleId)).limit(1);
+      if (!schedule[0]) return c.json({ error: 'Jadwal asal sudah tidak tersedia.' }, 409);
+      const conflicts = await db.select().from(schedules).where(eq(schedules.day, request[0].requestedDay));
+      if (conflicts.some((item) => item.id !== schedule[0].id && (item.classId === schedule[0].classId || item.teacherId === schedule[0].teacherId) && schedulesOverlap(request[0].requestedTimeStart, request[0].requestedTimeEnd, item.timeStart, item.timeEnd))) return c.json({ error: 'Perubahan ditolak karena jadwal bertabrakan.' }, 409);
+      await db.update(schedules).set({ day: request[0].requestedDay, timeStart: request[0].requestedTimeStart, timeEnd: request[0].requestedTimeEnd }).where(eq(schedules.id, schedule[0].id));
+    }
+    await db.update(scheduleChangeRequests).set({ status, reviewNote: reviewNote || null, reviewedBy: user.id, reviewedAt }).where(eq(scheduleChangeRequests.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 // GET all schedules

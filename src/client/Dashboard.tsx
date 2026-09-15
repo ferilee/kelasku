@@ -109,11 +109,38 @@ type AttendanceReminder = {
   status: 'missing' | 'incomplete';
 };
 
+type ScheduleChangeRequest = {
+  id: string;
+  scheduleId: string;
+  teacherId: string;
+  teacherName: string;
+  classId: string;
+  className: string;
+  subject: string;
+  current: { day: string; timeStart: string; timeEnd: string } | null;
+  requested: { day: string; timeStart: string; timeEnd: string };
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewNote: string | null;
+  reviewerName: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
 const TEACHING_DAY_NAMES = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
 const currentTeachingDay = () => {
   const day = new Date().getDay();
   return day >= 1 && day <= 5 ? TEACHING_DAY_NAMES[day - 1] : null;
 };
+
+type TeacherWorkspace = {
+  user: { id: string; name: string; roles: string[] };
+  homeroomClasses: { id: string; name: string; academicYear: string }[];
+  subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[];
+  teachingSchedule: { id: string; classId: string; className: string; day: string; subject: string; timeStart: string; timeEnd: string }[];
+};
+
+const EMPTY_TEACHER_WORKSPACE: TeacherWorkspace = { user: { id: '', name: '', roles: [] }, homeroomClasses: [], subjectGroups: [], teachingSchedule: [] };
 
 const activityLabels: Record<ActivityAction, string> = {
   login: 'Masuk', logout: 'Keluar', page_view: 'Membuka halaman', material_opened: 'Membuka materi', material_downloaded: 'Mengunduh materi', assignment_opened: 'Membuka tugas', assignment_submitted: 'Mengumpulkan tugas',
@@ -141,8 +168,16 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(userRole === 'teacher' ? 'teaching' : 'homeroom');
   const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(() => new URLSearchParams(window.location.search).get('subject'));
   const canManageStudents = userRole === 'admin';
-  const [workspace, setWorkspace] = useState<{ user: { id: string; name: string; roles: string[] }; homeroomClasses: { id: string; name: string; academicYear: string }[]; subjectGroups: { subjectId: string; subjectName: string; classes: { assignmentId: string; classId: string; className: string; academicYear: string; studentCount: number; gradeCount: number }[] }[]; teachingSchedule: { id: string; classId: string; className: string; day: string; subject: string; timeStart: string; timeEnd: string }[] } | null>(null);
+  const [workspace, setWorkspace] = useState<TeacherWorkspace>(EMPTY_TEACHER_WORKSPACE);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
+  const [scheduleChangeRequests, setScheduleChangeRequests] = useState<ScheduleChangeRequest[]>([]);
+  const [showScheduleRequestModal, setShowScheduleRequestModal] = useState(false);
+  const [selectedScheduleForRequest, setSelectedScheduleForRequest] = useState<{ id: string; classId: string; className: string; subject: string; day: string; timeStart: string; timeEnd: string } | null>(null);
+  const [requestedScheduleDay, setRequestedScheduleDay] = useState('Senin');
+  const [requestedScheduleTimeStart, setRequestedScheduleTimeStart] = useState('07:30');
+  const [requestedScheduleTimeEnd, setRequestedScheduleTimeEnd] = useState('09:00');
+  const [scheduleRequestReason, setScheduleRequestReason] = useState('');
+  const [isSubmittingScheduleRequest, setIsSubmittingScheduleRequest] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -182,6 +217,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     const intervalId = window.setInterval(fetchAttendanceReminders, 60_000);
     return () => window.clearInterval(intervalId);
   }, [fetchAttendanceReminders, userRole]);
+
+  const fetchScheduleChangeRequests = useCallback(async () => {
+    try {
+      const response = await fetch('/api/schedule-change-requests');
+      if (response.ok) setScheduleChangeRequests(await response.json());
+    } catch (error) {
+      console.error('Gagal memuat pengajuan perubahan jadwal:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchScheduleChangeRequests();
+  }, [fetchScheduleChangeRequests]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -239,6 +287,50 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     } finally {
       setIsSavingReminderException(false);
     }
+  };
+
+  const openScheduleRequest = (schedule: { id: string; classId: string; className: string; subject: string; day: string; timeStart: string; timeEnd: string }) => {
+    setSelectedScheduleForRequest(schedule);
+    setRequestedScheduleDay(schedule.day);
+    setRequestedScheduleTimeStart(schedule.timeStart);
+    setRequestedScheduleTimeEnd(schedule.timeEnd);
+    setScheduleRequestReason('');
+    setShowScheduleRequestModal(true);
+  };
+
+  const handleSubmitScheduleRequest = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedScheduleForRequest || !scheduleRequestReason.trim() || isSubmittingScheduleRequest) return;
+    setIsSubmittingScheduleRequest(true);
+    try {
+      const response = await fetch('/api/schedule-change-requests', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduleId: selectedScheduleForRequest.id, day: requestedScheduleDay, timeStart: requestedScheduleTimeStart, timeEnd: requestedScheduleTimeEnd, reason: scheduleRequestReason.trim() }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal mengajukan perubahan jadwal.', 'error');
+      setShowScheduleRequestModal(false);
+      setSelectedScheduleForRequest(null);
+      setScheduleRequestReason('');
+      await fetchScheduleChangeRequests();
+      notify('Pengajuan perubahan jadwal berhasil dikirim.', 'success');
+    } catch (error) {
+      console.error('Gagal mengajukan perubahan jadwal:', error);
+      notify('Terjadi kesalahan saat mengajukan perubahan jadwal.', 'error');
+    } finally {
+      setIsSubmittingScheduleRequest(false);
+    }
+  };
+
+  const handleReviewScheduleRequest = async (requestId: string, status: 'approved' | 'rejected') => {
+    const message = status === 'approved' ? 'Setujui perubahan jadwal ini?' : 'Tolak pengajuan perubahan jadwal ini?';
+    if (!(await confirm({ title: status === 'approved' ? 'Setujui jadwal' : 'Tolak jadwal', message, danger: status === 'rejected', confirmLabel: status === 'approved' ? 'Setujui' : 'Tolak' }))) return;
+    const response = await fetch(`/api/schedule-change-requests/${requestId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return notify(result?.error || 'Gagal memproses pengajuan.', 'error');
+    await fetchScheduleChangeRequests();
+    await classData.selectClass(classData.classId || '');
+    notify(status === 'approved' ? 'Perubahan jadwal disetujui.' : 'Pengajuan perubahan jadwal ditolak.', 'success');
   };
 
   const handleAddTeachingAnnouncement = async (event: React.FormEvent) => {
@@ -1779,6 +1871,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         {/* Content Scrollable Area */}
         <div className="min-w-0 flex-1 overflow-auto p-4 pb-[calc(10rem+env(safe-area-inset-bottom))] md:p-8 md:pb-8">
           {userRole === 'teacher' && attendanceReminders.length > 0 && <div className="mx-auto mb-5 flex max-w-6xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100" role="status"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold">Ada {attendanceReminders.length} presensi mapel yang perlu dilengkapi.</p><p className="mt-1 text-sm text-amber-800/80 dark:text-amber-200/80">Pengingat mencakup kelas ampuan hari ini dan tujuh hari terakhir.</p></div><button type="button" onClick={() => setShowAttendanceReminders(true)} className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700">Lihat</button></div>}
+          {userRole === 'teacher' && workspace?.teachingSchedule?.length > 0 && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-slate-800 dark:text-slate-100">Perlu mengubah jadwal?</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ajukan perubahan kepada admin atau wali kelas untuk disetujui.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select value={selectedScheduleForRequest?.id || ''} onChange={(event) => { const schedule = workspace.teachingSchedule.find((item) => item.id === event.target.value); if (schedule) setSelectedScheduleForRequest(schedule); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih jadwal</option>{workspace.teachingSchedule.map((item) => <option key={item.id} value={item.id}>{item.day} · {item.timeStart} · {item.subject} · {item.className}</option>)}</select><button type="button" disabled={!selectedScheduleForRequest} onClick={() => selectedScheduleForRequest && openScheduleRequest(selectedScheduleForRequest)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">Ajukan perubahan</button></div></div>{scheduleChangeRequests.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{scheduleChangeRequests.slice(0, 3).map((request) => <span key={request.id} className={`rounded-full px-3 py-1 text-[11px] font-bold ${request.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : request.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>{request.subject} · {request.status === 'pending' ? 'Menunggu persetujuan' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span>)}</div>}</section>}
+          {userRole === 'admin' && activeTab === 'settings' && settingsView === 'teaching' && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex items-center justify-between gap-3"><div><p className="font-bold text-slate-800 dark:text-slate-100">Pengajuan Perubahan Jadwal</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tinjau usulan perubahan dari guru pengajar sebelum jadwal aktif diperbarui.</p></div><span className="rounded-full bg-amber-200 px-2.5 py-1 text-xs font-black text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{scheduleChangeRequests.filter((request) => request.status === 'pending').length} menunggu</span></div>{scheduleChangeRequests.filter((request) => request.status === 'pending').length ? <div className="mt-4 space-y-3">{scheduleChangeRequests.filter((request) => request.status === 'pending').map((request) => <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{request.teacherName} · {request.subject} · {request.className}</p><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{request.current?.day} {request.current?.timeStart}–{request.current?.timeEnd} → <b>{request.requested.day} {request.requested.timeStart}–{request.requested.timeEnd}</b></p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Alasan: {request.reason}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'rejected')} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/30">Tolak</button><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Setujui</button></div></div></div>)}</div> : <p className="mt-4 text-center text-sm text-amber-800/70 dark:text-amber-200/70">Belum ada pengajuan yang menunggu.</p>}</section>}
           {activeTab === 'workspace' && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>
@@ -4644,6 +4738,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           </div>
         </div>
       )}
+
+      {showScheduleRequestModal && selectedScheduleForRequest && <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="schedule-request-title">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Jadwal Mengajar</p><h3 id="schedule-request-title" className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Ajukan perubahan jadwal</h3></div><button type="button" onClick={() => setShowScheduleRequestModal(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog"><X className="h-5 w-5" /></button></div>
+          <p className="mt-4 text-sm text-slate-600 dark:text-slate-300"><b>{selectedScheduleForRequest.subject}</b> · {selectedScheduleForRequest.className}<br />Jadwal aktif: {selectedScheduleForRequest.day}, {selectedScheduleForRequest.timeStart}–{selectedScheduleForRequest.timeEnd}</p>
+          <form onSubmit={handleSubmitScheduleRequest} className="mt-5 space-y-4"><div><label htmlFor="requested-schedule-day" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Hari usulan</label><select id="requested-schedule-day" value={requestedScheduleDay} onChange={(event) => setRequestedScheduleDay(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">{TEACHING_DAY_NAMES.map((day) => <option key={day} value={day}>{day}</option>)}</select></div><div className="grid gap-3 sm:grid-cols-2"><div><label htmlFor="requested-schedule-start" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Jam mulai</label><input id="requested-schedule-start" type="time" value={requestedScheduleTimeStart} onChange={(event) => setRequestedScheduleTimeStart(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></div><div><label htmlFor="requested-schedule-end" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Jam selesai</label><input id="requested-schedule-end" type="time" value={requestedScheduleTimeEnd} onChange={(event) => setRequestedScheduleTimeEnd(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></div></div><div><label htmlFor="schedule-request-reason" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Alasan perubahan</label><textarea id="schedule-request-reason" value={scheduleRequestReason} onChange={(event) => setScheduleRequestReason(event.target.value)} maxLength={500} rows={3} placeholder="Contoh: Penyesuaian jadwal rapat guru." className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /><p className="mt-1 text-right text-[11px] text-slate-400">{scheduleRequestReason.length}/500</p></div><p className="rounded-xl bg-violet-50 p-3 text-xs text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">Jadwal aktif tidak berubah sebelum pengajuan disetujui admin atau wali kelas.</p><div className="flex gap-3"><button type="button" onClick={() => setShowScheduleRequestModal(false)} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Batal</button><button type="submit" disabled={isSubmittingScheduleRequest || scheduleRequestReason.trim().length < 3} className="flex-1 rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{isSubmittingScheduleRequest ? 'Mengirim…' : 'Kirim pengajuan'}</button></div></form>
+        </div>
+      </div>}
 
       {selectedReminder && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
         <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="skip-attendance-title">

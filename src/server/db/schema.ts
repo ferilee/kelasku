@@ -163,6 +163,23 @@ export const schedules = sqliteTable('schedules', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
+export const scheduleChangeRequests = sqliteTable('schedule_change_requests', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scheduleId: integer('schedule_id').notNull().references(() => schedules.id),
+  teacherId: integer('teacher_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subject: text('subject').notNull(),
+  requestedDay: text('requested_day').notNull(),
+  requestedTimeStart: text('requested_time_start').notNull(),
+  requestedTimeEnd: text('requested_time_end').notNull(),
+  reason: text('reason').notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+  reviewNote: text('review_note'),
+  reviewedBy: integer('reviewed_by').references(() => users.id),
+  reviewedAt: integer('reviewed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
 export const attendanceReminderExceptions = sqliteTable('attendance_reminder_exceptions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   scheduleId: integer('schedule_id').notNull().references(() => schedules.id),

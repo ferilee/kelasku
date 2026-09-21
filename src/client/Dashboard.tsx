@@ -45,6 +45,15 @@ function apiErrorMessage(payload: { error?: string; code?: string } | null, fall
   return payload?.error || fallback;
 }
 
+function escapePrintHtml(value: string | null | undefined) {
+  return (value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
+}
+
+function localDateValue() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 interface StudentCase {
   id: string;
   studentId: string;
@@ -127,6 +136,39 @@ type ScheduleChangeRequest = {
   reviewedAt: string | null;
 };
 
+type TeachingJournal = {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  classId: string;
+  className: string;
+  subjectId: string;
+  subject: string;
+  scheduleId: string | null;
+  date: string;
+  day: string;
+  timeStart: string | null;
+  timeEnd: string | null;
+  schedule: { day: string; timeStart: string; timeEnd: string } | null;
+  materialCovered: string;
+  classroomEvents: string;
+  nextPlan: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type TeachingJournalForm = {
+  classId: string;
+  subject: string;
+  scheduleId: string;
+  date: string;
+  timeStart: string;
+  timeEnd: string;
+  materialCovered: string;
+  classroomEvents: string;
+  nextPlan: string;
+};
+
 const TEACHING_DAY_NAMES = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
 const currentTeachingDay = () => {
   const day = new Date().getDay();
@@ -178,6 +220,16 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [requestedScheduleTimeEnd, setRequestedScheduleTimeEnd] = useState('09:00');
   const [scheduleRequestReason, setScheduleRequestReason] = useState('');
   const [isSubmittingScheduleRequest, setIsSubmittingScheduleRequest] = useState(false);
+  const [teachingJournals, setTeachingJournals] = useState<TeachingJournal[]>([]);
+  const [journalClassFilter, setJournalClassFilter] = useState('all');
+  const [journalSubjectFilter, setJournalSubjectFilter] = useState('all');
+  const [journalFrom, setJournalFrom] = useState('');
+  const [journalTo, setJournalTo] = useState('');
+  const [isLoadingJournals, setIsLoadingJournals] = useState(false);
+  const [showJournalModal, setShowJournalModal] = useState(false);
+  const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
+  const [isSavingJournal, setIsSavingJournal] = useState(false);
+  const [journalForm, setJournalForm] = useState<TeachingJournalForm>({ classId: '', subject: '', scheduleId: '', date: localDateValue(), timeStart: '', timeEnd: '', materialCovered: '', classroomEvents: '', nextPlan: '' });
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -230,6 +282,92 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     fetchScheduleChangeRequests();
   }, [fetchScheduleChangeRequests]);
+
+  const fetchTeachingJournals = useCallback(async () => {
+    setIsLoadingJournals(true);
+    try {
+      const params = new URLSearchParams();
+      if (journalClassFilter !== 'all') params.set('classId', journalClassFilter);
+      if (journalSubjectFilter !== 'all') params.set('subject', journalSubjectFilter);
+      if (journalFrom) params.set('from', journalFrom);
+      if (journalTo) params.set('to', journalTo);
+      const response = await fetch(`/api/teaching-journals${params.toString() ? `?${params.toString()}` : ''}`);
+      if (response.ok) setTeachingJournals(await response.json());
+    } catch (error) {
+      console.error('Gagal memuat jurnal mengajar:', error);
+    } finally {
+      setIsLoadingJournals(false);
+    }
+  }, [journalClassFilter, journalFrom, journalSubjectFilter, journalTo, userRole]);
+
+  useEffect(() => {
+    fetchTeachingJournals();
+  }, [fetchTeachingJournals]);
+
+  const journalClassOptions = Array.from(new Map([
+    ...workspace.subjectGroups.flatMap((group) => group.classes.map((item) => [item.classId, { id: item.classId, name: item.className }] as const)),
+    ...teachingJournals.map((item) => [item.classId, { id: item.classId, name: item.className }] as const),
+  ]).values());
+  const subjectOptionsForClass = (classId: string) => workspace.subjectGroups.filter((group) => !classId || group.classes.some((item) => item.classId === classId)).map((group) => ({ id: group.subjectId, name: group.subjectName }));
+  const journalSubjectOptions = subjectOptionsForClass(journalForm.classId);
+  const journalFilterSubjectOptions = Array.from(new Set([...workspace.subjectGroups.map((group) => group.subjectName), ...teachingJournals.map((item) => item.subject)])).sort((first, second) => first.localeCompare(second, 'id'));
+  const journalScheduleOptions = workspace.teachingSchedule.filter((item) => item.classId === journalForm.classId && item.subject === journalForm.subject);
+
+  const resetJournalForm = () => {
+    const firstClass = journalClassOptions[0];
+    const firstSubject = subjectOptionsForClass(firstClass?.id || '')[0];
+    setJournalForm({ classId: firstClass?.id || '', subject: firstSubject?.name || '', scheduleId: '', date: localDateValue(), timeStart: '', timeEnd: '', materialCovered: '', classroomEvents: '', nextPlan: '' });
+  };
+
+  const openNewJournal = (schedule?: TeacherWorkspace['teachingSchedule'][number]) => {
+    const firstClass = journalClassOptions[0];
+    const firstSubject = subjectOptionsForClass(firstClass?.id || '')[0];
+    setEditingJournalId(null);
+    setJournalForm({
+      classId: schedule?.classId || firstClass?.id || '', subject: schedule?.subject || firstSubject?.name || '', scheduleId: schedule?.id || '', date: localDateValue(),
+      timeStart: schedule?.timeStart || '', timeEnd: schedule?.timeEnd || '', materialCovered: '', classroomEvents: '', nextPlan: '',
+    });
+    setShowJournalModal(true);
+  };
+
+  const openEditJournal = (journal: TeachingJournal) => {
+    setEditingJournalId(journal.id);
+    setJournalForm({ classId: journal.classId, subject: journal.subject, scheduleId: journal.scheduleId || '', date: journal.date, timeStart: journal.timeStart || '', timeEnd: journal.timeEnd || '', materialCovered: journal.materialCovered, classroomEvents: journal.classroomEvents, nextPlan: journal.nextPlan });
+    setShowJournalModal(true);
+  };
+
+  const handleSaveJournal = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSavingJournal || !journalForm.classId || !journalForm.subject || !journalForm.date || !journalForm.materialCovered.trim()) return;
+    setIsSavingJournal(true);
+    try {
+      const response = await fetch(editingJournalId ? `/api/teaching-journals/${editingJournalId}` : '/api/teaching-journals', {
+        method: editingJournalId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...journalForm, scheduleId: journalForm.scheduleId || null }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal menyimpan jurnal mengajar.', 'error');
+      setShowJournalModal(false);
+      setEditingJournalId(null);
+      resetJournalForm();
+      await fetchTeachingJournals();
+      notify(editingJournalId ? 'Jurnal mengajar berhasil diperbarui.' : 'Jurnal mengajar berhasil disimpan.', 'success');
+    } catch (error) {
+      console.error('Gagal menyimpan jurnal mengajar:', error);
+      notify('Terjadi kesalahan saat menyimpan jurnal mengajar.', 'error');
+    } finally {
+      setIsSavingJournal(false);
+    }
+  };
+
+  const handleDeleteJournal = async (journal: TeachingJournal) => {
+    if (!(await confirm({ title: 'Hapus jurnal mengajar', message: `Hapus jurnal ${journal.subject} pada ${journal.date}?`, danger: true, confirmLabel: 'Hapus' }))) return;
+    const response = await fetch(`/api/teaching-journals/${journal.id}`, { method: 'DELETE' });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return notify(result?.error || 'Gagal menghapus jurnal mengajar.', 'error');
+    await fetchTeachingJournals();
+    notify('Jurnal mengajar berhasil dihapus.', 'success');
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1359,6 +1497,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     printWindow.document.close();
   };
 
+  const handlePrintTeachingJournalsPDF = () => {
+    if (!teachingJournals.length) return notify('Belum ada jurnal mengajar yang dapat diekspor.', 'warning');
+    const rows = teachingJournals.map((journal, index) => {
+      const displayDate = new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+      const time = journal.timeStart && journal.timeEnd ? `${journal.timeStart}–${journal.timeEnd}` : '-';
+      return `<tr><td>${index + 1}</td><td>${escapePrintHtml(displayDate)}<br>${escapePrintHtml(journal.day)}<br>${escapePrintHtml(time)}</td><td class="name"><b>${escapePrintHtml(journal.className)}</b><br>${escapePrintHtml(journal.subject)}<br><span style="color:#64748b">${escapePrintHtml(journal.teacherName)}</span></td><td class="journal-cell">${escapePrintHtml(journal.materialCovered).replace(/\n/g, '<br>')}</td><td class="journal-cell">${escapePrintHtml(journal.classroomEvents || 'Tidak ada kejadian khusus.').replace(/\n/g, '<br>')}</td><td class="journal-cell">${escapePrintHtml(journal.nextPlan || '-').replace(/\n/g, '<br>')}</td></tr>`;
+    }).join('');
+    const filterSummary = [journalClassFilter !== 'all' ? journalClassOptions.find((item) => item.id === journalClassFilter)?.name : 'Semua kelas', journalSubjectFilter !== 'all' ? journalSubjectFilter : 'Semua mata pelajaran', journalFrom || journalTo ? `${journalFrom || 'awal'} s.d. ${journalTo || 'sekarang'}` : 'Semua tanggal'].join(' · ');
+    printReportDocument('Jurnal Mengajar', `
+      <h1>JURNAL MENGAJAR GURU</h1>
+      <p class="subtitle">${escapePrintHtml(filterSummary)}</p>
+      <p class="meta">Guru: ${escapePrintHtml(workspace.user.name || 'Guru Pengajar')}<br>Tahun Ajaran: ${escapePrintHtml(classData.selectedYear || '-')}<br>Diekspor: ${escapePrintHtml(new Date().toLocaleString('id-ID'))}</p>
+      <table><thead><tr><th>No</th><th>Tanggal & Jam</th><th>Kelas & Mata Pelajaran</th><th>Materi yang Diajarkan</th><th>Kejadian di Kelas</th><th>Rencana Berikutnya</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="footer">Guru Pengajar,<br><br><br><b>${escapePrintHtml(workspace.user.name || 'Guru Pengajar')}</b></p>
+    `, true);
+  };
+
   const handlePrintTeachingAttendancePDF = () => {
     if (!activeTeachingSubject || !teachingAttendanceReport.length) return notify('Belum ada data presensi pembelajaran pada periode ini.');
     const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
@@ -1877,6 +2032,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg dark:border-blue-900"><p className="text-sm font-semibold text-blue-100">RUANG KERJA GURU</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-blue-100">Pilih kelas perwalian atau mata pelajaran yang Anda ampu untuk mulai bekerja.</p></div>
               {userRole === 'teacher' && <section className="rounded-2xl border border-violet-100 bg-white p-6 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Informasi Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jadwal Mengajar Saya</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Jadwal Senin–Jumat untuk kelas dan mata pelajaran yang Anda ampu.</p></div><Calendar className="h-6 w-6 shrink-0 text-violet-500" /></div>{workspace?.teachingSchedule?.length ? <><div className="mb-5 rounded-xl border border-violet-100 bg-violet-50/70 p-4 dark:border-violet-900/50 dark:bg-violet-950/20"><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Jadwal hari ini</p>{(() => { const todaySchedules = workspace.teachingSchedule.filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return todaySchedules.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{todaySchedules.map((item) => <button key={item.id} type="button" onClick={() => openTeachingClass(item.classId, item.subject)} className="flex items-center gap-3 rounded-xl bg-white p-3 text-left shadow-sm transition hover:ring-2 hover:ring-violet-200 dark:bg-slate-800 dark:hover:ring-violet-800"><span className="w-12 shrink-0 text-xs font-black text-violet-600 dark:text-violet-300">{item.timeStart}</span><span className="min-w-0 flex-1"><b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.subject}</b><span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className} · {item.timeEnd}</span></span></button>)}</div> : <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Tidak ada jadwal mengajar hari ini.</p>; })()}</div><div className="grid grid-cols-2 gap-3 md:grid-cols-5">{TEACHING_DAY_NAMES.map((day) => { const daySchedules = workspace.teachingSchedule.filter((item) => item.day === day).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return <div key={day} className={`min-w-0 rounded-xl border p-3 ${day === currentTeachingDay() ? 'border-violet-300 bg-violet-50/50 dark:border-violet-700 dark:bg-violet-950/20' : 'border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-900/30'}`}><p className="text-xs font-black text-slate-700 dark:text-slate-200">{day}</p>{daySchedules.length ? <div className="mt-3 space-y-2">{daySchedules.map((item) => <button key={item.id} type="button" onClick={() => openTeachingClass(item.classId, item.subject)} className="min-w-0 w-full rounded-lg bg-white p-2 text-left shadow-sm hover:ring-2 hover:ring-violet-200 dark:bg-slate-800 dark:hover:ring-violet-800"><span className="block text-[11px] font-bold text-violet-600 dark:text-violet-300">{item.timeStart}–{item.timeEnd}</span><span className="mt-0.5 block truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.subject}</span><span className="block truncate text-[11px] text-slate-400">{item.className}</span></button>)}</div> : <p className="mt-3 text-[11px] text-slate-400">Kosong</p>}</div>; })}</div></> : <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada jadwal mengajar yang terhubung dengan akun Anda.</div>}</section>}
+              {userRole === 'teacher' && <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm dark:border-emerald-900/50 dark:bg-slate-800">
+                <div className="flex flex-col gap-4 border-b border-emerald-100 pb-4 dark:border-emerald-900/50 sm:flex-row sm:items-start sm:justify-between">
+                  <div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Dokumentasi Pembelajaran</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jurnal Mengajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Catat materi, kejadian kelas, dan rencana pertemuan berikutnya.</p></div>
+                  <div className="flex flex-wrap gap-2"><button type="button" onClick={handlePrintTeachingJournalsPDF} disabled={!teachingJournals.length} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><Printer className="h-4 w-4" /> Ekspor PDF</button><button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> Buat jurnal</button></div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <select aria-label="Filter kelas jurnal" value={journalClassFilter} onChange={(event) => setJournalClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                  <select aria-label="Filter mata pelajaran jurnal" value={journalSubjectFilter} onChange={(event) => setJournalSubjectFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua mata pelajaran</option>{journalFilterSubjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select>
+                  <input aria-label="Tanggal mulai jurnal" type="date" value={journalFrom} onChange={(event) => setJournalFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+                  <input aria-label="Tanggal akhir jurnal" type="date" value={journalTo} onChange={(event) => setJournalTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+                </div>
+                {isLoadingJournals ? <p className="py-8 text-center text-sm text-slate-400">Memuat jurnal mengajar…</p> : teachingJournals.length ? <div className="mt-4 space-y-3">{teachingJournals.map((journal) => <article key={journal.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{journal.day}</span><span className="text-xs text-slate-400">{new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}{journal.timeStart && journal.timeEnd ? ` · ${journal.timeStart}–${journal.timeEnd}` : ''}</span></div><h4 className="mt-2 font-bold text-slate-800 dark:text-slate-100">{journal.className} · {journal.subject}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{journal.materialCovered}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => openEditJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 dark:hover:bg-slate-700" title="Edit jurnal"><Edit2 className="h-4 w-4" /></button><button type="button" onClick={() => handleDeleteJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" title="Hapus jurnal"><Trash2 className="h-4 w-4" /></button></div></div>{(journal.classroomEvents || journal.nextPlan) && <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-700 sm:grid-cols-2"><div><p className="font-bold text-slate-400">Kejadian di kelas</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.classroomEvents || 'Tidak ada kejadian khusus.'}</p></div><div><p className="font-bold text-slate-400">Rencana berikutnya</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.nextPlan || 'Belum ditentukan.'}</p></div></div>}</article>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700"><FileText className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Belum ada jurnal mengajar.</p><p className="mt-1 text-xs text-slate-400">Buat jurnal setelah selesai mengajar untuk menyimpan progres pembelajaran.</p></div>}
+              </section>}
+              {userRole !== 'teacher' && <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm dark:border-emerald-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 border-b border-emerald-100 pb-4 sm:flex-row sm:items-start sm:justify-between dark:border-emerald-900/50"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Dokumentasi Guru</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jurnal Mengajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau progres materi dan kejadian pembelajaran dari kelas yang dapat Anda akses.</p></div><button type="button" onClick={handlePrintTeachingJournalsPDF} disabled={!teachingJournals.length} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><Printer className="h-4 w-4" /> Ekspor PDF</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2"><select aria-label="Filter kelas jurnal" value={journalClassFilter} onChange={(event) => setJournalClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Filter mata pelajaran jurnal" value={journalSubjectFilter} onChange={(event) => setJournalSubjectFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua mata pelajaran</option>{journalFilterSubjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></div>{isLoadingJournals ? <p className="py-8 text-center text-sm text-slate-400">Memuat jurnal mengajar…</p> : teachingJournals.length ? <div className="mt-4 space-y-3">{teachingJournals.map((journal) => <article key={journal.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{journal.day}</span><span className="text-xs text-slate-400">{new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div><h4 className="mt-2 font-bold text-slate-800 dark:text-slate-100">{journal.className} · {journal.subject} · {journal.teacherName}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{journal.materialCovered}</p>{(journal.classroomEvents || journal.nextPlan) && <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-700 sm:grid-cols-2"><div><p className="font-bold text-slate-400">Kejadian di kelas</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.classroomEvents || 'Tidak ada kejadian khusus.'}</p></div><div><p className="font-bold text-slate-400">Rencana berikutnya</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.nextPlan || 'Belum ditentukan.'}</p></div></div>}</article>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada jurnal mengajar pada kelas yang dapat diakses.</div>}</section>}
               {isLoadingWorkspace ? <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 dark:border-slate-700 dark:bg-slate-800">Memuat ruang kerja…</div> : <>
                 <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Perwalian</h3><p className="text-xs text-slate-500">Akses penuh sebagai wali kelas.</p></div><Users className="h-5 w-5 text-blue-500" /></div>{workspace?.homeroomClasses.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{workspace.homeroomClasses.map((item) => <button key={item.id} onClick={async () => { await classData.selectClass(item.id); setWorkspaceMode('homeroom'); setActiveTeachingSubject(null); setActiveTab('dashboard'); }} className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:border-blue-300 hover:shadow-sm dark:border-blue-900/60 dark:bg-blue-950/20"><p className="font-bold text-slate-800 dark:text-slate-100">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.academicYear}</p><span className="mt-3 inline-block text-xs font-bold text-blue-600 dark:text-blue-400">Buka Dashboard Kelas →</span></button>)}</div> : <p className="py-4 text-sm text-slate-400">Belum ada kelas perwalian.</p>}</section>
                 <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka buku nilai mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Buku Nilai →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>
@@ -4744,6 +4913,21 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Jadwal Mengajar</p><h3 id="schedule-request-title" className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">Ajukan perubahan jadwal</h3></div><button type="button" onClick={() => setShowScheduleRequestModal(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog"><X className="h-5 w-5" /></button></div>
           <p className="mt-4 text-sm text-slate-600 dark:text-slate-300"><b>{selectedScheduleForRequest.subject}</b> · {selectedScheduleForRequest.className}<br />Jadwal aktif: {selectedScheduleForRequest.day}, {selectedScheduleForRequest.timeStart}–{selectedScheduleForRequest.timeEnd}</p>
           <form onSubmit={handleSubmitScheduleRequest} className="mt-5 space-y-4"><div><label htmlFor="requested-schedule-day" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Hari usulan</label><select id="requested-schedule-day" value={requestedScheduleDay} onChange={(event) => setRequestedScheduleDay(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">{TEACHING_DAY_NAMES.map((day) => <option key={day} value={day}>{day}</option>)}</select></div><div className="grid gap-3 sm:grid-cols-2"><div><label htmlFor="requested-schedule-start" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Jam mulai</label><input id="requested-schedule-start" type="time" value={requestedScheduleTimeStart} onChange={(event) => setRequestedScheduleTimeStart(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></div><div><label htmlFor="requested-schedule-end" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Jam selesai</label><input id="requested-schedule-end" type="time" value={requestedScheduleTimeEnd} onChange={(event) => setRequestedScheduleTimeEnd(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></div></div><div><label htmlFor="schedule-request-reason" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">Alasan perubahan</label><textarea id="schedule-request-reason" value={scheduleRequestReason} onChange={(event) => setScheduleRequestReason(event.target.value)} maxLength={500} rows={3} placeholder="Contoh: Penyesuaian jadwal rapat guru." className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /><p className="mt-1 text-right text-[11px] text-slate-400">{scheduleRequestReason.length}/500</p></div><p className="rounded-xl bg-violet-50 p-3 text-xs text-violet-700 dark:bg-violet-950/30 dark:text-violet-300">Jadwal aktif tidak berubah sebelum pengajuan disetujui admin atau wali kelas.</p><div className="flex gap-3"><button type="button" onClick={() => setShowScheduleRequestModal(false)} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Batal</button><button type="submit" disabled={isSubmittingScheduleRequest || scheduleRequestReason.trim().length < 3} className="flex-1 rounded-xl bg-violet-600 px-4 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{isSubmittingScheduleRequest ? 'Mengirim…' : 'Kirim pengajuan'}</button></div></form>
+        </div>
+      </div>}
+
+      {showJournalModal && <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="journal-modal-title">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">Dokumentasi Pembelajaran</p><h3 id="journal-modal-title" className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100">{editingJournalId ? 'Edit jurnal mengajar' : 'Buat jurnal mengajar'}</h3></div><button type="button" onClick={() => setShowJournalModal(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog"><X className="h-5 w-5" /></button></div>
+          <form onSubmit={handleSaveJournal} className="mt-5 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-slate-500 dark:text-slate-400">Kelas<select disabled={Boolean(editingJournalId)} value={journalForm.classId} onChange={(event) => { const classId = event.target.value; const subject = subjectOptionsForClass(classId)[0]?.name || ''; setJournalForm((current) => ({ ...current, classId, subject, scheduleId: '', timeStart: '', timeEnd: '' })); }} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-bold text-slate-500 dark:text-slate-400">Mata pelajaran<select disabled={Boolean(editingJournalId)} value={journalForm.subject} onChange={(event) => setJournalForm((current) => ({ ...current, subject: event.target.value, scheduleId: '', timeStart: '', timeEnd: '' }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih mata pelajaran</option>{journalSubjectOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label></div>
+            <div className="grid gap-3 sm:grid-cols-3"><label className="text-xs font-bold text-slate-500 dark:text-slate-400">Tanggal<input type="date" required value={journalForm.date} onChange={(event) => setJournalForm((current) => ({ ...current, date: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label><label className="text-xs font-bold text-slate-500 dark:text-slate-400 sm:col-span-2">Jadwal terkait (opsional)<select disabled={Boolean(editingJournalId)} value={journalForm.scheduleId} onChange={(event) => { const schedule = journalScheduleOptions.find((item) => item.id === event.target.value); setJournalForm((current) => ({ ...current, scheduleId: event.target.value, timeStart: schedule?.timeStart || current.timeStart, timeEnd: schedule?.timeEnd || current.timeEnd })); }} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Tidak terkait jadwal tertentu</option>{journalScheduleOptions.map((item) => <option key={item.id} value={item.id}>{item.day} · {item.timeStart}–{item.timeEnd}</option>)}</select></label></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-slate-500 dark:text-slate-400">Jam mulai<input type="time" value={journalForm.timeStart} onChange={(event) => setJournalForm((current) => ({ ...current, timeStart: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label><label className="text-xs font-bold text-slate-500 dark:text-slate-400">Jam selesai<input type="time" value={journalForm.timeEnd} onChange={(event) => setJournalForm((current) => ({ ...current, timeEnd: event.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label></div>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">Materi yang diajarkan<textarea required minLength={3} maxLength={3000} rows={4} value={journalForm.materialCovered} onChange={(event) => setJournalForm((current) => ({ ...current, materialCovered: event.target.value }))} placeholder="Contoh: Persamaan kuadrat — menyelesaikan soal menggunakan rumus ABC." className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none focus:border-emerald-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><span className="mt-1 block text-right text-[11px] font-normal text-slate-400">{journalForm.materialCovered.length}/3000</span></label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">Kejadian di kelas <span className="font-normal text-slate-400">(opsional)</span><textarea maxLength={3000} rows={3} value={journalForm.classroomEvents} onChange={(event) => setJournalForm((current) => ({ ...current, classroomEvents: event.target.value }))} placeholder="Contoh: Beberapa siswa memerlukan pendampingan tambahan." className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none focus:border-emerald-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400">Rencana pertemuan berikutnya <span className="font-normal text-slate-400">(opsional)</span><textarea maxLength={3000} rows={3} value={journalForm.nextPlan} onChange={(event) => setJournalForm((current) => ({ ...current, nextPlan: event.target.value }))} placeholder="Contoh: Latihan soal dan pembahasan kesalahan umum." className="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-normal text-slate-700 outline-none focus:border-emerald-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label>
+            <div className="flex gap-3 pt-2"><button type="button" onClick={() => setShowJournalModal(false)} className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Batal</button><button type="submit" disabled={isSavingJournal || !journalForm.classId || !journalForm.subject || journalForm.materialCovered.trim().length < 3} className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingJournal ? 'Menyimpan…' : 'Simpan jurnal'}</button></div>
+          </form>
         </div>
       </div>}
 

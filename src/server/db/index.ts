@@ -192,6 +192,22 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS teaching_journals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    teacher_id INTEGER NOT NULL REFERENCES users(id),
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    subject_id INTEGER NOT NULL REFERENCES subjects(id),
+    schedule_id INTEGER REFERENCES schedules(id),
+    date TEXT NOT NULL,
+    time_start TEXT,
+    time_end TEXT,
+    material_covered TEXT NOT NULL,
+    classroom_events TEXT,
+    next_plan TEXT,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
   CREATE TABLE IF NOT EXISTS attendance_reminder_exceptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     schedule_id INTEGER NOT NULL REFERENCES schedules(id),

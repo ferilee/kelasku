@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -644,7 +644,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && c.req.path.startsWith('/api/assignments/')) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/'))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -994,6 +994,131 @@ app.delete('/api/teaching-announcements/:id', async (c) => {
     await db.delete(teachingAnnouncements).where(eq(teachingAnnouncements.id, id));
     return c.json({ success: true });
   } catch (err: any) { return c.json({ error: 'Informasi gagal dihapus.' }, 500); }
+});
+
+function isValidJournalDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function normalizeJournalTime(value: unknown) {
+  if (value === undefined || value === null || value === '') return null;
+  return typeof value === 'string' ? value.trim() : null;
+}
+
+function validJournalTimeRange(timeStart: string | null, timeEnd: string | null) {
+  if (!timeStart && !timeEnd) return true;
+  if (!timeStart || !timeEnd) return false;
+  const start = timeToMinutes(timeStart), end = timeToMinutes(timeEnd);
+  return Number.isFinite(start) && Number.isFinite(end) && start < end;
+}
+
+async function serializeTeachingJournals(user: AuthUser, query: { classId?: number; subject?: string; from?: string; to?: string } = {}) {
+  const [journalRows, classRows, subjectRows, teacherRows, scheduleRows] = await Promise.all([
+    db.select().from(teachingJournals), db.select().from(classes), db.select().from(subjects), db.select().from(users), db.select().from(schedules),
+  ]);
+  const permittedClassIds = await accessibleClassIds(user);
+  const visibleRows = journalRows.filter((item) => {
+    if (user.roles.includes('teacher') && !canManageClass(user) && item.teacherId !== user.id) return false;
+    if (permittedClassIds !== null && !permittedClassIds.includes(item.classId)) return false;
+    if (query.classId && item.classId !== query.classId) return false;
+    if (query.subject && subjectRows.find((subject) => subject.id === item.subjectId)?.name !== query.subject) return false;
+    if (query.from && item.date < query.from) return false;
+    if (query.to && item.date > query.to) return false;
+    return true;
+  }).sort((first, second) => second.date.localeCompare(first.date) || second.id - first.id);
+  return visibleRows.map((item) => {
+    const subject = subjectRows.find((row) => row.id === item.subjectId);
+    const schedule = item.scheduleId ? scheduleRows.find((row) => row.id === item.scheduleId) : null;
+    return {
+      id: item.id.toString(), teacherId: item.teacherId.toString(), teacherName: teacherRows.find((row) => row.id === item.teacherId)?.name || 'Guru',
+      classId: item.classId.toString(), className: classRows.find((row) => row.id === item.classId)?.name || 'Kelas',
+      subjectId: item.subjectId.toString(), subject: subject?.name || 'Mata pelajaran', scheduleId: item.scheduleId?.toString() || null,
+      date: item.date, day: dayNameForDate(item.date), timeStart: item.timeStart, timeEnd: item.timeEnd,
+      schedule: schedule ? { day: schedule.day, timeStart: schedule.timeStart, timeEnd: schedule.timeEnd } : null,
+      materialCovered: item.materialCovered, classroomEvents: item.classroomEvents || '', nextPlan: item.nextPlan || '',
+      createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(),
+    };
+  });
+}
+
+app.get('/api/teaching-journals', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || user.role === 'student') return c.json({ error: 'Anda tidak memiliki akses ke jurnal mengajar.' }, 403);
+    const classId = Number(c.req.query('classId'));
+    return c.json(await serializeTeachingJournals(user, {
+      classId: Number.isInteger(classId) && classId > 0 ? classId : undefined,
+      subject: c.req.query('subject') || undefined, from: c.req.query('from') || undefined, to: c.req.query('to') || undefined,
+    }));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/teaching-journals', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || (!user.roles.includes('teacher') && !canManageClass(user))) return c.json({ error: 'Hanya guru pengajar yang dapat membuat jurnal.' }, 403);
+    const body = await c.req.json();
+    const classId = Number(body.classId);
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const date = typeof body.date === 'string' ? body.date.trim() : '';
+    const materialCovered = typeof body.materialCovered === 'string' ? body.materialCovered.trim() : '';
+    const classroomEvents = typeof body.classroomEvents === 'string' ? body.classroomEvents.trim() : '';
+    const nextPlan = typeof body.nextPlan === 'string' ? body.nextPlan.trim() : '';
+    const scheduleIdValue = body.scheduleId === undefined || body.scheduleId === null || body.scheduleId === '' ? null : Number(body.scheduleId);
+    if (!Number.isInteger(classId) || classId <= 0 || !subject || !isValidJournalDate(date)) return c.json({ error: 'Kelas, mata pelajaran, dan tanggal jurnal wajib diisi dengan benar.' }, 400);
+    if (materialCovered.length < 3 || materialCovered.length > 3000) return c.json({ error: 'Materi yang diajarkan wajib diisi (3–3000 karakter).' }, 400);
+    if (classroomEvents.length > 3000 || nextPlan.length > 3000) return c.json({ error: 'Catatan jurnal maksimal 3000 karakter per bagian.' }, 400);
+    if (scheduleIdValue !== null && (!Number.isInteger(scheduleIdValue) || scheduleIdValue <= 0)) return c.json({ error: 'Jadwal mengajar tidak valid.' }, 400);
+    if (!(await mayTeachSubject(user, classId, subject))) return c.json({ error: 'Anda tidak memiliki penugasan pada kelas dan mata pelajaran ini.' }, 403);
+    const subjectRow = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.name, subject)).limit(1);
+    if (!subjectRow[0]) return c.json({ error: 'Mata pelajaran tidak ditemukan.' }, 400);
+    const schedule = scheduleIdValue === null ? null : (await db.select().from(schedules).where(eq(schedules.id, scheduleIdValue)).limit(1))[0];
+    if (scheduleIdValue !== null && (!schedule || schedule.classId !== classId || schedule.subject !== subject || (user.roles.includes('teacher') && !canManageClass(user) && schedule.teacherId !== user.id))) return c.json({ error: 'Jadwal tidak sesuai dengan penugasan Anda.' }, 403);
+    const timeStart = normalizeJournalTime(body.timeStart) || schedule?.timeStart || null;
+    const timeEnd = normalizeJournalTime(body.timeEnd) || schedule?.timeEnd || null;
+    if (!validJournalTimeRange(timeStart, timeEnd)) return c.json({ error: 'Rentang jam mengajar tidak valid.' }, 400);
+    const existingRows = await db.select({ id: teachingJournals.id, scheduleId: teachingJournals.scheduleId }).from(teachingJournals).where(and(eq(teachingJournals.teacherId, user.id), eq(teachingJournals.classId, classId), eq(teachingJournals.subjectId, subjectRow[0].id), eq(teachingJournals.date, date)));
+    if (existingRows.some((item) => item.scheduleId === scheduleIdValue)) return c.json({ error: 'Jurnal untuk sesi ini pada tanggal tersebut sudah ada.' }, 409);
+    const inserted = await db.insert(teachingJournals).values({ teacherId: user.id, classId, subjectId: subjectRow[0].id, scheduleId: scheduleIdValue, date, timeStart, timeEnd, materialCovered, classroomEvents: classroomEvents || null, nextPlan: nextPlan || null }).returning({ id: teachingJournals.id });
+    return c.json({ id: inserted[0].id.toString() }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 400); }
+});
+
+app.put('/api/teaching-journals/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || user.role === 'student' || !Number.isInteger(id)) return c.json({ error: 'Jurnal tidak ditemukan.' }, 404);
+    const journal = (await db.select().from(teachingJournals).where(eq(teachingJournals.id, id)).limit(1))[0];
+    if (!journal) return c.json({ error: 'Jurnal tidak ditemukan.' }, 404);
+    if (journal.teacherId !== user.id && !canManageClass(user)) return c.json({ error: 'Anda tidak dapat mengubah jurnal ini.' }, 403);
+    const body = await c.req.json();
+    const date = typeof body.date === 'string' ? body.date.trim() : journal.date;
+    const timeStart = normalizeJournalTime(body.timeStart) ?? journal.timeStart;
+    const timeEnd = normalizeJournalTime(body.timeEnd) ?? journal.timeEnd;
+    const materialCovered = typeof body.materialCovered === 'string' ? body.materialCovered.trim() : journal.materialCovered;
+    const classroomEvents = typeof body.classroomEvents === 'string' ? body.classroomEvents.trim() : journal.classroomEvents || '';
+    const nextPlan = typeof body.nextPlan === 'string' ? body.nextPlan.trim() : journal.nextPlan || '';
+    if (!isValidJournalDate(date) || !validJournalTimeRange(timeStart, timeEnd)) return c.json({ error: 'Tanggal atau jam jurnal tidak valid.' }, 400);
+    if (materialCovered.length < 3 || materialCovered.length > 3000 || classroomEvents.length > 3000 || nextPlan.length > 3000) return c.json({ error: 'Isi jurnal tidak valid atau terlalu panjang.' }, 400);
+    await db.update(teachingJournals).set({ date, timeStart, timeEnd, materialCovered, classroomEvents: classroomEvents || null, nextPlan: nextPlan || null, updatedAt: new Date() }).where(eq(teachingJournals.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 400); }
+});
+
+app.delete('/api/teaching-journals/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !Number.isInteger(id)) return c.json({ error: 'Jurnal tidak ditemukan.' }, 404);
+    const journal = (await db.select({ teacherId: teachingJournals.teacherId }).from(teachingJournals).where(eq(teachingJournals.id, id)).limit(1))[0];
+    if (!journal) return c.json({ error: 'Jurnal tidak ditemukan.' }, 404);
+    if (journal.teacherId !== user.id && !canManageClass(user)) return c.json({ error: 'Anda tidak dapat menghapus jurnal ini.' }, 403);
+    await db.delete(teachingJournals).where(eq(teachingJournals.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
 // Get unified class data

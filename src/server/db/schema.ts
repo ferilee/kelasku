@@ -180,6 +180,22 @@ export const scheduleChangeRequests = sqliteTable('schedule_change_requests', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
+export const teachingJournals = sqliteTable('teaching_journals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  teacherId: integer('teacher_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subjectId: integer('subject_id').notNull().references(() => subjects.id),
+  scheduleId: integer('schedule_id').references(() => schedules.id),
+  date: text('date').notNull(),
+  timeStart: text('time_start'),
+  timeEnd: text('time_end'),
+  materialCovered: text('material_covered').notNull(),
+  classroomEvents: text('classroom_events'),
+  nextPlan: text('next_plan'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
 export const attendanceReminderExceptions = sqliteTable('attendance_reminder_exceptions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   scheduleId: integer('schedule_id').notNull().references(() => schedules.id),

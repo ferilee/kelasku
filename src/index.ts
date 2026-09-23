@@ -2205,6 +2205,41 @@ app.delete('/api/student-learning-checkpoints/:id', async (c) => {
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
+app.get('/api/student-learning-summary', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const classId = Number(c.req.query('classId'));
+    const subject = typeof c.req.query('subject') === 'string' ? c.req.query('subject')!.trim() : '';
+    const topic = typeof c.req.query('topic') === 'string' ? c.req.query('topic')!.trim() : '';
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas atau akses profil belajar tidak valid.' }, 400);
+    if (!(await mayAccessClass(user, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const [classItem, studentRows] = await Promise.all([
+      db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes).where(eq(classes.id, classId)).limit(1),
+      db.select({ id: users.id, name: users.name, identifier: users.identifier, status: users.status }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId), eq(users.status, 'Aktif'))).orderBy(users.name),
+    ]);
+    if (!classItem[0]) return c.json({ error: 'Kelas tidak ditemukan.' }, 404);
+    const studentIds = studentRows.map((student) => student.id);
+    const [profileRows, checkpointRows] = studentIds.length ? await Promise.all([
+      db.select().from(studentLearningProfiles).where(inArray(studentLearningProfiles.studentId, studentIds)),
+      db.select().from(studentLearningCheckpoints).where(inArray(studentLearningCheckpoints.studentId, studentIds)),
+    ]) : [[], []];
+    const profileMatches = (studentId: number) => profileRows.filter((item) => item.studentId === studentId && (!subject || item.subject === subject) && (!topic || item.topic === topic)).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const checkpointMatches = (studentId: number) => checkpointRows.filter((item) => item.studentId === studentId && (!subject || item.subject === subject) && (!topic || item.topic === topic)).sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`));
+    return c.json({
+      class: { id: classItem[0].id.toString(), name: classItem[0].name, academicYear: classItem[0].academicYear }, subject, topic,
+      students: studentRows.map((student) => {
+        const profile = profileMatches(student.id)[0];
+        const checkpoint = checkpointMatches(student.id)[0];
+        return {
+          id: student.id.toString(), name: student.name, identifier: student.identifier, status: student.status,
+          profile: profile ? { id: profile.id.toString(), subject: profile.subject, topic: profile.topic, conceptLevel: profile.conceptLevel, reasoningLevel: profile.reasoningLevel, literacyLevel: profile.literacyLevel, independenceLevel: profile.independenceLevel, updatedAt: formatCaseDate(profile.updatedAt) } : null,
+          checkpoint: checkpoint ? serializeLearningCheckpoint(checkpoint, []) : null,
+        };
+      }),
+    });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
 const canViewSensitiveCase = (user: AuthUser, item: { visibility: string; ownerId: number }) =>
   user.roles.includes('admin') || user.roles.includes('counselor') || user.role === 'counselor' || item.ownerId === user.id;
 

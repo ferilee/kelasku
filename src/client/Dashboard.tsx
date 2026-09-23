@@ -86,6 +86,22 @@ interface StudentWarning {
   value: number;
 }
 
+type LearningLevel = 1 | 2 | 3 | 4;
+type LearningObservationCategory = 'pemahaman konsep' | 'strategi pemecahan masalah' | 'literasi soal' | 'kemandirian' | 'partisipasi' | 'kolaborasi' | 'lainnya';
+type StudentLearningProfile = {
+  id: string; studentId: string; subject: string; topic: string;
+  conceptLevel: LearningLevel; reasoningLevel: LearningLevel; literacyLevel: LearningLevel; independenceLevel: LearningLevel;
+  strengths: string; supportNeeds: string; updatedBy: { id: string; name: string } | null; createdAt: string | null; updatedAt: string | null;
+};
+type StudentLearningObservation = {
+  id: string; studentId: string; classId: string; subject: string; topic: string; category: LearningObservationCategory; note: string; date: string;
+  recordedBy: { id: string; name: string } | null; createdAt: string | null;
+};
+type StudentLearningData = {
+  student: { id: string; name: string; identifier: string; status: string; classId: string; className: string; academicYear: string };
+  profiles: StudentLearningProfile[]; observations: StudentLearningObservation[];
+};
+
 type ActivityAction = 'login' | 'logout' | 'page_view' | 'material_opened' | 'material_downloaded' | 'assignment_opened' | 'assignment_submitted';
 type ActivityStudent = {
   id: string; name: string; identifier: string; status: string; classId: string | null; className: string;
@@ -214,6 +230,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   });
   const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(() => new URLSearchParams(window.location.search).get('subject'));
   const canManageStudents = userRole === 'admin';
+  const canViewLearningProfiles = userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor';
   const [workspace, setWorkspace] = useState<TeacherWorkspace>(EMPTY_TEACHER_WORKSPACE);
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [scheduleChangeRequests, setScheduleChangeRequests] = useState<ScheduleChangeRequest[]>([]);
@@ -513,6 +530,87 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     } catch (error) { console.error('Error changing password:', error); notify('Terjadi kesalahan saat mengubah password.', 'error'); }
   };
 
+  const loadLearningProfile = async (student: Student) => {
+    setSelectedLearningStudent(student);
+    setShowLearningProfileModal(true);
+    setIsLoadingLearningProfile(true);
+    setLearningProfileData(null);
+    setLearningProfileForm({ subject: activeTeachingSubject || 'Matematika', topic: '', conceptLevel: 1, reasoningLevel: 1, literacyLevel: 1, independenceLevel: 1, strengths: '', supportNeeds: '' });
+    setLearningObservationForm({ subject: activeTeachingSubject || 'Matematika', topic: '', category: 'pemahaman konsep', note: '', date: localDateValue() });
+    try {
+      const response = await fetch(`/api/student-learning-profiles/${student.id}`);
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        setShowLearningProfileModal(false);
+        return notify(result?.error || 'Gagal memuat profil belajar.', 'error');
+      }
+      setLearningProfileData(result);
+      const latest = result.profiles?.[0] as StudentLearningProfile | undefined;
+      if (latest) {
+        setLearningProfileForm({ subject: latest.subject, topic: latest.topic, conceptLevel: latest.conceptLevel, reasoningLevel: latest.reasoningLevel, literacyLevel: latest.literacyLevel, independenceLevel: latest.independenceLevel, strengths: latest.strengths, supportNeeds: latest.supportNeeds });
+        setLearningObservationForm((current) => ({ ...current, subject: latest.subject, topic: latest.topic }));
+      }
+    } catch (error) {
+      console.error('Gagal memuat profil belajar:', error);
+      setShowLearningProfileModal(false);
+      notify('Terjadi kesalahan saat memuat profil belajar.', 'error');
+    } finally {
+      setIsLoadingLearningProfile(false);
+    }
+  };
+
+  const refreshLearningProfile = async () => {
+    if (!selectedLearningStudent) return;
+    const response = await fetch(`/api/student-learning-profiles/${selectedLearningStudent.id}`);
+    if (response.ok) setLearningProfileData(await response.json());
+  };
+
+  const handleSaveLearningProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedLearningStudent || isSavingLearningProfile || !learningProfileForm.topic.trim()) return;
+    setIsSavingLearningProfile(true);
+    try {
+      const response = await fetch(`/api/student-learning-profiles/${selectedLearningStudent.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(learningProfileForm) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal menyimpan profil belajar.', 'error');
+      await refreshLearningProfile();
+      notify('Profil belajar berhasil disimpan.', 'success');
+    } catch (error) {
+      console.error('Gagal menyimpan profil belajar:', error);
+      notify('Terjadi kesalahan saat menyimpan profil belajar.', 'error');
+    } finally {
+      setIsSavingLearningProfile(false);
+    }
+  };
+
+  const handleSaveLearningObservation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedLearningStudent || isSavingLearningObservation || !learningObservationForm.topic.trim() || !learningObservationForm.note.trim()) return;
+    setIsSavingLearningObservation(true);
+    try {
+      const response = await fetch(`/api/student-learning-profiles/${selectedLearningStudent.id}/observations`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(learningObservationForm) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal menyimpan observasi.', 'error');
+      setLearningObservationForm((current) => ({ ...current, note: '' }));
+      await refreshLearningProfile();
+      notify('Observasi belajar berhasil dicatat.', 'success');
+    } catch (error) {
+      console.error('Gagal menyimpan observasi belajar:', error);
+      notify('Terjadi kesalahan saat menyimpan observasi.', 'error');
+    } finally {
+      setIsSavingLearningObservation(false);
+    }
+  };
+
+  const handleDeleteLearningObservation = async (observation: StudentLearningObservation) => {
+    if (!(await confirm({ title: 'Hapus observasi', message: 'Hapus catatan observasi ini?', danger: true, confirmLabel: 'Hapus' }))) return;
+    const response = await fetch(`/api/student-learning-observations/${observation.id}`, { method: 'DELETE' });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return notify(result?.error || 'Gagal menghapus observasi.', 'error');
+    await refreshLearningProfile();
+    notify('Observasi berhasil dihapus.', 'success');
+  };
+
   // Local state for the settings form to avoid immediate re-renders while typing
   const [quoteText, setQuoteText] = useState(classData.quote.text);
   const [quoteAuthor, setQuoteAuthor] = useState(classData.quote.author);
@@ -567,6 +665,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [manualName, setManualName] = useState('');
   const [manualGender, setManualGender] = useState<'L' | 'P'>('L');
   const [manualStatus, setManualStatus] = useState<'Aktif' | 'Nonaktif'>('Aktif');
+  const [showLearningProfileModal, setShowLearningProfileModal] = useState(false);
+  const [selectedLearningStudent, setSelectedLearningStudent] = useState<Student | null>(null);
+  const [learningProfileData, setLearningProfileData] = useState<StudentLearningData | null>(null);
+  const [isLoadingLearningProfile, setIsLoadingLearningProfile] = useState(false);
+  const [isSavingLearningProfile, setIsSavingLearningProfile] = useState(false);
+  const [isSavingLearningObservation, setIsSavingLearningObservation] = useState(false);
+  const [learningProfileForm, setLearningProfileForm] = useState({ subject: 'Matematika', topic: '', conceptLevel: 1 as LearningLevel, reasoningLevel: 1 as LearningLevel, literacyLevel: 1 as LearningLevel, independenceLevel: 1 as LearningLevel, strengths: '', supportNeeds: '' });
+  const [learningObservationForm, setLearningObservationForm] = useState({ subject: 'Matematika', topic: '', category: 'pemahaman konsep' as LearningObservationCategory, note: '', date: localDateValue() });
 
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
@@ -2778,7 +2884,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       filteredStudents.map((student) => (
                         <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-6 py-4 font-mono text-xs">{student.nisn}</td>
-                        <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200">{student.name}</td>
+                        <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200"><div className="flex items-center gap-2"><span>{student.name}</span>{canViewLearningProfiles && <button type="button" onClick={() => loadLearningProfile(student)} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 px-2 py-1 text-[11px] font-bold text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/30" title={`Buka profil belajar ${student.name}`}><FileText className="h-3.5 w-3.5" /> Profil</button>}</div></td>
                         <td className="px-6 py-4">{student.gender}</td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-1 rounded text-xs font-semibold ${student.status === 'Aktif' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
@@ -4532,6 +4638,34 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showLearningProfileModal && selectedLearningStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={() => setShowLearningProfileModal(false)} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+          <div className="relative z-10 max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-800 sm:p-7" role="dialog" aria-modal="true" aria-labelledby="learning-profile-title">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-5 dark:border-slate-700">
+              <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Student Learning Profile</p><h3 id="learning-profile-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Profil Belajar · {selectedLearningStudent.name}</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Catat perkembangan berdasarkan bukti pembelajaran, bukan label terhadap siswa.</p></div>
+              <button type="button" onClick={() => setShowLearningProfileModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup profil belajar"><X className="h-5 w-5" /></button>
+            </div>
+            {isLoadingLearningProfile ? <p className="py-12 text-center text-sm text-slate-400">Memuat profil belajar…</p> : learningProfileData && <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className="space-y-5">
+                <form onSubmit={handleSaveLearningProfile} className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4 dark:border-violet-900/50 dark:bg-violet-950/20">
+                  <div className="mb-4 flex items-center justify-between gap-3"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Ringkasan penguasaan</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Skala 1–4 adalah alat bantu guru, bukan nilai rapor.</p></div><span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-violet-700 shadow-sm dark:bg-slate-800 dark:text-violet-300">{learningProfileData.profiles.length} topik tersimpan</span></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-500">Mata pelajaran<input value={learningProfileForm.subject} onChange={(event) => setLearningProfileForm((current) => ({ ...current, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="text-xs font-semibold text-slate-500">Topik<input value={learningProfileForm.topic} onChange={(event) => setLearningProfileForm((current) => ({ ...current, topic: event.target.value }))} placeholder="Contoh: Barisan dan Deret" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label></div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">{([['conceptLevel', 'Pemahaman konsep'], ['reasoningLevel', 'Penalaran'], ['literacyLevel', 'Literasi soal'], ['independenceLevel', 'Kemandirian']] as const).map(([field, label]) => <label key={field} className="text-xs font-semibold text-slate-500">{label}<select value={learningProfileForm[field]} onChange={(event) => setLearningProfileForm((current) => ({ ...current, [field]: Number(event.target.value) as LearningLevel }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="1">1 · Perlu dukungan</option><option value="2">2 · Mulai berkembang</option><option value="3">3 · Cukup mandiri</option><option value="4">4 · Sangat baik</option></select></label>)}</div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-500">Kekuatan yang terlihat<textarea value={learningProfileForm.strengths} onChange={(event) => setLearningProfileForm((current) => ({ ...current, strengths: event.target.value }))} rows={3} placeholder="Contoh: mampu menjelaskan pola dengan gambar…" className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label><label className="text-xs font-semibold text-slate-500">Kebutuhan dukungan<textarea value={learningProfileForm.supportNeeds} onChange={(event) => setLearningProfileForm((current) => ({ ...current, supportNeeds: event.target.value }))} rows={3} placeholder="Contoh: perlu bantuan saat membaca soal cerita…" className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label></div>
+                  <div className="mt-4 flex justify-end"><button type="submit" disabled={isSavingLearningProfile || !learningProfileForm.topic.trim()} className="rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingLearningProfile ? 'Menyimpan…' : 'Simpan profil topik'}</button></div>
+                </form>
+                <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><div className="mb-3 flex items-center justify-between"><div><h4 className="font-bold text-slate-800 dark:text-slate-100">Topik tersimpan</h4><p className="mt-1 text-xs text-slate-500">Pilih topik untuk memperbarui profilnya.</p></div></div>{learningProfileData.profiles.length ? <div className="space-y-2">{learningProfileData.profiles.map((profile) => <button type="button" key={profile.id} onClick={() => { setLearningProfileForm({ subject: profile.subject, topic: profile.topic, conceptLevel: profile.conceptLevel, reasoningLevel: profile.reasoningLevel, literacyLevel: profile.literacyLevel, independenceLevel: profile.independenceLevel, strengths: profile.strengths, supportNeeds: profile.supportNeeds }); setLearningObservationForm((current) => ({ ...current, subject: profile.subject, topic: profile.topic })); }} className={`w-full rounded-xl border p-3 text-left transition ${learningProfileForm.topic === profile.topic && learningProfileForm.subject === profile.subject ? 'border-violet-300 bg-violet-50 dark:border-violet-700 dark:bg-violet-950/20' : 'border-slate-200 hover:border-violet-200 dark:border-slate-700 dark:hover:border-violet-800'}`}><div className="flex items-center justify-between gap-2"><span className="font-bold text-sm text-slate-700 dark:text-slate-200">{profile.subject} · {profile.topic}</span><span className="text-[11px] text-slate-400">{profile.updatedAt ? new Date(profile.updatedAt).toLocaleDateString('id-ID') : ''}</span></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Konsep {profile.conceptLevel}/4 · Penalaran {profile.reasoningLevel}/4 · Literasi {profile.literacyLevel}/4 · Mandiri {profile.independenceLevel}/4</p></button>)}</div> : <p className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada profil topik. Isi ringkasan pertama di atas.</p>}</div>
+              </div>
+              <div className="space-y-5">
+                <form onSubmit={handleSaveLearningObservation} className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20"><div className="mb-4"><h4 className="font-bold text-slate-800 dark:text-slate-100">Catatan observasi</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Gunakan perilaku konkret dan konteks singkat.</p></div><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-500">Mata pelajaran<input value={learningObservationForm.subject} onChange={(event) => setLearningObservationForm((current) => ({ ...current, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="text-xs font-semibold text-slate-500">Topik<input value={learningObservationForm.topic} onChange={(event) => setLearningObservationForm((current) => ({ ...current, topic: event.target.value }))} placeholder="Topik observasi" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label></div><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-500">Kategori<select value={learningObservationForm.category} onChange={(event) => setLearningObservationForm((current) => ({ ...current, category: event.target.value as LearningObservationCategory }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">{['pemahaman konsep', 'strategi pemecahan masalah', 'literasi soal', 'kemandirian', 'partisipasi', 'kolaborasi', 'lainnya'].map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Tanggal<input type="date" value={learningObservationForm.date} onChange={(event) => setLearningObservationForm((current) => ({ ...current, date: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label></div><label className="mt-3 block text-xs font-semibold text-slate-500">Catatan<textarea value={learningObservationForm.note} onChange={(event) => setLearningObservationForm((current) => ({ ...current, note: event.target.value }))} rows={4} placeholder="Contoh: mampu menyelesaikan soal rutin, tetapi masih berhenti saat bentuk soal diubah." className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><div className="mt-3 flex justify-end"><button type="submit" disabled={isSavingLearningObservation || !learningObservationForm.topic.trim() || !learningObservationForm.note.trim()} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingLearningObservation ? 'Menyimpan…' : 'Tambah observasi'}</button></div></form>
+                <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><h4 className="font-bold text-slate-800 dark:text-slate-100">Riwayat observasi</h4>{learningProfileData.observations.length ? <div className="mt-3 max-h-[30rem] space-y-2 overflow-y-auto">{learningProfileData.observations.map((observation) => <article key={observation.id} className="rounded-xl border border-slate-100 p-3 dark:border-slate-700"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{observation.category}</span><span className="text-[11px] text-slate-400">{observation.date}</span></div><p className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-200">{observation.subject} · {observation.topic}</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{observation.note}</p><p className="mt-2 text-[11px] text-slate-400">Dicatat oleh {observation.recordedBy?.name || 'Pengguna'}</p></div><button type="button" onClick={() => handleDeleteLearningObservation(observation)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" aria-label="Hapus observasi"><Trash2 className="h-4 w-4" /></button></div></article>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada observasi belajar.</p>}</div>
+              </div>
+            </div>}
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -685,7 +685,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/'))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/observations$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-observations\/\d+$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -2050,6 +2050,116 @@ const CASE_CATEGORIES = ['akademik', 'presensi', 'sikap', 'sosial-emosional', 'k
 const CASE_PRIORITIES = ['rendah', 'sedang', 'tinggi', 'mendesak'] as const;
 const CASE_STATUSES = ['terbuka', 'ditangani', 'selesai'] as const;
 const CASE_VISIBILITIES = ['ringkasan', 'sensitif'] as const;
+
+const LEARNING_OBSERVATION_CATEGORIES = ['pemahaman konsep', 'strategi pemecahan masalah', 'literasi soal', 'kemandirian', 'partisipasi', 'kolaborasi', 'lainnya'] as const;
+
+const canManageLearningProfiles = (user: AuthUser) =>
+  user.role !== 'student' && (canManageClass(user) || user.roles.includes('teacher') || user.roles.includes('counselor') || user.role === 'counselor');
+
+async function getAccessibleLearningStudent(user: AuthUser, studentId: number) {
+  const student = (await db.select({ id: users.id, name: users.name, identifier: users.identifier, classId: users.classId, status: users.status }).from(users).where(and(eq(users.id, studentId), eq(users.role, 'student'))).limit(1))[0];
+  if (!student || !student.classId || !(await mayAccessClass(user, student.classId))) return null;
+  const classItem = (await db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes).where(eq(classes.id, student.classId)).limit(1))[0];
+  return { student, classItem };
+}
+
+function learningLevel(value: unknown) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 4 ? parsed : null;
+}
+
+async function serializeLearningProfile(item: typeof studentLearningProfiles.$inferSelect) {
+  const updater = (await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, item.updatedBy)).limit(1))[0];
+  return {
+    id: item.id.toString(), studentId: item.studentId.toString(), subject: item.subject, topic: item.topic,
+    conceptLevel: item.conceptLevel, reasoningLevel: item.reasoningLevel, literacyLevel: item.literacyLevel, independenceLevel: item.independenceLevel,
+    strengths: item.strengths || '', supportNeeds: item.supportNeeds || '', updatedBy: updater ? { id: updater.id.toString(), name: updater.name } : null,
+    createdAt: formatCaseDate(item.createdAt), updatedAt: formatCaseDate(item.updatedAt),
+  };
+}
+
+app.get('/api/student-learning-profiles/:studentId', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const studentId = Number(c.req.param('studentId'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Anda tidak memiliki akses ke profil belajar ini.' }, 403);
+    const context = await getAccessibleLearningStudent(user, studentId);
+    if (!context) return c.json({ error: 'Siswa tidak ditemukan atau tidak termasuk kelas yang dapat Anda akses.' }, 404);
+    const [profileRows, observationRows, recorderRows] = await Promise.all([
+      db.select().from(studentLearningProfiles).where(eq(studentLearningProfiles.studentId, studentId)),
+      db.select().from(studentLearningObservations).where(eq(studentLearningObservations.studentId, studentId)),
+      db.select({ id: users.id, name: users.name }).from(users),
+    ]);
+    return c.json({
+      student: { id: context.student.id.toString(), name: context.student.name, identifier: context.student.identifier, status: context.student.status, classId: context.student.classId.toString(), className: context.classItem?.name || 'Kelas', academicYear: context.classItem?.academicYear || '' },
+      profiles: await Promise.all(profileRows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).map(serializeLearningProfile)),
+      observations: observationRows.sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)).map((item) => ({
+        id: item.id.toString(), studentId: item.studentId.toString(), classId: item.classId.toString(), subject: item.subject, topic: item.topic, category: item.category, note: item.note, date: item.date,
+        recordedBy: recorderRows.find((recorder) => recorder.id === item.recordedBy) ? { id: item.recordedBy.toString(), name: recorderRows.find((recorder) => recorder.id === item.recordedBy)!.name } : null,
+        createdAt: formatCaseDate(item.createdAt),
+      })),
+    });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.put('/api/student-learning-profiles/:studentId', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const studentId = Number(c.req.param('studentId'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Anda tidak memiliki akses untuk mengubah profil belajar.' }, 403);
+    const context = await getAccessibleLearningStudent(user, studentId);
+    if (!context) return c.json({ error: 'Siswa tidak ditemukan atau tidak termasuk kelas yang dapat Anda akses.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const conceptLevel = learningLevel(body.conceptLevel);
+    const reasoningLevel = learningLevel(body.reasoningLevel);
+    const literacyLevel = learningLevel(body.literacyLevel);
+    const independenceLevel = learningLevel(body.independenceLevel);
+    const strengths = typeof body.strengths === 'string' ? body.strengths.trim() : '';
+    const supportNeeds = typeof body.supportNeeds === 'string' ? body.supportNeeds.trim() : '';
+    if (!subject || subject.length > 80 || !topic || topic.length > 120 || conceptLevel === null || reasoningLevel === null || literacyLevel === null || independenceLevel === null || strengths.length > 1000 || supportNeeds.length > 1000) return c.json({ error: 'Data profil belajar belum lengkap atau tidak valid.' }, 400);
+    const existing = (await db.select().from(studentLearningProfiles).where(and(eq(studentLearningProfiles.studentId, studentId), eq(studentLearningProfiles.subject, subject), eq(studentLearningProfiles.topic, topic))).limit(1))[0];
+    if (existing) {
+      await db.update(studentLearningProfiles).set({ conceptLevel, reasoningLevel, literacyLevel, independenceLevel, strengths: strengths || null, supportNeeds: supportNeeds || null, updatedBy: user.id, updatedAt: new Date() }).where(eq(studentLearningProfiles.id, existing.id));
+    } else {
+      await db.insert(studentLearningProfiles).values({ studentId, subject, topic, conceptLevel, reasoningLevel, literacyLevel, independenceLevel, strengths: strengths || null, supportNeeds: supportNeeds || null, updatedBy: user.id });
+    }
+    const saved = (await db.select().from(studentLearningProfiles).where(and(eq(studentLearningProfiles.studentId, studentId), eq(studentLearningProfiles.subject, subject), eq(studentLearningProfiles.topic, topic))).limit(1))[0];
+    return c.json(await serializeLearningProfile(saved));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/student-learning-profiles/:studentId/observations', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const studentId = Number(c.req.param('studentId'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Anda tidak memiliki akses untuk menambah observasi.' }, 403);
+    const context = await getAccessibleLearningStudent(user, studentId);
+    if (!context || !context.student.classId) return c.json({ error: 'Siswa tidak ditemukan atau tidak termasuk kelas yang dapat Anda akses.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const category = typeof body.category === 'string' ? body.category : '';
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : jakartaDateString();
+    if (!subject || subject.length > 80 || !topic || topic.length > 120 || !LEARNING_OBSERVATION_CATEGORIES.includes(category as typeof LEARNING_OBSERVATION_CATEGORIES[number]) || !note || note.length > 1000) return c.json({ error: 'Data observasi belum lengkap atau tidak valid.' }, 400);
+    const inserted = await db.insert(studentLearningObservations).values({ studentId, classId: context.student.classId, subject, topic, category, note, date, recordedBy: user.id }).returning();
+    return c.json({ id: inserted[0].id.toString(), studentId: studentId.toString(), classId: context.student.classId.toString(), subject, topic, category, note, date, recordedBy: { id: user.id.toString(), name: user.name }, createdAt: formatCaseDate(inserted[0].createdAt) }, 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.delete('/api/student-learning-observations/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(id) || id <= 0) return c.json({ error: 'Anda tidak memiliki akses untuk menghapus observasi.' }, 403);
+    const observation = (await db.select().from(studentLearningObservations).where(eq(studentLearningObservations.id, id)).limit(1))[0];
+    if (!observation || !(await mayAccessClass(user, observation.classId))) return c.json({ error: 'Observasi tidak ditemukan.' }, 404);
+    await db.delete(studentLearningObservations).where(eq(studentLearningObservations.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
 
 const canViewSensitiveCase = (user: AuthUser, item: { visibility: string; ownerId: number }) =>
   user.roles.includes('admin') || user.roles.includes('counselor') || user.role === 'counselor' || item.ownerId === user.id;

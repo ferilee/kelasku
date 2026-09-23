@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -280,4 +280,35 @@ export const studentActivityLogs = sqliteTable('student_activity_logs', {
   resourceTitle: text('resource_title'),
   metadata: text('metadata'),
   occurredAt: integer('occurred_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const studentLearningProfiles = sqliteTable('student_learning_profiles', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  subject: text('subject').notNull(),
+  topic: text('topic').notNull(),
+  conceptLevel: integer('concept_level').notNull().default(1),
+  reasoningLevel: integer('reasoning_level').notNull().default(1),
+  literacyLevel: integer('literacy_level').notNull().default(1),
+  independenceLevel: integer('independence_level').notNull().default(1),
+  strengths: text('strengths'),
+  supportNeeds: text('support_needs'),
+  updatedBy: integer('updated_by').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  studentSubjectTopicUnique: uniqueIndex('student_learning_profiles_student_subject_topic').on(table.studentId, table.subject, table.topic),
+}));
+
+export const studentLearningObservations = sqliteTable('student_learning_observations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subject: text('subject').notNull(),
+  topic: text('topic').notNull(),
+  category: text('category').notNull(),
+  note: text('note').notNull(),
+  date: text('date').notNull(),
+  recordedBy: integer('recorded_by').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });

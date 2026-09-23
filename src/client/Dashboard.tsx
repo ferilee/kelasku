@@ -62,6 +62,16 @@ function learningLevelTone(level: number | null | undefined) {
   return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300';
 }
 
+type LearningSummaryFilter = 'all' | 'needs-support' | 'developing' | 'independent';
+
+function learningSummaryStatus(student: StudentLearningSummary['students'][number]): Exclude<LearningSummaryFilter, 'all'> {
+  if (!student.profile) return 'needs-support';
+  const lowestLevel = Math.min(student.profile.conceptLevel, student.profile.reasoningLevel, student.profile.literacyLevel, student.profile.independenceLevel);
+  if (lowestLevel <= 1) return 'needs-support';
+  if (lowestLevel === 2) return 'developing';
+  return 'independent';
+}
+
 interface StudentCase {
   id: string;
   studentId: string;
@@ -728,6 +738,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [learningObservationForm, setLearningObservationForm] = useState({ subject: 'Matematika', topic: '', category: 'pemahaman konsep' as LearningObservationCategory, note: '', date: localDateValue() });
   const [learningCheckpointForm, setLearningCheckpointForm] = useState({ subject: 'Matematika', topic: '', date: localDateValue(), recallLevel: 1 as LearningLevel, reasoningLevel: 1 as LearningLevel, transferLevel: 1 as LearningLevel, reflection: '' });
   const [learningSummary, setLearningSummary] = useState<StudentLearningSummary | null>(null);
+  const [learningSummarySource, setLearningSummarySource] = useState<StudentLearningSummary | null>(null);
+  const [learningSummaryFilter, setLearningSummaryFilter] = useState<LearningSummaryFilter>('all');
   const [learningSummarySubject, setLearningSummarySubject] = useState('Matematika');
   const [learningSummaryTopic, setLearningSummaryTopic] = useState('');
   const [isLoadingLearningSummary, setIsLoadingLearningSummary] = useState(false);
@@ -2043,10 +2055,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       if (learningSummarySubject.trim()) params.set('subject', learningSummarySubject.trim());
       if (learningSummaryTopic.trim()) params.set('topic', learningSummaryTopic.trim());
       const response = await fetch(`/api/student-learning-summary?${params.toString()}`);
-      if (response.ok) setLearningSummary(await response.json());
-      else setLearningSummary(null);
+      if (response.ok) {
+        const result = await response.json() as StudentLearningSummary;
+        setLearningSummarySource(result);
+        setLearningSummary(result);
+      } else {
+        setLearningSummarySource(null);
+        setLearningSummary(null);
+      }
     } catch (error) {
       console.error('Gagal memuat ringkasan perkembangan kelas:', error);
+      setLearningSummarySource(null);
       setLearningSummary(null);
     } finally {
       setIsLoadingLearningSummary(false);
@@ -2056,6 +2075,24 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     if (activeTab === 'students') fetchLearningSummary();
   }, [activeTab, fetchLearningSummary]);
+
+  useEffect(() => {
+    if (!learningSummarySource) {
+      setLearningSummary(null);
+      return;
+    }
+    setLearningSummary({
+      ...learningSummarySource,
+      students: learningSummarySource.students.filter((student) => learningSummaryFilter === 'all' || learningSummaryStatus(student) === learningSummaryFilter),
+    });
+  }, [learningSummaryFilter, learningSummarySource]);
+
+  const learningSummaryRecommendations = learningSummarySource ? [
+    { key: 'concept', label: 'Pemahaman konsep', count: learningSummarySource.students.filter((student) => !student.profile || student.profile.conceptLevel <= 2).length, suggestion: 'Gunakan contoh konkret dan minta siswa menjelaskan makna sebelum memakai rumus.' },
+    { key: 'reasoning', label: 'Penalaran', count: learningSummarySource.students.filter((student) => !student.profile || student.profile.reasoningLevel <= 2).length, suggestion: 'Gunakan pertanyaan “bagaimana kamu tahu?” dan minta siswa membandingkan strategi.' },
+    { key: 'literacy', label: 'Literasi soal', count: learningSummarySource.students.filter((student) => !student.profile || student.profile.literacyLevel <= 2).length, suggestion: 'Latih menandai informasi, tujuan soal, dan representasi sebelum menghitung.' },
+    { key: 'independence', label: 'Kemandirian', count: learningSummarySource.students.filter((student) => !student.profile || student.profile.independenceLevel <= 2).length, suggestion: 'Berikan bantuan bertahap lalu kurangi petunjuk pada soal berikutnya.' },
+  ].sort((first, second) => second.count - first.count) : [];
 
   const filteredStudents = classData.students
     .filter(student => {
@@ -2850,6 +2887,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
           {activeTab === 'students' && (
             <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              {canViewLearningProfiles && <section className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Fokus Tindak Lanjut</p><h3 className="mt-1 font-bold text-slate-800 dark:text-slate-100">Kelompok dukungan belajar</h3><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Pilih kelompok untuk menyaring matriks dan menentukan prioritas pembelajaran.</p></div><select value={learningSummaryFilter} onChange={(event) => setLearningSummaryFilter(event.target.value as LearningSummaryFilter)} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none dark:border-amber-800 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua siswa</option><option value="needs-support">Perlu dukungan</option><option value="developing">Sedang berkembang</option><option value="independent">Cukup mandiri</option></select></div>{learningSummarySource && <div className="mt-4 grid gap-2 sm:grid-cols-3"><button type="button" onClick={() => setLearningSummaryFilter('needs-support')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'needs-support' ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/30' : 'border-rose-100 bg-white hover:border-rose-300 dark:border-rose-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-rose-700 dark:text-rose-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'needs-support').length}</p><p className="text-xs font-bold text-rose-700 dark:text-rose-300">Perlu dukungan</p></button><button type="button" onClick={() => setLearningSummaryFilter('developing')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'developing' ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30' : 'border-amber-100 bg-white hover:border-amber-300 dark:border-amber-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-amber-700 dark:text-amber-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'developing').length}</p><p className="text-xs font-bold text-amber-700 dark:text-amber-300">Sedang berkembang</p></button><button type="button" onClick={() => setLearningSummaryFilter('independent')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'independent' ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30' : 'border-emerald-100 bg-white hover:border-emerald-300 dark:border-emerald-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-emerald-700 dark:text-emerald-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'independent').length}</p><p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Cukup mandiri</p></button></div>}{learningSummarySource && learningSummaryRecommendations.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{learningSummaryRecommendations.slice(0, 2).map((recommendation) => <article key={recommendation.key} className="rounded-xl border border-amber-100 bg-white p-3 dark:border-amber-900/40 dark:bg-slate-800"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-700 dark:text-slate-200">Prioritas: {recommendation.label}</p><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{recommendation.count} siswa</span></div><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{recommendation.suggestion}</p></article>)}</div>}</section>}
               {canViewLearningProfiles && <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peta Perkembangan Kelas</p><h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Ringkasan Profil Belajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Lihat kebutuhan dukungan seluruh siswa berdasarkan profil topik terakhir yang tercatat.</p></div><div className="flex flex-col gap-2 sm:flex-row"><input value={learningSummarySubject} onChange={(event) => setLearningSummarySubject(event.target.value)} placeholder="Mata pelajaran" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input value={learningSummaryTopic} onChange={(event) => setLearningSummaryTopic(event.target.value)} placeholder="Topik (opsional)" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button type="button" onClick={fetchLearningSummary} className="rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white hover:bg-cyan-700">Tampilkan</button></div></div>{isLoadingLearningSummary ? <p className="py-8 text-center text-sm text-slate-400">Memuat ringkasan perkembangan…</p> : learningSummary && <><div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400"><span className="font-bold text-slate-700 dark:text-slate-200">{learningSummary.class.name}</span><span>·</span><span>{learningSummary.subject || 'Semua mata pelajaran'}</span>{learningSummary.topic && <><span>·</span><span>{learningSummary.topic}</span></>}<span className="ml-auto">{learningSummary.students.filter((student) => student.profile).length}/{learningSummary.students.length} siswa memiliki profil</span></div><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Konsep</th><th className="px-3 py-3">Penalaran</th><th className="px-3 py-3">Literasi</th><th className="px-3 py-3">Mandiri</th><th className="px-3 py-3">Checkpoint</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{learningSummary.students.map((student) => { const profile = student.profile; const checkpoint = student.checkpoint; return <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-700 dark:text-slate-200">{student.name}</p><p className="text-[10px] text-slate-400">{student.identifier}</p></td>{[profile?.conceptLevel, profile?.reasoningLevel, profile?.literacyLevel, profile?.independenceLevel].map((level, index) => <td key={index} className="px-3 py-3"><span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 font-black ${learningLevelTone(level)}`}>{level ? `${level}/4` : '—'}</span></td>)}<td className="px-3 py-3">{checkpoint ? <div><span className="font-bold text-cyan-700 dark:text-cyan-300">{Math.round((checkpoint.recallLevel + checkpoint.reasoningLevel + checkpoint.transferLevel) / 3 * 10) / 10}/4</span><p className="mt-0.5 text-[10px] text-slate-400">{checkpoint.date}</p></div> : <span className="text-slate-400">—</span>}</td><td className="px-3 py-3 text-right"><button type="button" onClick={() => { const source = classData.students.find((item) => item.id === student.id); if (source) loadLearningProfile(source); }} className="rounded-lg px-2.5 py-1.5 font-bold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30">Profil</button></td></tr>; })}</tbody></table></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500 dark:text-slate-400"><span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">1 · Perlu dukungan</span><span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">2 · Berkembang</span><span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">3 · Cukup mandiri</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">4 · Sangat baik</span></div></>}</section>}
               <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div>

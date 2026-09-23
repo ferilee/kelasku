@@ -246,6 +246,44 @@ async function mayTeachSubject(user: AuthUser, classId: number, subject: string)
   return Boolean(assignment[0]);
 }
 
+function normalizeTeacherName(value: string | null | undefined) {
+  return (value || '')
+    .split(',')[0]
+    .replace(/^(bpk|bapak|ibu|dr)\.?\s+/i, '')
+    .toLocaleLowerCase('id-ID')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+let scheduleSyncPromise: Promise<void> | null = null;
+
+async function syncLegacyScheduleTeacherIds() {
+  if (scheduleSyncPromise) return scheduleSyncPromise;
+  scheduleSyncPromise = (async () => {
+    const [scheduleRows, teacherRows, assignmentRows, subjectRows] = await Promise.all([
+      db.select({ id: schedules.id, classId: schedules.classId, subject: schedules.subject, teacherId: schedules.teacherId, teacherName: schedules.teacherName }).from(schedules),
+      db.select({ id: users.id, name: users.name }).from(users).where(eq(users.role, 'teacher')),
+      db.select({ teacherId: teachingAssignments.teacherId, classId: teachingAssignments.classId, subjectId: teachingAssignments.subjectId }).from(teachingAssignments),
+      db.select({ id: subjects.id, name: subjects.name }).from(subjects),
+    ]);
+    const subjectIdsByName = new Map(subjectRows.map((subject) => [subject.name.trim().toLocaleLowerCase('id-ID'), subject.id]));
+    const assignmentKeys = new Set(assignmentRows.map((assignment) => `${assignment.teacherId}|${assignment.classId}|${assignment.subjectId}`));
+    for (const schedule of scheduleRows) {
+      if (!schedule.classId || !schedule.teacherName) continue;
+      const subjectId = subjectIdsByName.get(schedule.subject.trim().toLocaleLowerCase('id-ID'));
+      if (!subjectId) continue;
+      const matches = teacherRows.filter((teacher) => normalizeTeacherName(teacher.name) === normalizeTeacherName(schedule.teacherName) && assignmentKeys.has(`${teacher.id}|${schedule.classId}|${subjectId}`));
+      if (matches.length === 1 && schedule.teacherId !== matches[0].id) {
+        await db.update(schedules).set({ teacherId: matches[0].id }).where(eq(schedules.id, schedule.id));
+      }
+    }
+  })().catch((error) => {
+    console.error('Gagal menyinkronkan relasi guru pada jadwal lama:', error);
+  }).finally(() => {
+    scheduleSyncPromise = null;
+  });
+  return scheduleSyncPromise;
+}
+
 function jakartaDateParts(value = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: JAKARTA_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -294,6 +332,7 @@ type AttendanceReminder = {
 };
 
 async function buildAttendanceReminders(user: AuthUser, requestedClassId?: number) {
+  await syncLegacyScheduleTeacherIds();
   const [assignmentRows, scheduleRows, classRows, studentRows, attendanceRows] = await Promise.all([
     db.select({ classId: teachingAssignments.classId, subjectId: teachingAssignments.subjectId })
       .from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)),
@@ -540,6 +579,8 @@ async function seedIfNeeded() {
       const admin = allAccounts.find((account) => account.role === 'admin');
       if (admin) await db.update(classes).set({ homeroomTeacherId: admin.id }).where(and(eq(classes.id, primaryClass[0].id), isNull(classes.homeroomTeacherId)));
     }
+
+    await syncLegacyScheduleTeacherIds();
 
   } catch (err) {
     console.error("Database seeding error:", err);
@@ -809,6 +850,7 @@ app.get('/api/my-workspace', async (c) => {
   try {
     const user = getAuthenticatedUser(c);
     if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+    await syncLegacyScheduleTeacherIds();
     const [homeroomClasses, assignmentsForTeacher, teachingScheduleRows, classRows, subjectRows, studentRows, gradeRows] = await Promise.all([
       db.select().from(classes).where(eq(classes.homeroomTeacherId, user.id)).orderBy(classes.name),
       db.select().from(teachingAssignments).where(eq(teachingAssignments.teacherId, user.id)).orderBy(teachingAssignments.id),

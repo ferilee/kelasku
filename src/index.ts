@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -685,7 +685,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/observations$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-observations\/\d+$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/(observations|checkpoints)$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-(observations|checkpoints)\/\d+$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -2078,6 +2078,15 @@ async function serializeLearningProfile(item: typeof studentLearningProfiles.$in
   };
 }
 
+function serializeLearningCheckpoint(item: typeof studentLearningCheckpoints.$inferSelect, recorderRows: Array<{ id: number; name: string }>) {
+  const recorder = recorderRows.find((candidate) => candidate.id === item.recordedBy);
+  return {
+    id: item.id.toString(), studentId: item.studentId.toString(), classId: item.classId.toString(), subject: item.subject, topic: item.topic, date: item.date,
+    recallLevel: item.recallLevel, reasoningLevel: item.reasoningLevel, transferLevel: item.transferLevel, reflection: item.reflection || '',
+    recordedBy: recorder ? { id: recorder.id.toString(), name: recorder.name } : null, createdAt: formatCaseDate(item.createdAt),
+  };
+}
+
 app.get('/api/student-learning-profiles/:studentId', async (c) => {
   try {
     const user = getAuthenticatedUser(c);
@@ -2085,9 +2094,10 @@ app.get('/api/student-learning-profiles/:studentId', async (c) => {
     if (!user || !canManageLearningProfiles(user) || !Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Anda tidak memiliki akses ke profil belajar ini.' }, 403);
     const context = await getAccessibleLearningStudent(user, studentId);
     if (!context) return c.json({ error: 'Siswa tidak ditemukan atau tidak termasuk kelas yang dapat Anda akses.' }, 404);
-    const [profileRows, observationRows, recorderRows] = await Promise.all([
+    const [profileRows, observationRows, checkpointRows, recorderRows] = await Promise.all([
       db.select().from(studentLearningProfiles).where(eq(studentLearningProfiles.studentId, studentId)),
       db.select().from(studentLearningObservations).where(eq(studentLearningObservations.studentId, studentId)),
+      db.select().from(studentLearningCheckpoints).where(eq(studentLearningCheckpoints.studentId, studentId)),
       db.select({ id: users.id, name: users.name }).from(users),
     ]);
     return c.json({
@@ -2098,6 +2108,7 @@ app.get('/api/student-learning-profiles/:studentId', async (c) => {
         recordedBy: recorderRows.find((recorder) => recorder.id === item.recordedBy) ? { id: item.recordedBy.toString(), name: recorderRows.find((recorder) => recorder.id === item.recordedBy)!.name } : null,
         createdAt: formatCaseDate(item.createdAt),
       })),
+      checkpoints: checkpointRows.sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)).map((item) => serializeLearningCheckpoint(item, recorderRows)),
     });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
@@ -2149,6 +2160,27 @@ app.post('/api/student-learning-profiles/:studentId/observations', async (c) => 
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
+app.post('/api/student-learning-profiles/:studentId/checkpoints', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const studentId = Number(c.req.param('studentId'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(studentId) || studentId <= 0) return c.json({ error: 'Anda tidak memiliki akses untuk menambah checkpoint.' }, 403);
+    const context = await getAccessibleLearningStudent(user, studentId);
+    if (!context || !context.student.classId) return c.json({ error: 'Siswa tidak ditemukan atau tidak termasuk kelas yang dapat Anda akses.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : jakartaDateString();
+    const recallLevel = learningLevel(body.recallLevel);
+    const reasoningLevel = learningLevel(body.reasoningLevel);
+    const transferLevel = learningLevel(body.transferLevel);
+    const reflection = typeof body.reflection === 'string' ? body.reflection.trim() : '';
+    if (!subject || subject.length > 80 || !topic || topic.length > 120 || recallLevel === null || reasoningLevel === null || transferLevel === null || reflection.length > 1000) return c.json({ error: 'Data checkpoint belum lengkap atau tidak valid.' }, 400);
+    const inserted = await db.insert(studentLearningCheckpoints).values({ studentId, classId: context.student.classId, subject, topic, date, recallLevel, reasoningLevel, transferLevel, reflection: reflection || null, recordedBy: user.id }).returning();
+    return c.json(serializeLearningCheckpoint(inserted[0], [{ id: user.id, name: user.name }]), 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
 app.delete('/api/student-learning-observations/:id', async (c) => {
   try {
     const user = getAuthenticatedUser(c);
@@ -2157,6 +2189,18 @@ app.delete('/api/student-learning-observations/:id', async (c) => {
     const observation = (await db.select().from(studentLearningObservations).where(eq(studentLearningObservations.id, id)).limit(1))[0];
     if (!observation || !(await mayAccessClass(user, observation.classId))) return c.json({ error: 'Observasi tidak ditemukan.' }, 404);
     await db.delete(studentLearningObservations).where(eq(studentLearningObservations.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.delete('/api/student-learning-checkpoints/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(id) || id <= 0) return c.json({ error: 'Anda tidak memiliki akses untuk menghapus checkpoint.' }, 403);
+    const checkpoint = (await db.select().from(studentLearningCheckpoints).where(eq(studentLearningCheckpoints.id, id)).limit(1))[0];
+    if (!checkpoint || !(await mayAccessClass(user, checkpoint.classId))) return c.json({ error: 'Checkpoint tidak ditemukan.' }, 404);
+    await db.delete(studentLearningCheckpoints).where(eq(studentLearningCheckpoints.id, id));
     return c.json({ success: true });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });

@@ -324,6 +324,21 @@ sqlite.run(`
     recorded_by INTEGER NOT NULL REFERENCES users(id),
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
+
+  CREATE TABLE IF NOT EXISTS student_learning_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    subject TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    date TEXT NOT NULL,
+    recall_level INTEGER NOT NULL DEFAULT 1,
+    reasoning_level INTEGER NOT NULL DEFAULT 1,
+    transfer_level INTEGER NOT NULL DEFAULT 1,
+    reflection TEXT,
+    recorded_by INTEGER NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
 `);
 
 function addColumnIfMissing(table: string, column: string, definition: string) {

@@ -312,3 +312,18 @@ export const studentLearningObservations = sqliteTable('student_learning_observa
   recordedBy: integer('recorded_by').notNull().references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
+
+export const studentLearningCheckpoints = sqliteTable('student_learning_checkpoints', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subject: text('subject').notNull(),
+  topic: text('topic').notNull(),
+  date: text('date').notNull(),
+  recallLevel: integer('recall_level').notNull().default(1),
+  reasoningLevel: integer('reasoning_level').notNull().default(1),
+  transferLevel: integer('transfer_level').notNull().default(1),
+  reflection: text('reflection'),
+  recordedBy: integer('recorded_by').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});

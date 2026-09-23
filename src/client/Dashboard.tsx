@@ -97,9 +97,14 @@ type StudentLearningObservation = {
   id: string; studentId: string; classId: string; subject: string; topic: string; category: LearningObservationCategory; note: string; date: string;
   recordedBy: { id: string; name: string } | null; createdAt: string | null;
 };
+type StudentLearningCheckpoint = {
+  id: string; studentId: string; classId: string; subject: string; topic: string; date: string;
+  recallLevel: LearningLevel; reasoningLevel: LearningLevel; transferLevel: LearningLevel; reflection: string;
+  recordedBy: { id: string; name: string } | null; createdAt: string | null;
+};
 type StudentLearningData = {
   student: { id: string; name: string; identifier: string; status: string; classId: string; className: string; academicYear: string };
-  profiles: StudentLearningProfile[]; observations: StudentLearningObservation[];
+  profiles: StudentLearningProfile[]; observations: StudentLearningObservation[]; checkpoints: StudentLearningCheckpoint[];
 };
 
 type ActivityAction = 'login' | 'logout' | 'page_view' | 'material_opened' | 'material_downloaded' | 'assignment_opened' | 'assignment_submitted';
@@ -537,6 +542,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setLearningProfileData(null);
     setLearningProfileForm({ subject: activeTeachingSubject || 'Matematika', topic: '', conceptLevel: 1, reasoningLevel: 1, literacyLevel: 1, independenceLevel: 1, strengths: '', supportNeeds: '' });
     setLearningObservationForm({ subject: activeTeachingSubject || 'Matematika', topic: '', category: 'pemahaman konsep', note: '', date: localDateValue() });
+    setLearningCheckpointForm({ subject: activeTeachingSubject || 'Matematika', topic: '', date: localDateValue(), recallLevel: 1, reasoningLevel: 1, transferLevel: 1, reflection: '' });
     try {
       const response = await fetch(`/api/student-learning-profiles/${student.id}`);
       const result = await response.json().catch(() => null);
@@ -549,6 +555,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       if (latest) {
         setLearningProfileForm({ subject: latest.subject, topic: latest.topic, conceptLevel: latest.conceptLevel, reasoningLevel: latest.reasoningLevel, literacyLevel: latest.literacyLevel, independenceLevel: latest.independenceLevel, strengths: latest.strengths, supportNeeds: latest.supportNeeds });
         setLearningObservationForm((current) => ({ ...current, subject: latest.subject, topic: latest.topic }));
+        setLearningCheckpointForm((current) => ({ ...current, subject: latest.subject, topic: latest.topic }));
       }
     } catch (error) {
       console.error('Gagal memuat profil belajar:', error);
@@ -602,6 +609,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
   };
 
+  const handleSaveLearningCheckpoint = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedLearningStudent || isSavingLearningCheckpoint || !learningCheckpointForm.topic.trim()) return;
+    setIsSavingLearningCheckpoint(true);
+    try {
+      const response = await fetch(`/api/student-learning-profiles/${selectedLearningStudent.id}/checkpoints`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(learningCheckpointForm) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) return notify(result?.error || 'Gagal menyimpan checkpoint.', 'error');
+      setLearningCheckpointForm((current) => ({ ...current, reflection: '' }));
+      await refreshLearningProfile();
+      notify('Checkpoint belajar berhasil disimpan.', 'success');
+    } catch (error) {
+      console.error('Gagal menyimpan checkpoint:', error);
+      notify('Terjadi kesalahan saat menyimpan checkpoint.', 'error');
+    } finally {
+      setIsSavingLearningCheckpoint(false);
+    }
+  };
+
   const handleDeleteLearningObservation = async (observation: StudentLearningObservation) => {
     if (!(await confirm({ title: 'Hapus observasi', message: 'Hapus catatan observasi ini?', danger: true, confirmLabel: 'Hapus' }))) return;
     const response = await fetch(`/api/student-learning-observations/${observation.id}`, { method: 'DELETE' });
@@ -609,6 +635,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (!response.ok) return notify(result?.error || 'Gagal menghapus observasi.', 'error');
     await refreshLearningProfile();
     notify('Observasi berhasil dihapus.', 'success');
+  };
+
+  const handleDeleteLearningCheckpoint = async (checkpoint: StudentLearningCheckpoint) => {
+    if (!(await confirm({ title: 'Hapus checkpoint', message: 'Hapus hasil checkpoint ini?', danger: true, confirmLabel: 'Hapus' }))) return;
+    const response = await fetch(`/api/student-learning-checkpoints/${checkpoint.id}`, { method: 'DELETE' });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return notify(result?.error || 'Gagal menghapus checkpoint.', 'error');
+    await refreshLearningProfile();
+    notify('Checkpoint berhasil dihapus.', 'success');
   };
 
   // Local state for the settings form to avoid immediate re-renders while typing
@@ -671,8 +706,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [isLoadingLearningProfile, setIsLoadingLearningProfile] = useState(false);
   const [isSavingLearningProfile, setIsSavingLearningProfile] = useState(false);
   const [isSavingLearningObservation, setIsSavingLearningObservation] = useState(false);
+  const [isSavingLearningCheckpoint, setIsSavingLearningCheckpoint] = useState(false);
   const [learningProfileForm, setLearningProfileForm] = useState({ subject: 'Matematika', topic: '', conceptLevel: 1 as LearningLevel, reasoningLevel: 1 as LearningLevel, literacyLevel: 1 as LearningLevel, independenceLevel: 1 as LearningLevel, strengths: '', supportNeeds: '' });
   const [learningObservationForm, setLearningObservationForm] = useState({ subject: 'Matematika', topic: '', category: 'pemahaman konsep' as LearningObservationCategory, note: '', date: localDateValue() });
+  const [learningCheckpointForm, setLearningCheckpointForm] = useState({ subject: 'Matematika', topic: '', date: localDateValue(), recallLevel: 1 as LearningLevel, reasoningLevel: 1 as LearningLevel, transferLevel: 1 as LearningLevel, reflection: '' });
 
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [attendanceType, setAttendanceType] = useState<'harian' | 'dhuha' | 'dzuhur' | 'jumat'>('harian');
@@ -4666,6 +4703,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><h4 className="font-bold text-slate-800 dark:text-slate-100">Riwayat observasi</h4>{learningProfileData.observations.length ? <div className="mt-3 max-h-[30rem] space-y-2 overflow-y-auto">{learningProfileData.observations.map((observation) => <article key={observation.id} className="rounded-xl border border-slate-100 p-3 dark:border-slate-700"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{observation.category}</span><span className="text-[11px] text-slate-400">{observation.date}</span></div><p className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-200">{observation.subject} · {observation.topic}</p><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{observation.note}</p><p className="mt-2 text-[11px] text-slate-400">Dicatat oleh {observation.recordedBy?.name || 'Pengguna'}</p></div><button type="button" onClick={() => handleDeleteLearningObservation(observation)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" aria-label="Hapus observasi"><Trash2 className="h-4 w-4" /></button></div></article>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada observasi belajar.</p>}</div>
               </div>
             </div>}
+            <div className="mt-5 grid gap-5 border-t border-slate-100 pt-5 dark:border-slate-700 lg:grid-cols-[0.9fr_1.1fr]">
+              <form onSubmit={handleSaveLearningCheckpoint} className="rounded-2xl border border-cyan-100 bg-cyan-50/50 p-4 dark:border-cyan-900/50 dark:bg-cyan-950/20"><div className="mb-4"><h4 className="font-bold text-slate-800 dark:text-slate-100">Checkpoint / Exit Ticket</h4><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Rekam hasil asesmen singkat setelah siswa mencoba sendiri.</p></div><div className="grid gap-3 sm:grid-cols-3"><label className="text-xs font-semibold text-slate-500">Mata pelajaran<input value={learningCheckpointForm.subject} onChange={(event) => setLearningCheckpointForm((current) => ({ ...current, subject: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="text-xs font-semibold text-slate-500">Topik<input value={learningCheckpointForm.topic} onChange={(event) => setLearningCheckpointForm((current) => ({ ...current, topic: event.target.value }))} placeholder="Topik checkpoint" className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="text-xs font-semibold text-slate-500">Tanggal<input type="date" value={learningCheckpointForm.date} onChange={(event) => setLearningCheckpointForm((current) => ({ ...current, date: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label></div><div className="mt-3 grid gap-3 sm:grid-cols-3">{([['recallLevel', 'Recall · konsep dasar'], ['reasoningLevel', 'Reasoning · menjelaskan'], ['transferLevel', 'Transfer · situasi baru']] as const).map(([field, label]) => <label key={field} className="text-xs font-semibold text-slate-500">{label}<select value={learningCheckpointForm[field]} onChange={(event) => setLearningCheckpointForm((current) => ({ ...current, [field]: Number(event.target.value) as LearningLevel }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="1">1 · Belum mulai</option><option value="2">2 · Dengan bantuan</option><option value="3">3 · Cukup mandiri</option><option value="4">4 · Mandiri dan jelas</option></select></label>)}</div><label className="mt-3 block text-xs font-semibold text-slate-500">Refleksi siswa / catatan singkat<textarea value={learningCheckpointForm.reflection} onChange={(event) => setLearningCheckpointForm((current) => ({ ...current, reflection: event.target.value }))} rows={3} placeholder="Contoh: Saya masih bingung mengapa rumus tersebut digunakan." className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label><div className="mt-3 flex justify-end"><button type="submit" disabled={isSavingLearningCheckpoint || !learningCheckpointForm.topic.trim()} className="rounded-xl bg-cyan-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingLearningCheckpoint ? 'Menyimpan…' : 'Simpan checkpoint'}</button></div></form>
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><h4 className="font-bold text-slate-800 dark:text-slate-100">Riwayat checkpoint</h4>{learningProfileData.checkpoints.length ? <div className="mt-3 max-h-[22rem] space-y-2 overflow-y-auto">{learningProfileData.checkpoints.map((checkpoint) => <article key={checkpoint.id} className="rounded-xl border border-slate-100 p-3 dark:border-slate-700"><div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">{checkpoint.date}</span><span className="text-[11px] text-slate-400">{checkpoint.subject} · {checkpoint.topic}</span></div><p className="mt-2 text-xs text-slate-600 dark:text-slate-300">Recall <b>{checkpoint.recallLevel}/4</b> · Reasoning <b>{checkpoint.reasoningLevel}/4</b> · Transfer <b>{checkpoint.transferLevel}/4</b></p>{checkpoint.reflection && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">“{checkpoint.reflection}”</p>}<p className="mt-2 text-[11px] text-slate-400">Dicatat oleh {checkpoint.recordedBy?.name || 'Pengguna'}</p></div><button type="button" onClick={() => handleDeleteLearningCheckpoint(checkpoint)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" aria-label="Hapus checkpoint"><Trash2 className="h-4 w-4" /></button></div></article>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada checkpoint belajar.</p>}</div>
+            </div>
           </div>
         </div>
       )}

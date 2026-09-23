@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers, studentLearningInterventionEvaluations } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -685,7 +685,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || c.req.path === '/api/student-learning-interventions' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/(observations|checkpoints)$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path) || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && (c.req.path.startsWith('/api/schedule-change-requests/') || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-(observations|checkpoints|interventions)\/\d+$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || c.req.path === '/api/student-learning-interventions' || /^\/api\/student-learning-interventions\/\d+\/evaluations$/.test(c.req.path) || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/(observations|checkpoints)$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path) || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && (c.req.path.startsWith('/api/schedule-change-requests/') || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-(observations|checkpoints|interventions)\/\d+$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -2242,7 +2242,20 @@ app.get('/api/student-learning-summary', async (c) => {
 
 const LEARNING_INTERVENTION_STATUSES = ['rencana', 'berjalan', 'selesai'] as const;
 
-async function serializeLearningIntervention(item: typeof studentLearningInterventions.$inferSelect, memberRows: Array<typeof studentLearningInterventionMembers.$inferSelect>, studentRows: Array<{ id: number; name: string; identifier: string }>, creatorRows: Array<{ id: number; name: string }>) {
+function serializeLearningInterventionEvaluation(item: typeof studentLearningInterventionEvaluations.$inferSelect, studentRows: Array<{ id: number; name: string; identifier: string }>) {
+  const student = studentRows.find((candidate) => candidate.id === item.studentId);
+  const baselineAverage = (item.baselineConceptLevel + item.baselineReasoningLevel + item.baselineLiteracyLevel + item.baselineIndependenceLevel) / 4;
+  const finalAverage = (item.finalConceptLevel + item.finalReasoningLevel + item.finalLiteracyLevel + item.finalIndependenceLevel) / 4;
+  const delta = Math.round((finalAverage - baselineAverage) * 10) / 10;
+  return {
+    id: item.id.toString(), studentId: item.studentId.toString(), studentName: student?.name || 'Siswa', identifier: student?.identifier || '', date: item.date,
+    baseline: { conceptLevel: item.baselineConceptLevel, reasoningLevel: item.baselineReasoningLevel, literacyLevel: item.baselineLiteracyLevel, independenceLevel: item.baselineIndependenceLevel },
+    final: { conceptLevel: item.finalConceptLevel, reasoningLevel: item.finalReasoningLevel, literacyLevel: item.finalLiteracyLevel, independenceLevel: item.finalIndependenceLevel },
+    averageDelta: delta, outcome: delta > 0 ? 'meningkat' : delta < 0 ? 'menurun' : 'stabil', note: item.note || '', recordedBy: item.recordedBy.toString(), createdAt: formatCaseDate(item.createdAt),
+  };
+}
+
+async function serializeLearningIntervention(item: typeof studentLearningInterventions.$inferSelect, memberRows: Array<typeof studentLearningInterventionMembers.$inferSelect>, studentRows: Array<{ id: number; name: string; identifier: string }>, creatorRows: Array<{ id: number; name: string }>, evaluationRows: Array<typeof studentLearningInterventionEvaluations.$inferSelect> = []) {
   const creator = creatorRows.find((candidate) => candidate.id === item.createdBy);
   return {
     id: item.id.toString(), classId: item.classId.toString(), subject: item.subject, topic: item.topic, title: item.title, goal: item.goal, strategy: item.strategy,
@@ -2252,6 +2265,7 @@ async function serializeLearningIntervention(item: typeof studentLearningInterve
       const student = studentRows.find((candidate) => candidate.id === member.studentId);
       return { id: member.studentId.toString(), name: student?.name || 'Siswa', identifier: student?.identifier || '' };
     }),
+    evaluations: evaluationRows.filter((evaluation) => evaluation.interventionId === item.id).map((evaluation) => serializeLearningInterventionEvaluation(evaluation, studentRows)),
   };
 }
 
@@ -2265,9 +2279,10 @@ app.get('/api/student-learning-interventions', async (c) => {
     if (!(await mayAccessClass(user, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
     const interventions = (await db.select().from(studentLearningInterventions).where(and(eq(studentLearningInterventions.classId, classId), ...(subject ? [eq(studentLearningInterventions.subject, subject)] : []), ...(topic ? [eq(studentLearningInterventions.topic, topic)] : [])))).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const memberRows = interventions.length ? await db.select().from(studentLearningInterventionMembers).where(inArray(studentLearningInterventionMembers.interventionId, interventions.map((item) => item.id))) : [];
+    const evaluationRows = interventions.length ? await db.select().from(studentLearningInterventionEvaluations).where(inArray(studentLearningInterventionEvaluations.interventionId, interventions.map((item) => item.id))) : [];
     const studentRows = await db.select({ id: users.id, name: users.name, identifier: users.identifier }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
     const creatorRows = await db.select({ id: users.id, name: users.name }).from(users);
-    return c.json(await Promise.all(interventions.map((item) => serializeLearningIntervention(item, memberRows, studentRows, creatorRows))));
+    return c.json(await Promise.all(interventions.map((item) => serializeLearningIntervention(item, memberRows, studentRows, creatorRows, evaluationRows))));
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
@@ -2293,7 +2308,7 @@ app.post('/api/student-learning-interventions', async (c) => {
     const inserted = await db.insert(studentLearningInterventions).values({ classId, subject, topic, title, goal, strategy, scheduledDate, status, createdBy: user.id }).returning();
     await db.insert(studentLearningInterventionMembers).values(studentIds.map((studentId) => ({ interventionId: inserted[0].id, studentId })));
     const creatorRows = [{ id: user.id, name: user.name }];
-    return c.json(await serializeLearningIntervention(inserted[0], studentIds.map((studentId) => ({ id: 0, interventionId: inserted[0].id, studentId, createdAt: new Date() })), validStudents, creatorRows), 201);
+    return c.json(await serializeLearningIntervention(inserted[0], studentIds.map((studentId) => ({ id: 0, interventionId: inserted[0].id, studentId, createdAt: new Date() })), validStudents, creatorRows, []), 201);
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
@@ -2319,9 +2334,49 @@ app.delete('/api/student-learning-interventions/:id', async (c) => {
     if (!user || !canManageLearningProfiles(user) || !Number.isInteger(id) || id <= 0) return c.json({ error: 'Anda tidak memiliki akses menghapus intervensi.' }, 403);
     const intervention = (await db.select().from(studentLearningInterventions).where(eq(studentLearningInterventions.id, id)).limit(1))[0];
     if (!intervention || !(await mayAccessClass(user, intervention.classId))) return c.json({ error: 'Kelompok intervensi tidak ditemukan.' }, 404);
+    await db.delete(studentLearningInterventionEvaluations).where(eq(studentLearningInterventionEvaluations.interventionId, id));
     await db.delete(studentLearningInterventionMembers).where(eq(studentLearningInterventionMembers.interventionId, id));
     await db.delete(studentLearningInterventions).where(eq(studentLearningInterventions.id, id));
     return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/student-learning-interventions/:id/evaluations', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const interventionId = Number(c.req.param('id'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(interventionId) || interventionId <= 0) return c.json({ error: 'Anda tidak memiliki akses menilai intervensi.' }, 403);
+    const intervention = (await db.select().from(studentLearningInterventions).where(eq(studentLearningInterventions.id, interventionId)).limit(1))[0];
+    if (!intervention || !(await mayAccessClass(user, intervention.classId))) return c.json({ error: 'Kelompok intervensi tidak ditemukan.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const studentId = Number(body.studentId);
+    const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : jakartaDateString();
+    const levels = ['baselineConceptLevel', 'baselineReasoningLevel', 'baselineLiteracyLevel', 'baselineIndependenceLevel', 'finalConceptLevel', 'finalReasoningLevel', 'finalLiteracyLevel', 'finalIndependenceLevel'].map((field) => learningLevel(body[field]));
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    const member = (await db.select().from(studentLearningInterventionMembers).where(and(eq(studentLearningInterventionMembers.interventionId, interventionId), eq(studentLearningInterventionMembers.studentId, studentId))).limit(1))[0];
+    if (!member || levels.some((level) => level === null) || note.length > 1000) return c.json({ error: 'Data evaluasi belum lengkap atau siswa bukan anggota kelompok.' }, 400);
+    const values = { interventionId, studentId, date, baselineConceptLevel: levels[0]!, baselineReasoningLevel: levels[1]!, baselineLiteracyLevel: levels[2]!, baselineIndependenceLevel: levels[3]!, finalConceptLevel: levels[4]!, finalReasoningLevel: levels[5]!, finalLiteracyLevel: levels[6]!, finalIndependenceLevel: levels[7]!, note: note || null, recordedBy: user.id };
+    const existing = (await db.select().from(studentLearningInterventionEvaluations).where(and(eq(studentLearningInterventionEvaluations.interventionId, interventionId), eq(studentLearningInterventionEvaluations.studentId, studentId))).limit(1))[0];
+    const saved = existing
+      ? (await db.update(studentLearningInterventionEvaluations).set(values).where(eq(studentLearningInterventionEvaluations.id, existing.id)).returning())[0]
+      : (await db.insert(studentLearningInterventionEvaluations).values(values).returning())[0];
+    const studentRows = await db.select({ id: users.id, name: users.name, identifier: users.identifier }).from(users).where(eq(users.id, studentId));
+    return c.json({ evaluation: serializeLearningInterventionEvaluation(saved, studentRows) }, existing ? 200 : 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.get('/api/student-learning-intervention-reminders', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageLearningProfiles(user)) return c.json({ error: 'Anda tidak memiliki akses ke pengingat intervensi.' }, 403);
+    const classIds = await accessibleClassIds(user);
+    const allInterventions = await db.select().from(studentLearningInterventions).where(classIds === null ? undefined : classIds.length ? inArray(studentLearningInterventions.classId, classIds) : eq(studentLearningInterventions.classId, -1));
+    const today = jakartaDateString();
+    const reminders = allInterventions.filter((item) => item.status !== 'selesai' && item.scheduledDate && item.scheduledDate <= today).map((item) => ({
+      id: item.id.toString(), interventionId: item.id.toString(), classId: item.classId.toString(), title: item.title, subject: item.subject, topic: item.topic, scheduledDate: item.scheduledDate!, status: item.status,
+      overdue: item.scheduledDate! < today, message: item.scheduledDate! < today ? 'Rencana intervensi melewati tanggal.' : 'Rencana intervensi perlu ditindaklanjuti hari ini.',
+    })).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+    return c.json({ generatedAt: new Date().toISOString(), reminders });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 

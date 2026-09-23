@@ -351,3 +351,23 @@ export const studentLearningInterventionMembers = sqliteTable('student_learning_
 }, (table) => ({
   interventionStudentUnique: uniqueIndex('student_learning_intervention_member_unique').on(table.interventionId, table.studentId),
 }));
+
+export const studentLearningInterventionEvaluations = sqliteTable('student_learning_intervention_evaluations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  interventionId: integer('intervention_id').notNull().references(() => studentLearningInterventions.id),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  date: text('date').notNull(),
+  baselineConceptLevel: integer('baseline_concept_level').notNull(),
+  baselineReasoningLevel: integer('baseline_reasoning_level').notNull(),
+  baselineLiteracyLevel: integer('baseline_literacy_level').notNull(),
+  baselineIndependenceLevel: integer('baseline_independence_level').notNull(),
+  finalConceptLevel: integer('final_concept_level').notNull(),
+  finalReasoningLevel: integer('final_reasoning_level').notNull(),
+  finalLiteracyLevel: integer('final_literacy_level').notNull(),
+  finalIndependenceLevel: integer('final_independence_level').notNull(),
+  note: text('note'),
+  recordedBy: integer('recorded_by').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  interventionStudentUnique: uniqueIndex('student_learning_intervention_evaluation_unique').on(table.interventionId, table.studentId),
+}));

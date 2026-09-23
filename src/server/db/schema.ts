@@ -327,3 +327,27 @@ export const studentLearningCheckpoints = sqliteTable('student_learning_checkpoi
   recordedBy: integer('recorded_by').notNull().references(() => users.id),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
+
+export const studentLearningInterventions = sqliteTable('student_learning_interventions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  classId: integer('class_id').notNull().references(() => classes.id),
+  subject: text('subject').notNull(),
+  topic: text('topic').notNull(),
+  title: text('title').notNull(),
+  goal: text('goal').notNull(),
+  strategy: text('strategy').notNull(),
+  scheduledDate: text('scheduled_date'),
+  status: text('status').notNull().default('rencana'),
+  createdBy: integer('created_by').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+export const studentLearningInterventionMembers = sqliteTable('student_learning_intervention_members', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  interventionId: integer('intervention_id').notNull().references(() => studentLearningInterventions.id),
+  studentId: integer('student_id').notNull().references(() => users.id),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+}, (table) => ({
+  interventionStudentUnique: uniqueIndex('student_learning_intervention_member_unique').on(table.interventionId, table.studentId),
+}));

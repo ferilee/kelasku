@@ -339,6 +339,29 @@ sqlite.run(`
     recorded_by INTEGER NOT NULL REFERENCES users(id),
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
+
+  CREATE TABLE IF NOT EXISTS student_learning_interventions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    class_id INTEGER NOT NULL REFERENCES classes(id),
+    subject TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    title TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    scheduled_date TEXT,
+    status TEXT NOT NULL DEFAULT 'rencana',
+    created_by INTEGER NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS student_learning_intervention_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    intervention_id INTEGER NOT NULL REFERENCES student_learning_interventions(id),
+    student_id INTEGER NOT NULL REFERENCES users(id),
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(intervention_id, student_id)
+  );
 `);
 
 function addColumnIfMissing(table: string, column: string, definition: string) {

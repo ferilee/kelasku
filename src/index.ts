@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints } from './server/db/schema';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers } from './server/db/schema';
 import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
@@ -685,7 +685,7 @@ app.use('/api/*', async (c, next) => {
   if (c.req.method === 'GET' && c.req.path === '/api/class-data') return next();
   const user = getAuthenticatedUser(c);
   if (!user) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
-  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/(observations|checkpoints)$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && c.req.path.startsWith('/api/schedule-change-requests/')) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-(observations|checkpoints)\/\d+$/.test(c.req.path)));
+  const teacherWritePath = (c.req.method === 'POST' && (c.req.path === '/api/grades' || c.req.path === '/api/behavior' || c.req.path === '/api/attendance' || c.req.path === '/api/assignments' || c.req.path === '/api/teaching-announcements' || c.req.path === '/api/schedule-change-requests' || c.req.path === '/api/teaching-journals' || c.req.path === '/api/student-learning-interventions' || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-profiles\/\d+\/(observations|checkpoints)$/.test(c.req.path))) || (c.req.method === 'PUT' && (c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/student-learning-profiles\/\d+$/.test(c.req.path) || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'PATCH' && (c.req.path.startsWith('/api/schedule-change-requests/') || /^\/api\/student-learning-interventions\/\d+$/.test(c.req.path))) || (c.req.method === 'DELETE' && (c.req.path.startsWith('/api/behavior/') || c.req.path.startsWith('/api/teaching-announcements/') || c.req.path.startsWith('/api/assignments/') || c.req.path.startsWith('/api/teaching-journals/') || /^\/api\/attendance-reminders\/\d+\/skip$/.test(c.req.path) || /^\/api\/student-learning-(observations|checkpoints|interventions)\/\d+$/.test(c.req.path)));
   const studentWritePath = (c.req.method === 'POST' && (c.req.path === '/api/activity/heartbeat' || c.req.path === '/api/activity/events' || /^\/api\/student\/\d+\/submissions$/.test(c.req.path)));
   if (!canManageClass(user) && user.roles.includes('teacher') && c.req.method !== 'GET' && !teacherWritePath && !studentWritePath) {
     return c.json({ error: 'Fitur ini hanya dapat dikelola wali kelas.' }, 403);
@@ -2101,7 +2101,7 @@ app.get('/api/student-learning-profiles/:studentId', async (c) => {
       db.select({ id: users.id, name: users.name }).from(users),
     ]);
     return c.json({
-      student: { id: context.student.id.toString(), name: context.student.name, identifier: context.student.identifier, status: context.student.status, classId: context.student.classId.toString(), className: context.classItem?.name || 'Kelas', academicYear: context.classItem?.academicYear || '' },
+      student: { id: context.student.id.toString(), name: context.student.name, identifier: context.student.identifier, status: context.student.status, classId: context.student.classId?.toString() || '', className: context.classItem?.name || 'Kelas', academicYear: context.classItem?.academicYear || '' },
       profiles: await Promise.all(profileRows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).map(serializeLearningProfile)),
       observations: observationRows.sort((a, b) => `${b.date}-${b.id}`.localeCompare(`${a.date}-${a.id}`)).map((item) => ({
         id: item.id.toString(), studentId: item.studentId.toString(), classId: item.classId.toString(), subject: item.subject, topic: item.topic, category: item.category, note: item.note, date: item.date,
@@ -2237,6 +2237,91 @@ app.get('/api/student-learning-summary', async (c) => {
         };
       }),
     });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+const LEARNING_INTERVENTION_STATUSES = ['rencana', 'berjalan', 'selesai'] as const;
+
+async function serializeLearningIntervention(item: typeof studentLearningInterventions.$inferSelect, memberRows: Array<typeof studentLearningInterventionMembers.$inferSelect>, studentRows: Array<{ id: number; name: string; identifier: string }>, creatorRows: Array<{ id: number; name: string }>) {
+  const creator = creatorRows.find((candidate) => candidate.id === item.createdBy);
+  return {
+    id: item.id.toString(), classId: item.classId.toString(), subject: item.subject, topic: item.topic, title: item.title, goal: item.goal, strategy: item.strategy,
+    scheduledDate: item.scheduledDate, status: item.status, createdBy: creator ? { id: creator.id.toString(), name: creator.name } : null,
+    createdAt: formatCaseDate(item.createdAt), updatedAt: formatCaseDate(item.updatedAt),
+    members: memberRows.filter((member) => member.interventionId === item.id).map((member) => {
+      const student = studentRows.find((candidate) => candidate.id === member.studentId);
+      return { id: member.studentId.toString(), name: student?.name || 'Siswa', identifier: student?.identifier || '' };
+    }),
+  };
+}
+
+app.get('/api/student-learning-interventions', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const classId = Number(c.req.query('classId'));
+    const subject = typeof c.req.query('subject') === 'string' ? c.req.query('subject')!.trim() : '';
+    const topic = typeof c.req.query('topic') === 'string' ? c.req.query('topic')!.trim() : '';
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(classId) || classId <= 0) return c.json({ error: 'Kelas atau akses intervensi tidak valid.' }, 400);
+    if (!(await mayAccessClass(user, classId))) return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    const interventions = (await db.select().from(studentLearningInterventions).where(and(eq(studentLearningInterventions.classId, classId), ...(subject ? [eq(studentLearningInterventions.subject, subject)] : []), ...(topic ? [eq(studentLearningInterventions.topic, topic)] : [])))).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    const memberRows = interventions.length ? await db.select().from(studentLearningInterventionMembers).where(inArray(studentLearningInterventionMembers.interventionId, interventions.map((item) => item.id))) : [];
+    const studentRows = await db.select({ id: users.id, name: users.name, identifier: users.identifier }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId)));
+    const creatorRows = await db.select({ id: users.id, name: users.name }).from(users);
+    return c.json(await Promise.all(interventions.map((item) => serializeLearningIntervention(item, memberRows, studentRows, creatorRows))));
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.post('/api/student-learning-interventions', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    if (!user || !canManageLearningProfiles(user)) return c.json({ error: 'Anda tidak memiliki akses membuat kelompok intervensi.' }, 403);
+    const body = await c.req.json().catch(() => ({}));
+    const classId = Number(body.classId);
+    const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
+    const strategy = typeof body.strategy === 'string' ? body.strategy.trim() : '';
+    const scheduledDate = typeof body.scheduledDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.scheduledDate) ? body.scheduledDate : null;
+    const status = typeof body.status === 'string' ? body.status : 'rencana';
+    const parsedStudentIds = Array.isArray(body.studentIds) ? body.studentIds.map((item: unknown) => Number(item)).filter((item: number): item is number => Number.isInteger(item) && item > 0) : [];
+    const studentIds: number[] = [...new Set<number>(parsedStudentIds)];
+    if (!Number.isInteger(classId) || classId <= 0 || !(await mayAccessClass(user, classId))) return c.json({ error: 'Kelas tidak valid atau tidak dapat diakses.' }, 403);
+    if (!subject || subject.length > 80 || !topic || topic.length > 120 || !title || title.length > 160 || !goal || goal.length > 1000 || !strategy || strategy.length > 1000 || !LEARNING_INTERVENTION_STATUSES.includes(status as typeof LEARNING_INTERVENTION_STATUSES[number]) || !studentIds.length) return c.json({ error: 'Data kelompok intervensi belum lengkap atau tidak valid.' }, 400);
+    const validStudents = await db.select({ id: users.id, name: users.name, identifier: users.identifier }).from(users).where(and(eq(users.role, 'student'), eq(users.classId, classId), inArray(users.id, studentIds)));
+    if (validStudents.length !== studentIds.length) return c.json({ error: 'Semua anggota kelompok harus berasal dari kelas yang dipilih.' }, 400);
+    const inserted = await db.insert(studentLearningInterventions).values({ classId, subject, topic, title, goal, strategy, scheduledDate, status, createdBy: user.id }).returning();
+    await db.insert(studentLearningInterventionMembers).values(studentIds.map((studentId) => ({ interventionId: inserted[0].id, studentId })));
+    const creatorRows = [{ id: user.id, name: user.name }];
+    return c.json(await serializeLearningIntervention(inserted[0], studentIds.map((studentId) => ({ id: 0, interventionId: inserted[0].id, studentId, createdAt: new Date() })), validStudents, creatorRows), 201);
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.patch('/api/student-learning-interventions/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(id) || id <= 0) return c.json({ error: 'Anda tidak memiliki akses mengubah intervensi.' }, 403);
+    const intervention = (await db.select().from(studentLearningInterventions).where(eq(studentLearningInterventions.id, id)).limit(1))[0];
+    if (!intervention || !(await mayAccessClass(user, intervention.classId))) return c.json({ error: 'Kelompok intervensi tidak ditemukan.' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const status = typeof body.status === 'string' ? body.status : '';
+    if (!LEARNING_INTERVENTION_STATUSES.includes(status as typeof LEARNING_INTERVENTION_STATUSES[number])) return c.json({ error: 'Status intervensi tidak valid.' }, 400);
+    await db.update(studentLearningInterventions).set({ status, updatedAt: new Date() }).where(eq(studentLearningInterventions.id, id));
+    return c.json({ success: true });
+  } catch (err: any) { return c.json({ error: err.message }, 500); }
+});
+
+app.delete('/api/student-learning-interventions/:id', async (c) => {
+  try {
+    const user = getAuthenticatedUser(c);
+    const id = Number(c.req.param('id'));
+    if (!user || !canManageLearningProfiles(user) || !Number.isInteger(id) || id <= 0) return c.json({ error: 'Anda tidak memiliki akses menghapus intervensi.' }, 403);
+    const intervention = (await db.select().from(studentLearningInterventions).where(eq(studentLearningInterventions.id, id)).limit(1))[0];
+    if (!intervention || !(await mayAccessClass(user, intervention.classId))) return c.json({ error: 'Kelompok intervensi tidak ditemukan.' }, 404);
+    await db.delete(studentLearningInterventionMembers).where(eq(studentLearningInterventionMembers.interventionId, id));
+    await db.delete(studentLearningInterventions).where(eq(studentLearningInterventions.id, id));
+    return c.json({ success: true });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 

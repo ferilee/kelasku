@@ -1878,7 +1878,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   // Advanced search & filter states
   const [studentSearch, setStudentSearch] = useState('');
   const [studentGenderFilter, setStudentGenderFilter] = useState<'all' | 'L' | 'P'>('all');
-  const [studentStatusFilter, setStudentStatusFilter] = useState<'all' | 'Aktif' | 'Nonaktif'>('all');
+  const [studentStatusFilter, setStudentStatusFilter] = useState<'all' | 'Aktif' | 'Nonaktif'>('Aktif');
   const [studentSortField, setStudentSortField] = useState<'name-asc' | 'name-desc' | 'nisn-asc'>('name-asc');
 
   const [attendanceSearch, setAttendanceSearch] = useState('');
@@ -2385,6 +2385,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const scheduleSubjects = [...new Set(scheduleAssignments.map((item) => item.subjectName))];
   const scheduleTeachers = scheduleAssignments.filter((item) => item.subjectName === newScheduleSubject);
   const totalHeaderReminders = attendanceReminders.length + learningInterventionReminders.length;
+  const todayTeachingSchedules = (workspace.teachingSchedule || []).filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
+  const nextTeachingSchedule = todayTeachingSchedules[0] || (workspace.teachingSchedule || []).slice().sort((first, second) => first.timeStart.localeCompare(second.timeStart))[0];
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
@@ -2433,7 +2435,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate">
               {activeTab === 'workspace' ? (workspaceMode === 'teaching' ? 'Beranda Pengajar' : 'Beranda Perwalian') : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
             </h2>
-            {activeTab !== 'workspace' && <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">Konteks kerja: {activeContext}</p>}
+            <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{activeTab === 'workspace' ? `Mode ${workspaceMode === 'teaching' ? 'Pengajar' : 'Perwalian'} · ${activeContext}` : `Konteks kerja: ${activeContext}`}</p>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
             <select
@@ -2550,6 +2552,47 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 {!attendanceReminders.length && !learningInterventionReminders.length && !(workspaceMode === 'teaching' && scheduleChangeRequests.length) && <div className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 p-6 text-center text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Tidak ada pengingat yang perlu ditindaklanjuti.</div>}
               </section>}
               {workspaceView === 'overview' && (isLoadingWorkspace ? <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 dark:border-slate-700 dark:bg-slate-800">Memuat ruang kerja…</div> : <>
+                <section className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">Tindakan Hari Ini</p>
+                      <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Mulai dari sini</h3>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Akses pekerjaan yang paling sering dilakukan tanpa berpindah-pindah menu.</p>
+                    </div>
+                    <span className="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-bold text-blue-700 dark:bg-slate-800 dark:text-blue-300">{workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}</span>
+                  </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {workspaceMode === 'teaching' && <button type="button" onClick={() => setWorkspaceView('schedule')} className="rounded-xl border border-violet-200 bg-white p-4 text-left transition hover:border-violet-400 hover:shadow-sm dark:border-violet-900/50 dark:bg-slate-800 dark:hover:border-violet-700">
+                      <Calendar className="h-5 w-5 text-violet-600 dark:text-violet-300" />
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Jadwal berikutnya</p>
+                      <p className="mt-1 truncate text-sm font-bold text-slate-800 dark:text-slate-100">{nextTeachingSchedule ? nextTeachingSchedule.day + ' · ' + nextTeachingSchedule.timeStart : 'Belum ada jadwal'}</p>
+                      <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{nextTeachingSchedule ? nextTeachingSchedule.subject + ' · ' + nextTeachingSchedule.className : 'Buka jadwal untuk melihat detail'}</p>
+                    </button>}
+                    {workspaceMode === 'teaching' && <button type="button" onClick={() => setActiveTab('teaching-attendance')} className="rounded-xl border border-cyan-200 bg-white p-4 text-left transition hover:border-cyan-400 hover:shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 dark:hover:border-cyan-700">
+                      <CheckSquare className="h-5 w-5 text-cyan-600 dark:text-cyan-300" />
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Sesi kelas</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Isi presensi mapel</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Catat kehadiran siswa hari ini</p>
+                    </button>}
+                    <button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="rounded-xl border border-emerald-200 bg-white p-4 text-left transition hover:border-emerald-400 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900/50 dark:bg-slate-800 dark:hover:border-emerald-700">
+                      <FileText className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Dokumentasi</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Buat jurnal mengajar</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Simpan materi dan kejadian kelas</p>
+                    </button>
+                    {workspaceMode === 'teaching' ? <button type="button" onClick={() => { setAcademicSubTab('materials'); setActiveTab('academic'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
+                      <BookOpen className="h-5 w-5 text-blue-600 dark:text-blue-300" />
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Pembelajaran</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Materi & tugas</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Bagikan materi dan pantau tugas</p>
+                    </button> : <button type="button" onClick={() => { setStudentView('roster'); setActiveTab('students'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
+                      <Users className="h-5 w-5 text-blue-600 dark:text-blue-300" />
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Kelas aktif</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Buka daftar siswa</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lihat siswa aktif dan statusnya</p>
+                    </button>}
+                  </div>
+                </section>
                 {workspaceMode === 'homeroom' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Perwalian</h3><p className="text-xs text-slate-500">Akses penuh sebagai wali kelas.</p></div><Users className="h-5 w-5 text-blue-500" /></div>{workspace?.homeroomClasses.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{workspace.homeroomClasses.map((item) => <button key={item.id} onClick={async () => { await classData.selectClass(item.id); setWorkspaceMode('homeroom'); setActiveTeachingSubject(null); setActiveTab('dashboard'); }} className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:border-blue-300 hover:shadow-sm dark:border-blue-900/60 dark:bg-blue-950/20"><p className="font-bold text-slate-800 dark:text-slate-100">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.academicYear}</p><span className="mt-3 inline-block text-xs font-bold text-blue-600 dark:text-blue-400">Buka Dashboard Kelas →</span></button>)}</div> : <p className="py-4 text-sm text-slate-400">Belum ada kelas perwalian.</p>}</section>}
                 {workspaceMode === 'teaching' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka buku nilai mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Buku Nilai →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>}
               </>)}

@@ -1577,11 +1577,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       Berhalangan: isPrayerReport ? 'H' : 'BH',
     };
     const statusLegend = reportSubTab === 'harian'
-      ? '✓ = Hadir &nbsp;&nbsp; S = Sakit &nbsp;&nbsp; I = Izin &nbsp;&nbsp; A = Alfa'
+      ? '✓ = Hadir &nbsp;&nbsp; S = Sakit &nbsp;&nbsp; I = Izin &nbsp;&nbsp; A = Alfa &nbsp;&nbsp; Jml = S + I + A'
       : '✓ = Sholat (Berjamaah/Munfarid) &nbsp;&nbsp; H = Halangan &nbsp;&nbsp; A = Alfa';
     const summaryColumns = reportSubTab === 'harian'
-      ? ['S', 'I', 'A']
+      ? ['S', 'I', 'A', 'Jml']
       : ['H', 'A'];
+    const maxDailyAbsence = reportSubTab === 'harian'
+      ? Math.max(0, ...printableRows.map((row) => row.harian.Sakit + row.harian.Izin + row.harian.Alfa))
+      : 0;
     const tableHeaders = `
       <tr>
         <th class="number">No</th>
@@ -1604,7 +1607,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         .join('');
       const attendanceSummary = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
       const summaryCounts: Record<string, number> = reportSubTab === 'harian'
-        ? { S: attendanceSummary.Sakit, I: attendanceSummary.Izin, A: attendanceSummary.Alfa }
+        ? { S: attendanceSummary.Sakit, I: attendanceSummary.Izin, A: attendanceSummary.Alfa, Jml: attendanceSummary.Sakit + attendanceSummary.Izin + attendanceSummary.Alfa }
         : { H: getSholatCount(attendanceSummary), A: attendanceSummary.Alfa };
       if (reportSubTab === 'harian' && (summaryCounts.S > 3 || summaryCounts.I > 3 || summaryCounts.A > 3)) {
         studentsNeedingAttention.push({ name: row.name, sakit: summaryCounts.S, izin: summaryCounts.I, alfa: summaryCounts.A });
@@ -1612,9 +1615,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       const summaryCells = summaryColumns
         .map((summaryCode) => {
           const count = summaryCounts[summaryCode];
-          const attentionClass = reportSubTab === 'harian' && count > 3
-            ? summaryCode === 'A' ? 'attention-alfa' : 'attention-absence'
-            : '';
+          const isHighestAbsence = reportSubTab === 'harian' && summaryCode === 'Jml' && count > 0 && count === maxDailyAbsence;
+          const attentionClass = isHighestAbsence
+            ? 'attention-total-high'
+            : reportSubTab === 'harian' && summaryCode === 'Jml' && count > 0
+              ? 'attention-total'
+              : reportSubTab === 'harian' && count > 3
+                ? summaryCode === 'A' ? 'attention-alfa' : 'attention-absence'
+                : '';
           return `<td class="total ${summaryCode === 'A' ? 'alfa' : ''} ${attentionClass}">${count}</td>`;
         })
         .join('');
@@ -1661,6 +1669,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             .data-table td.alfa { color: #dc2626; font-weight: bold; }
             .data-table td.attention-absence { background: #fef3c7; color: #92400e; }
             .data-table td.attention-alfa { background: #fee2e2; color: #b91c1c; }
+            .data-table td.attention-total { background: #fef3c7; color: #92400e; font-weight: 800; }
+            .data-table td.attention-total-high { background: #fee2e2; color: #b91c1c; font-weight: 900; }
             .status-legend { margin-top: 8px; font-size: 9px; color: #475569; }
             .status-legend strong { color: #1e293b; }
             .attention-section { margin-top: 12px; border: 1px solid #f59e0b; background: #fffbeb; padding: 8px 10px; font-size: 9px; }

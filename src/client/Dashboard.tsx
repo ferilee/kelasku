@@ -1498,9 +1498,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const getSholatCount = (prayerAttendance: { Berjamaah: number; Munfarid: number }) =>
     prayerAttendance.Berjamaah + prayerAttendance.Munfarid;
 
+  const getReportRowsForExport = () => reportData.filter((row) => {
+    const query = reportSearch.toLowerCase();
+    const matchSearch = row.name.toLowerCase().includes(query) || row.studentId.includes(reportSearch);
+    const matchGender = reportGenderFilter === 'all' || row.gender === reportGenderFilter;
+    const matchFriday = reportSubTab !== 'jumat' || row.gender === 'L';
+    const summary = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
+    const matchAlfa = reportAlfaFilter === 'all' || (reportAlfaFilter === 'alfa-only' ? summary.Alfa > 0 : summary.Alfa === 0);
+    return matchSearch && matchGender && matchFriday && matchAlfa;
+  });
+
   const handleExportCSV = () => {
     if (reportData.length === 0) return;
-    const printableRows = reportSubTab === 'jumat' ? reportData.filter((row) => row.gender === 'L') : reportData;
+    const printableRows = getReportRowsForExport();
     let csvContent = "data:text/csv;charset=utf-8,";
     
     if (reportSubTab === 'harian') {
@@ -1532,7 +1542,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
   const handlePrintPDF = () => {
     if (reportData.length === 0) return;
-    const printableRows = reportSubTab === 'jumat' ? reportData.filter((row) => row.gender === 'L') : reportData;
+    const printableRows = getReportRowsForExport();
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     const monthNames = [
@@ -1550,10 +1560,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
     const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
     const dateColumns = Array.from({ length: daysInMonth }, (_, index) => index + 1)
-      .filter((day) => {
-        const dayOfWeek = new Date(Number(year), Number(month) - 1, day).getDay();
-        return reportSubTab === 'jumat' ? dayOfWeek === 5 : dayOfWeek !== 0 && dayOfWeek !== 6;
-      })
       .map((day) => {
         const label = String(day).padStart(2, '0');
         return { label, date: `${selectedMonth}-${label}` };
@@ -1596,7 +1602,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       const statusCells = statusCodesByDate
         .map((statusCode) => `<td class="status ${statusCode === 'A' ? 'alfa' : ''}">${statusCode}</td>`)
         .join('');
-      const summaryCounts = Object.fromEntries(summaryColumns.map((summaryCode) => [summaryCode, statusCodesByDate.filter((statusCode) => statusCode === summaryCode).length]));
+      const attendanceSummary = reportSubTab === 'harian' ? row.harian : reportSubTab === 'dhuha' ? row.dhuha : reportSubTab === 'dzuhur' ? row.dzuhur : row.jumat;
+      const summaryCounts: Record<string, number> = reportSubTab === 'harian'
+        ? { S: attendanceSummary.Sakit, I: attendanceSummary.Izin, A: attendanceSummary.Alfa }
+        : { H: getSholatCount(attendanceSummary), A: attendanceSummary.Alfa };
       if (reportSubTab === 'harian' && (summaryCounts.S > 3 || summaryCounts.I > 3 || summaryCounts.A > 3)) {
         studentsNeedingAttention.push({ name: row.name, sakit: summaryCounts.S, izin: summaryCounts.I, alfa: summaryCounts.A });
       }

@@ -1,4 +1,4 @@
-import { createContext, useState, ReactNode, useContext, useEffect, useCallback } from 'react';
+import { createContext, useState, ReactNode, useContext, useEffect, useCallback, useRef } from 'react';
 
 export interface Announcement {
   id: string;
@@ -102,6 +102,7 @@ export interface ClassData {
   stats: { attendance: string; averageGrade: string; totalStudents: string; };
   classId: string | null;
   classes: ClassRoom[];
+  isLoading: boolean;
   selectedClass: string | null;
   selectedYear: string | null;
   selectClass: (classId: string) => Promise<void>;
@@ -188,6 +189,9 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   const [data, setData] = useState(defaultData);
   const [classId, setClassId] = useState<string | null>(null);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const classIdRef = useRef<string | null>(null);
+  const requestIdRef = useRef(0);
   const [selectedClass, setSelectedClass] = useState<string | null>('X TKJ A');
   const [selectedYear, setSelectedYear] = useState<string | null>('2026-2027');
 
@@ -200,46 +204,53 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const fetchClassData = useCallback(async (requestedClassId?: string | null) => {
+    const requestId = ++requestIdRef.current;
+    const classIdForRequest = requestedClassId === undefined ? classIdRef.current : requestedClassId || null;
+    const query = classIdForRequest ? `?classId=${encodeURIComponent(classIdForRequest)}` : '';
+    setIsLoading(true);
     try {
-      const query = requestedClassId ? `?classId=${encodeURIComponent(requestedClassId)}` : '';
       const res = await fetch(`/api/class-data${query}`);
-      if (res.ok) {
-        const json = await res.json();
-        setData({
-          announcements: json.announcements,
-          teachingAnnouncements: json.teachingAnnouncements || [],
-          agenda: json.agenda,
-          schedules: json.schedules || [],
-          students: json.students,
-          behaviorRecords: json.behaviorRecords || [],
-          achievements: json.achievements || [],
-          officers: json.officers || [],
-          officerDuties: json.officerDuties || defaultData.officerDuties,
-          academicLeaderboard: json.academicLeaderboard || [],
-          gradeTrend: json.gradeTrend || [],
-          galleryItems: json.galleryItems || [],
-          heroImage: json.heroImage || '/hero-default.svg',
-          homeroomTeacherPhoto: json.homeroomTeacherPhoto || '/wali-kelas-placeholder.svg',
-          quote: json.quote,
-          stats: json.stats,
-        });
-        setClasses(json.classes || []);
-        setClassId(json.classId || null);
-        setSelectedClass(json.className || 'X TKJ A');
-        setSelectedYear(json.academicYear || '2026-2027');
-      }
+      if (!res.ok) return;
+      const json = await res.json();
+      if (requestId !== requestIdRef.current) return;
+      setData({
+        announcements: json.announcements,
+        teachingAnnouncements: json.teachingAnnouncements || [],
+        agenda: json.agenda,
+        schedules: json.schedules || [],
+        students: json.students,
+        behaviorRecords: json.behaviorRecords || [],
+        achievements: json.achievements || [],
+        officers: json.officers || [],
+        officerDuties: json.officerDuties || defaultData.officerDuties,
+        academicLeaderboard: json.academicLeaderboard || [],
+        gradeTrend: json.gradeTrend || [],
+        galleryItems: json.galleryItems || [],
+        heroImage: json.heroImage || '/hero-default.svg',
+        homeroomTeacherPhoto: json.homeroomTeacherPhoto || '/wali-kelas-placeholder.svg',
+        quote: json.quote,
+        stats: json.stats,
+      });
+      setClasses(json.classes || []);
+      classIdRef.current = json.classId || null;
+      setClassId(json.classId || null);
+      setSelectedClass(json.className || 'X TKJ A');
+      setSelectedYear(json.academicYear || '2026-2027');
     } catch (err) {
       console.error('Error fetching class data:', err);
+    } finally {
+      if (requestId === requestIdRef.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchClassData();
+    const requestedClassId = new URLSearchParams(window.location.search).get('classId');
+    fetchClassData(requestedClassId);
   }, [fetchClassData]);
 
-  const selectClass = async (nextClassId: string) => {
+  const selectClass = useCallback(async (nextClassId: string) => {
     await fetchClassData(nextClassId);
-  };
+  }, [fetchClassData]);
 
   const updateQuote = async (text: string, author: string) => {
     // Optimistic UI update
@@ -514,6 +525,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       ...data,
       classId,
       classes,
+      isLoading,
       selectedClass,
       selectedYear,
       selectClass,

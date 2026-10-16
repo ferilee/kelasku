@@ -465,13 +465,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     notify('Jurnal mengajar berhasil dihapus.', 'success');
   };
 
-  useEffect(() => {
-    const requestedClassId = new URLSearchParams(window.location.search).get('classId');
-    if (requestedClassId && classData.classes.some((item) => item.id === requestedClassId) && classData.classId !== requestedClassId) {
-      classData.selectClass(requestedClassId).catch(() => undefined);
-    }
-  }, [classData.classes, classData.classId, classData.selectClass]);
-
   const openTeachingClass = async (classId: string, subjectName: string) => {
     await classData.selectClass(classId);
     setWorkspaceMode('teaching');
@@ -845,8 +838,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set('tab', activeTab);
-    if (classData.classId) params.set('classId', classData.classId);
-    else params.delete('classId');
+    if (!classData.isLoading) {
+      if (classData.classId) params.set('classId', classData.classId);
+      else params.delete('classId');
+    }
     if (activeTeachingSubject) params.set('subject', activeTeachingSubject);
     else params.delete('subject');
     if (activeTab === 'workspace' && workspaceView !== 'overview') params.set('view', workspaceView);
@@ -854,7 +849,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (activeTab === 'students' && studentView !== 'roster') params.set('studentView', studentView);
     else params.delete('studentView');
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-  }, [activeTab, classData.classId, activeTeachingSubject, workspaceView, studentView]);
+  }, [activeTab, classData.classId, classData.isLoading, activeTeachingSubject, workspaceView, studentView]);
 
   useEffect(() => {
     const fetchDashboardSummary = async () => {

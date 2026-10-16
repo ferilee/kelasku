@@ -23,7 +23,8 @@ const AppContent = () => {
   const handleLoginSuccess = (newRole: 'admin' | 'teacher' | 'counselor' | 'student') => {
     setUserSession(newRole);
     setRole(newRole);
-    classData.selectClass('').catch(() => undefined);
+    const requestedClassId = new URLSearchParams(window.location.search).get('classId');
+    classData.selectClass(requestedClassId || classData.classId || '').catch(() => undefined);
   };
 
   const handleLogout = () => {

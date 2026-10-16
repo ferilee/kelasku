@@ -1647,6 +1647,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           <title>${titleText} - ${classData.selectedClass}</title>
           <style>
             @page { size: A4 landscape; margin: 10mm; }
+            @media print { *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
             body { font-family: 'Inter', system-ui, sans-serif; color: #1e293b; padding: 0; }
             .header { text-align: center; margin-bottom: 14px; border-bottom: 3px double #cbd5e1; padding-bottom: 10px; }
             .header h1 { margin: 0; font-size: 18px; color: #1e3a8a; }
@@ -1655,7 +1656,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             .info-table td { padding: 4px 0; }
             .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 7px; }
             .data-table th, .data-table td { border: 1px solid #94a3b8; padding: 4px 2px; text-align: center; }
-            .data-table th { background-color: #2563EB; border-color: #1d4ed8; font-weight: bold; color: #ffffff; }
+            .data-table th { background: #2563EB !important; background-color: #2563EB !important; border-color: #1d4ed8; font-weight: bold; color: #ffffff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .data-table th.number { width: 18px; }
             .data-table th.name, .data-table td.name { width: 150px; text-align: left; font-weight: 500; }
             .data-table th.gender { width: 22px; }
@@ -1746,7 +1747,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         .subtitle { margin: 5px 0 16px; text-align: center; color: #64748b; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #94a3b8; padding: 6px 5px; text-align: center; }
-        th { background: ${highlightHeaders ? '#2563EB' : '#f1f5f9'} !important; color: ${highlightHeaders ? '#ffffff' : '#1e293b'} !important; border-color: ${highlightHeaders ? '#1d4ed8' : '#94a3b8'}; } td.name { text-align: left; }
+        th { background: ${highlightHeaders ? '#2563EB' : '#f1f5f9'} !important; background-color: ${highlightHeaders ? '#2563EB' : '#f1f5f9'} !important; color: ${highlightHeaders ? '#ffffff' : '#1e293b'} !important; border-color: ${highlightHeaders ? '#1d4ed8' : '#94a3b8'}; -webkit-print-color-adjust: exact; print-color-adjust: exact; } td.name { text-align: left; }
         td.absence-total { background: #fef3c7; color: #92400e; font-weight: 800; }
         td.absence-total-high { background: #fee2e2; color: #b91c1c; font-weight: 900; }
         .meta { margin: 0 0 12px; font-weight: 600; } .footer { margin-top: 28px; text-align: right; }

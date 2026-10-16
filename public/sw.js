@@ -1,4 +1,4 @@
-const CACHE_NAME = 'webkelas-v2';
+const CACHE_NAME = 'webkelas-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.svg', '/icon-192.svg', '/icon-512.svg', '/og-image.svg'];
 
 self.addEventListener('install', (event) => {

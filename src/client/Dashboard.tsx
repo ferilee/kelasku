@@ -2500,13 +2500,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
                 <div role="tablist" aria-label="Fokus Beranda" className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {([
-                    ['overview', 'Ringkasan', 'Kelas dan aksi utama'],
-                    ['schedule', 'Jadwal Mengajar', 'Agenda Senin–Jumat'],
-                    ['journal', 'Jurnal Mengajar', 'Catatan pembelajaran'],
-                    ['reminders', 'Pengingat', totalHeaderReminders ? `${totalHeaderReminders} perlu dilihat` : 'Tidak ada yang tertunda'],
-                  ] as const).map(([key, label, description]) => (
+                    ['overview', 'Ringkasan', 'Kelas dan aksi utama', LayoutDashboard],
+                    ['schedule', 'Jadwal Mengajar', 'Agenda Senin–Jumat', CalendarDays],
+                    ['journal', 'Jurnal Mengajar', 'Catatan pembelajaran', BookOpen],
+                    ['reminders', 'Pengingat', totalHeaderReminders ? `${totalHeaderReminders} perlu dilihat` : 'Tidak ada yang tertunda', Bell],
+                  ] as const).map(([key, label, description, Icon]) => (
                     <button key={key} type="button" role="tab" aria-selected={workspaceView === key} onClick={() => setWorkspaceView(key)} className={workspaceView === key ? 'rounded-xl border border-blue-300 bg-blue-50 px-3 py-2.5 text-left text-blue-700 transition dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-slate-600 transition hover:border-blue-200 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}>
-                      <span className="block text-sm font-bold">{label}</span>
+                      <span className="flex items-center gap-2 text-sm font-bold"><Icon className="h-4 w-4 shrink-0" aria-hidden="true" />{label}</span>
                       <span className="mt-0.5 block text-[11px]">{description}</span>
                     </button>
                   ))}
@@ -2702,7 +2702,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                             }`}
                           >
-                            {tab}
+                            <span className="inline-flex items-center gap-1.5">{tab === 'harian' ? <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" /> : tab === 'mingguan' ? <Calendar className="h-3.5 w-3.5" aria-hidden="true" /> : <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />}{tab}</span>
                           </button>
                         ))}
                       </div>)}
@@ -3208,12 +3208,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
                 <div role="tablist" aria-label="Bagian menu siswa" className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {([
-                    ['roster', 'Daftar Siswa', 'Data dan status siswa'],
-                    ['progress', 'Perkembangan', 'Peta dan ringkasan belajar'],
-                    ['followup', 'Tindak Lanjut', 'Dukungan dan evaluasi'],
-                  ] as const).map(([key, label, description]) => (
+                    ['roster', 'Daftar Siswa', 'Data dan status siswa', Users],
+                    ['progress', 'Perkembangan', 'Peta dan ringkasan belajar', Activity],
+                    ['followup', 'Tindak Lanjut', 'Dukungan dan evaluasi', ShieldAlert],
+                  ] as const).map(([key, label, description, Icon]) => (
                     <button key={key} type="button" role="tab" aria-selected={studentView === key} onClick={() => setStudentView(key)} className={studentView === key ? 'rounded-xl border border-violet-300 bg-violet-50 px-3 py-2.5 text-left text-violet-700 transition dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300' : 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-slate-600 transition hover:border-violet-200 hover:bg-violet-50/50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}>
-                      <span className="block text-sm font-bold">{label}</span>
+                      <span className="flex items-center gap-2 text-sm font-bold"><Icon className="h-4 w-4 shrink-0" aria-hidden="true" />{label}</span>
                       <span className="mt-0.5 block text-[11px]">{description}</span>
                     </button>
                   ))}
@@ -3743,8 +3743,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
-                  {([['grades', 'Rekap Nilai'], ['attendance', 'Presensi Mapel'], ['behavior', 'Sikap & Karakter']] as const).map(([category, label]) => (
-                    <button key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>{label}</button>
+                  {([['grades', 'Rekap Nilai', Award], ['attendance', 'Presensi Mapel', CheckSquare], ['behavior', 'Sikap & Karakter', Activity]] as const).map(([category, label, Icon]) => (
+                    <button type="button" key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}><span className="inline-flex items-center gap-2"><Icon className="h-4 w-4" aria-hidden="true" />{label}</span></button>
                   ))}
                 </div>
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Periode laporan
@@ -3780,12 +3780,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               <div className="flex bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 gap-2 w-fit">
                 {([
-                  ['attendance', 'Presensi'],
-                  ['grades', 'Buku Nilai'],
-                  ['behavior', 'Nilai Sikap'],
-                ] as const).map(([category, label]) => (
+                  ['attendance', 'Presensi', CheckSquare],
+                  ['grades', 'Buku Nilai', Award],
+                  ['behavior', 'Nilai Sikap', Activity],
+                ] as const).map(([category, label, Icon]) => (
                   <button key={category} onClick={() => setReportCategory(category)} className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${reportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
-                    {label}
+                    <span className="inline-flex items-center gap-2"><Icon className="h-4 w-4" aria-hidden="true" />{label}</span>
                   </button>
                 ))}
               </div>
@@ -3836,7 +3836,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                       }`}
                     >
-                      {tab === 'harian' ? 'Presensi Harian' : tab === 'dhuha' ? 'Sholat Dhuha' : tab === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat'}
+                      <span className="inline-flex items-center gap-2"><>{tab === 'harian' ? <CheckSquare className="h-4 w-4" aria-hidden="true" /> : tab === 'dhuha' ? <CalendarDays className="h-4 w-4" aria-hidden="true" /> : tab === 'dzuhur' ? <Clock className="h-4 w-4" aria-hidden="true" /> : <Calendar className="h-4 w-4" aria-hidden="true" />}</>{tab === 'harian' ? 'Presensi Harian' : tab === 'dhuha' ? 'Sholat Dhuha' : tab === 'dzuhur' ? 'Sholat Dzuhur' : 'Sholat Jumat'}</span>
                     </button>
                   ))}
                 </div>
@@ -3995,7 +3995,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  Buku Nilai Digital
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />Buku Nilai Digital</span>
                 </button>
                 <button
                   onClick={() => setAcademicSubTab('materials')}
@@ -4005,7 +4005,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  Bank Materi & Tugas
+                  <span className="inline-flex items-center gap-2"><BookOpen className="h-4 w-4" aria-hidden="true" />Bank Materi & Tugas</span>
                 </button>
                 <button
                   onClick={() => setAcademicSubTab('schedule')}
@@ -4015,7 +4015,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  Jadwal & Kalender
+                  <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />Jadwal & Kalender</span>
                 </button>
               </div>
 
@@ -4565,8 +4565,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {activeTab === 'monitoring' && (userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                {userRole !== 'teacher' && <button onClick={() => setMonitoringSubTab('cases')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'cases' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><ShieldAlert className="h-4 w-4" /> Kasus Pembinaan</button>}
-                <button onClick={() => setMonitoringSubTab('activity')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'activity' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Activity className="h-4 w-4" /> Aktivitas Belajar</button>
+                {userRole !== 'teacher' && <button type="button" onClick={() => setMonitoringSubTab('cases')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'cases' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><ShieldAlert className="h-4 w-4" aria-hidden="true" /> Kasus Pembinaan</button>}
+                <button type="button" onClick={() => setMonitoringSubTab('activity')} className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${monitoringSubTab === 'activity' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'}`}><Activity className="h-4 w-4" aria-hidden="true" /> Aktivitas Belajar</button>
               </div>
               {monitoringSubTab === 'cases' && (
               <>
@@ -4684,7 +4684,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Catatan Sikap & Karakter'}
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />{workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Catatan Sikap & Karakter'}</span>
                 </button>
                 {workspaceMode !== 'teaching' && <button
                   onClick={() => setBehaviorSubTab('prestasi')}
@@ -4694,7 +4694,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  Prestasi Siswa
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />Prestasi Siswa</span>
                 </button>}
               </div>
 

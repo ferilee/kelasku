@@ -466,16 +466,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    params.set('tab', activeTab);
-    if (classData.classId) params.set('classId', classData.classId);
-    else params.delete('classId');
-    if (activeTeachingSubject) params.set('subject', activeTeachingSubject);
-    else params.delete('subject');
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-  }, [activeTab, classData.classId, activeTeachingSubject]);
-
-  useEffect(() => {
     const requestedClassId = new URLSearchParams(window.location.search).get('classId');
     if (requestedClassId && classData.classes.some((item) => item.id === requestedClassId) && classData.classId !== requestedClassId) {
       classData.selectClass(requestedClassId).catch(() => undefined);
@@ -779,7 +769,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [learningSummary, setLearningSummary] = useState<StudentLearningSummary | null>(null);
   const [learningSummarySource, setLearningSummarySource] = useState<StudentLearningSummary | null>(null);
   const [learningSummaryFilter, setLearningSummaryFilter] = useState<LearningSummaryFilter>('all');
-  const [studentView, setStudentView] = useState<'roster' | 'progress' | 'followup'>('roster');
+  const [studentView, setStudentView] = useState<'roster' | 'progress' | 'followup'>(() => {
+    const requestedView = new URLSearchParams(window.location.search).get('studentView');
+    return requestedView === 'progress' || requestedView === 'followup' ? requestedView : 'roster';
+  });
   const [learningSummarySubject, setLearningSummarySubject] = useState('Matematika');
   const [learningSummaryTopic, setLearningSummaryTopic] = useState('');
   const [isLoadingLearningSummary, setIsLoadingLearningSummary] = useState(false);
@@ -800,7 +793,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [teachingAttendanceMonth, setTeachingAttendanceMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [teachingAttendanceReport, setTeachingAttendanceReport] = useState<any[]>([]);
   const [mobileDashboardPanel, setMobileDashboardPanel] = useState<'schedule' | 'agenda'>('schedule');
-  const [workspaceView, setWorkspaceView] = useState<'overview' | 'schedule' | 'journal' | 'reminders'>('overview');
+  const [workspaceView, setWorkspaceView] = useState<'overview' | 'schedule' | 'journal' | 'reminders'>(() => {
+    const requestedView = new URLSearchParams(window.location.search).get('view');
+    return requestedView === 'schedule' || requestedView === 'journal' || requestedView === 'reminders' ? requestedView : 'overview';
+  });
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
 
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -845,6 +841,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [caseUpdateNote, setCaseUpdateNote] = useState('');
   const [caseUpdateVisibility, setCaseUpdateVisibility] = useState<CaseVisibility>('ringkasan');
   const [caseNextFollowUpDate, setCaseNextFollowUpDate] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', activeTab);
+    if (classData.classId) params.set('classId', classData.classId);
+    else params.delete('classId');
+    if (activeTeachingSubject) params.set('subject', activeTeachingSubject);
+    else params.delete('subject');
+    if (activeTab === 'workspace' && workspaceView !== 'overview') params.set('view', workspaceView);
+    else params.delete('view');
+    if (activeTab === 'students' && studentView !== 'roster') params.set('studentView', studentView);
+    else params.delete('studentView');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [activeTab, classData.classId, activeTeachingSubject, workspaceView, studentView]);
 
   useEffect(() => {
     const fetchDashboardSummary = async () => {
@@ -3321,7 +3331,30 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
 
               <div className="min-w-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div className="block w-0 min-w-full max-w-full overflow-x-auto overscroll-x-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch]">
+                <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {filteredStudents.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-sm text-slate-400">Tidak ada data siswa yang cocok dengan filter.</p>
+                  ) : (
+                    filteredStudents.map((student) => (
+                      <article key={student.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-bold text-slate-800 dark:text-slate-100">{student.name}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">NISN {student.nisn} · {student.gender}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-bold ${student.status === 'Aktif' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                            {student.status}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {canViewLearningProfiles && <button type="button" onClick={() => loadLearningProfile(student)} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/30"><FileText className="h-3.5 w-3.5" /> Profil belajar</button>}
+                          {canManageStudents && <button type="button" onClick={() => { setManualNisn(student.nisn); setManualName(student.name); setManualGender(student.gender); setManualStatus(student.status); setEditingStudent(student); setShowAddModal(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"><Edit2 className="h-3.5 w-3.5" /> Ubah data</button>}
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+                <div className="hidden md:block overflow-x-auto overscroll-x-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch]">
                 <table className="w-max min-w-[720px] text-left text-sm text-slate-600 dark:text-slate-300">
                   <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
                     <tr>

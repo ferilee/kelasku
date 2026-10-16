@@ -1740,12 +1740,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     printWindow.document.write(`
       <html><head><title>${title}</title><style>
         @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 12mm; }
+        @media print { *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
         body { font-family: Inter, system-ui, sans-serif; color: #1e293b; font-size: 11px; }
         h1 { margin: 0; color: #1e3a8a; font-size: 18px; text-align: center; }
         .subtitle { margin: 5px 0 16px; text-align: center; color: #64748b; }
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #94a3b8; padding: 6px 5px; text-align: center; }
-        th { background: ${highlightHeaders ? '#2563EB' : '#f1f5f9'}; color: ${highlightHeaders ? '#ffffff' : '#1e293b'}; border-color: ${highlightHeaders ? '#1d4ed8' : '#94a3b8'}; } td.name { text-align: left; }
+        th { background: ${highlightHeaders ? '#2563EB' : '#f1f5f9'} !important; color: ${highlightHeaders ? '#ffffff' : '#1e293b'} !important; border-color: ${highlightHeaders ? '#1d4ed8' : '#94a3b8'}; } td.name { text-align: left; }
+        td.absence-total { background: #fef3c7; color: #92400e; font-weight: 800; }
+        td.absence-total-high { background: #fee2e2; color: #b91c1c; font-weight: 900; }
         .meta { margin: 0 0 12px; font-weight: 600; } .footer { margin-top: 28px; text-align: right; }
       </style></head><body>${content}<script>window.onload=()=>window.print()</script></body></html>
     `);
@@ -1774,13 +1777,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     const dates = [...new Set(teachingAttendanceReport.flatMap((student) => Object.keys(student.attendanceByDate || {})))].sort();
     if (!dates.length) return notify('Belum ada presensi pembelajaran yang tersimpan pada bulan ini.');
     const statusCode: Record<string, string> = { Hadir: '✓', Sakit: 'S', Izin: 'I', Alfa: 'A' };
+    const maxAbsenceTotal = Math.max(0, ...teachingAttendanceReport.map((student) => student.Sakit + student.Izin + student.Alfa));
     const dateHeaders = dates.map((date) => `<th>${new Date(`${date}T00:00:00`).getDate()}</th>`).join('');
-    const rows = teachingAttendanceReport.map((student, index) => `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td></tr>`).join('');
+    const rows = teachingAttendanceReport.map((student, index) => {
+      const absenceTotal = student.Sakit + student.Izin + student.Alfa;
+      const totalClass = absenceTotal > 0
+        ? absenceTotal === maxAbsenceTotal ? 'absence-total-high' : 'absence-total'
+        : '';
+      return `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.gender}</td>${dates.map((date) => `<td>${statusCode[student.attendanceByDate?.[date]] || '-'}</td>`).join('')}<td>${student.Hadir}</td><td>${student.Sakit}</td><td>${student.Izin}</td><td>${student.Alfa}</td><td class="${totalClass}">${absenceTotal}</td></tr>`;
+    }).join('');
     printReportDocument(`Presensi ${activeTeachingSubject}`, `
       <h1>REKAP PRESENSI PEMBELAJARAN</h1><p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
       <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Bulan: ${teachingAttendanceMonth} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear}</p>
-      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>✓</th><th>S</th><th>I</th><th>A</th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="meta">Keterangan: ✓ = Hadir, S = Sakit, I = Izin, A = Alfa.</p>
+      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th>${dateHeaders}<th>✓</th><th>S</th><th>I</th><th>A</th><th>Jml</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="meta">Keterangan: ✓ = Hadir, S = Sakit, I = Izin, A = Alfa, Jml = S + I + A.</p>
       <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
     `, true, true);
   };

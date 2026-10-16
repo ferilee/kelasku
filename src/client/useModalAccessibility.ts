@@ -15,6 +15,21 @@ export function useModalAccessibility() {
     let activeDialog: HTMLElement | null = null;
     let restoreElement: HTMLElement | null = null;
     let focusFrame = 0;
+    let previousBodyOverflow = '';
+    let previousBodyPaddingRight = '';
+
+    const lockBodyScroll = () => {
+      previousBodyOverflow = document.body.style.overflow;
+      previousBodyPaddingRight = document.body.style.paddingRight;
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.overflow = 'hidden';
+      if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+    };
+
+    const unlockBodyScroll = () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.paddingRight = previousBodyPaddingRight;
+    };
 
     const findDialog = () => {
       const semanticDialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
@@ -29,14 +44,21 @@ export function useModalAccessibility() {
       if (dialog === activeDialog) return;
       if (dialog) {
         if (!activeDialog) restoreElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (!activeDialog) lockBodyScroll();
         activeDialog = dialog;
         window.cancelAnimationFrame(focusFrame);
         focusFrame = window.requestAnimationFrame(() => {
           if (activeDialog !== dialog) return;
-          focusables(dialog)[0]?.focus();
+          const firstFocusable = focusables(dialog)[0];
+          if (firstFocusable) firstFocusable.focus();
+          else {
+            dialog.tabIndex = -1;
+            dialog.focus();
+          }
         });
       } else if (activeDialog) {
         activeDialog = null;
+        unlockBodyScroll();
         const element = restoreElement;
         restoreElement = null;
         if (element?.isConnected) window.requestAnimationFrame(() => element.focus());
@@ -47,7 +69,7 @@ export function useModalAccessibility() {
       const dialog = findDialog();
       if (!dialog) return;
       if (event.key === 'Escape') {
-        const closeButton = dialog.querySelector<HTMLButtonElement>('[aria-label^="Tutup"], [title="Tutup"], button');
+        const closeButton = dialog.querySelector<HTMLButtonElement>('[data-dialog-close="true"], [aria-label^="Tutup"], [title="Tutup"]') || dialog.querySelector<HTMLButtonElement>('button');
         if (closeButton) {
           event.preventDefault();
           closeButton.click();
@@ -80,6 +102,7 @@ export function useModalAccessibility() {
       window.cancelAnimationFrame(focusFrame);
       observer.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
+      if (activeDialog) unlockBodyScroll();
     };
   }, []);
 }

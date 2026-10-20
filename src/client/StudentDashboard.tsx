@@ -16,6 +16,23 @@ type StudentAttendanceSummary = {
   monthly: DailyAttendanceStats;
 };
 
+const StudentAvatar = ({ gender }: { gender?: 'L' | 'P' | null }) => {
+  const isFemale = gender === 'P';
+  return (
+    <div className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border-4 border-white/40 shadow-lg ${isFemale ? 'bg-fuchsia-200/80' : gender === 'L' ? 'bg-sky-200/80' : 'bg-violet-200/80'}`} aria-hidden="true">
+      <svg viewBox="0 0 80 80" className="h-full w-full" role="img">
+        <path d="M15 78c2-17 13-25 25-25s23 8 25 25" fill={isFemale ? '#c026d3' : '#2563eb'} />
+        <path d="M25 49c1-10 7-16 15-16s14 6 15 16c-4 5-9 8-15 8s-11-3-15-8Z" fill="#f6c7a8" />
+        <circle cx="40" cy="29" r="16" fill="#f6c7a8" />
+        {isFemale ? <path d="M23 31c-2-17 7-25 18-25 13 0 19 10 16 27l-7-10c-7 4-15 5-23 2l-4 6Z" fill="#4c1d95" /> : <path d="M24 28c0-14 7-22 17-22 11 0 17 7 16 20-5-5-10-8-16-8-6 0-11 3-17 10Z" fill="#1e293b" />}
+        <circle cx="34" cy="30" r="1.7" fill="#1e293b" /><circle cx="46" cy="30" r="1.7" fill="#1e293b" />
+        <path d="M36 38c2 2 6 2 8 0" fill="none" stroke="#9a4d45" strokeLinecap="round" strokeWidth="1.5" />
+        {isFemale && <path d="M24 27c-4 7-3 20 2 26" fill="none" stroke="#4c1d95" strokeLinecap="round" strokeWidth="5" />}
+      </svg>
+    </div>
+  );
+};
+
 const StudentDashboard = () => {
   useModalAccessibility();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -260,10 +277,13 @@ const StudentDashboard = () => {
           {activeTab === 'dashboard' && (
             <div className="mx-auto max-w-5xl space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <section className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-600 to-teal-600 p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-100">Beranda Siswa</p>
-                  <h3 className="mt-1 text-2xl font-black">Halo, {authenticatedStudent?.name?.split(' ')[0] || 'Siswa'}!</h3>
-                  <p className="mt-1 text-sm text-emerald-50">{selectedClass} · {selectedYear}</p>
+                <div className="flex items-center gap-4">
+                  <StudentAvatar gender={attendanceSummary?.gender} />
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-100">Beranda Siswa</p>
+                    <h3 className="mt-1 text-2xl font-black">Halo, {authenticatedStudent?.name?.split(' ')[0] || 'Siswa'}!</h3>
+                    <p className="mt-1 text-sm text-emerald-50">{selectedClass} · {selectedYear}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold">
                   <ClipboardCheck className="h-4 w-4" />

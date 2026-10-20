@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload, ChevronRight } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
@@ -56,6 +56,7 @@ const StudentDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showBehaviorModal, setShowBehaviorModal] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null);
   const [submitFile, setSubmitFile] = useState<File | null>(null);
   const [existingSubmissionName, setExistingSubmissionName] = useState('');
@@ -65,12 +66,12 @@ const StudentDashboard = () => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && showSubmitModal && !isSubmitting) setShowSubmitModal(false);
       if (event.key === 'Escape' && showScheduleModal) setShowScheduleModal(false);
+      if (event.key === 'Escape' && showBehaviorModal) setShowBehaviorModal(false);
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [showSubmitModal, showScheduleModal, isSubmitting]);
+  }, [showSubmitModal, showScheduleModal, showBehaviorModal, isSubmitting]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [showMobileMore, setShowMobileMore] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -199,6 +200,11 @@ const StudentDashboard = () => {
     setShowSubmitModal(true);
   };
 
+  const openBehaviorDetails = () => {
+    if (window.matchMedia('(max-width: 767px)').matches) setShowBehaviorModal(true);
+    else setActiveTab('behavior');
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
       {/* Main Content */}
@@ -310,8 +316,8 @@ const StudentDashboard = () => {
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Ringkasan perkembangan</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Pantau kebiasaan belajar kamu.</p></div><button onClick={() => setActiveTab('behavior')} className="text-xs font-bold text-emerald-600">Detail</button></div>
-                <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700"><div className="px-2 text-center"><p className="text-xl font-black text-emerald-600">{completedTasksCount}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Tugas selesai</p></div><div className="px-2 text-center"><p className="text-xl font-black text-blue-600">{attendanceSummary?.monthly.total ? `${Math.round((attendanceSummary.monthly.Hadir / attendanceSummary.monthly.total) * 100)}%` : '—'}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Kehadiran</p></div><button onClick={() => setActiveTab('behavior')} className="px-2 text-center"><p className="text-xl font-black text-violet-600">{behaviorScore}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Skor sikap</p></button><button onClick={() => setActiveTab('behavior')} className="px-2 text-center"><p className="text-xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Prestasi</p></button></div>
+                <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Ringkasan perkembangan</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Pantau kebiasaan belajar kamu.</p></div><button onClick={openBehaviorDetails} className="text-xs font-bold text-emerald-600">Detail</button></div>
+                <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700"><div className="px-2 text-center"><p className="text-xl font-black text-emerald-600">{completedTasksCount}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Tugas selesai</p></div><div className="px-2 text-center"><p className="text-xl font-black text-blue-600">{attendanceSummary?.monthly.total ? `${Math.round((attendanceSummary.monthly.Hadir / attendanceSummary.monthly.total) * 100)}%` : '—'}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Kehadiran</p></div><button onClick={openBehaviorDetails} className="px-2 text-center"><p className="text-xl font-black text-violet-600">{behaviorScore}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Skor sikap</p></button><button onClick={openBehaviorDetails} className="px-2 text-center"><p className="text-xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Prestasi</p></button></div>
               </section>
             </div>
           )}
@@ -711,6 +717,18 @@ const StudentDashboard = () => {
             </div>
           )}
 
+          {showBehaviorModal && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center p-0 md:hidden">
+              <button aria-label="Tutup sikap dan prestasi" onClick={() => setShowBehaviorModal(false)} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+              <div role="dialog" aria-modal="true" aria-labelledby="student-behavior-modal-title" className="relative max-h-[88vh] w-full overflow-y-auto rounded-t-3xl border border-slate-200 bg-slate-50 p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+                <div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Perkembangan siswa</p><h3 id="student-behavior-modal-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Sikap & Prestasi</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ringkasan perkembangan kamu.</p></div><button onClick={() => setShowBehaviorModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800" aria-label="Tutup"><X className="h-5 w-5" /></button></div>
+                <div className="grid grid-cols-3 divide-x divide-slate-200 rounded-2xl border border-slate-200 bg-white p-3 text-center dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800"><div><p className="text-2xl font-black text-violet-600">{behaviorScore}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Skor sikap</p></div><div><p className="text-2xl font-black text-emerald-600">+{posPoints}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Catatan positif</p></div><div><p className="text-2xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Prestasi</p></div></div>
+                <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800"><h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100"><Clock className="h-4 w-4 text-emerald-500" />Catatan sikap terbaru</h4>{sRecords.length ? <div className="space-y-2">{sRecords.slice(0, 4).map((record) => <div key={record.id} className={`rounded-xl border p-3 ${record.type === 'positif' ? 'border-emerald-100 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/15' : 'border-rose-100 bg-rose-50/50 dark:border-rose-900/40 dark:bg-rose-950/15'}`}><div className="flex items-start justify-between gap-2"><p className="text-xs font-bold text-slate-800 dark:text-slate-100">{record.category} <span className={record.type === 'positif' ? 'text-emerald-600' : 'text-rose-600'}>({record.type === 'positif' ? '+' : '-'}{record.points})</span></p><span className="text-[10px] text-slate-400">{record.date}</span></div><p className="mt-1 text-[11px] text-slate-600 dark:text-slate-300">{record.description}</p></div>)}</div> : <p className="text-xs italic text-slate-400">Belum ada catatan sikap.</p>}</section>
+                <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800"><h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100"><Award className="h-4 w-4 text-amber-500" />Prestasi terbaru</h4>{studentAchievements.length ? <div className="space-y-2">{studentAchievements.slice(0, 4).map((achievement) => <div key={achievement.id} className="rounded-xl border border-amber-100 bg-amber-50/50 p-3 dark:border-amber-900/40 dark:bg-amber-950/15"><p className="text-xs font-bold text-slate-800 dark:text-slate-100">{achievement.title}</p><p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">{achievement.level} · {achievement.rank} · {achievement.date}</p></div>)}</div> : <p className="text-xs italic text-slate-400">Belum ada prestasi yang tercatat.</p>}</section>
+              </div>
+            </div>
+          )}
+
           {/* Submit Task Modal */}
           {showSubmitModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -789,19 +807,17 @@ const StudentDashboard = () => {
 
       {/* Bottom Navigation for Mobile */}
       {showPasswordModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600">Keamanan Akun</p><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Ubah Password</h3></div><button onClick={() => setShowPasswordModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup"><X className="h-5 w-5" /></button></div><form onSubmit={handleChangePassword} className="space-y-4"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password saat ini</label><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password baru</label><input type="password" autoComplete="new-password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /><p className="mt-1 text-[11px] text-slate-400">Minimal 6 karakter.</p></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Konfirmasi password baru</label><input type="password" autoComplete="new-password" minLength={6} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><button type="submit" className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700">Simpan Password Baru</button></form></div></div>}
-      {showMobileMore && <div className="fixed bottom-[4.25rem] right-3 z-40 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800 md:hidden"><button onClick={() => { setActiveTab('schedule'); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Calendar className="h-4 w-4 text-emerald-500" />Jadwal & agenda</button><button onClick={() => { setActiveTab('behavior'); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Award className="h-4 w-4 text-amber-500" />Sikap & prestasi</button><button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Key className="h-4 w-4 text-blue-500" />Ubah password</button></div>}
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 px-1 py-2 shadow-lg backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/95 md:hidden">
         {[
           { id: 'dashboard', label: 'Beranda', icon: User },
           { id: 'assignments', label: 'Tugas', icon: FileText },
           { id: 'materials', label: 'Materi', icon: BookOpen },
-          { id: 'more', label: 'Lainnya', icon: MoreHorizontal },
         ].map((item) => (
           <button
             key={item.id}
-            onClick={() => item.id === 'more' ? setShowMobileMore((current) => !current) : (setActiveTab(item.id), setShowMobileMore(false))}
-            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all duration-200 ${
-              (activeTab === item.id || (item.id === 'more' && (showMobileMore || activeTab === 'schedule' || activeTab === 'behavior')))
+            onClick={() => setActiveTab(item.id)}
+            className={`flex flex-col items-center gap-1 rounded-xl px-6 py-1 transition-all duration-200 ${
+              activeTab === item.id
               ? 'text-emerald-600 dark:text-emerald-400 font-medium' 
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
             }`}

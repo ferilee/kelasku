@@ -55,6 +55,7 @@ const StudentDashboard = () => {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<number | null>(null);
   const [submitFile, setSubmitFile] = useState<File | null>(null);
   const [existingSubmissionName, setExistingSubmissionName] = useState('');
@@ -63,10 +64,11 @@ const StudentDashboard = () => {
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && showSubmitModal && !isSubmitting) setShowSubmitModal(false);
+      if (event.key === 'Escape' && showScheduleModal) setShowScheduleModal(false);
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [showSubmitModal, isSubmitting]);
+  }, [showSubmitModal, showScheduleModal, isSubmitting]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showMobileMore, setShowMobileMore] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -167,9 +169,6 @@ const StudentDashboard = () => {
       description: nearestPendingAssignment.title, tone: new Date(nearestPendingAssignment.dueDate).getTime() < startOfToday.getTime() ? 'rose' : 'amber'
     }] : []),
     ...(isSchoolDay && attendanceSummary?.todayStatus.harian === null ? [{ id: 'daily', icon: CheckSquare, title: 'Presensi kelas belum dicatat', description: 'Status kehadiran hari ini masih menunggu pencatatan wali kelas.', tone: 'amber' }] : []),
-    ...(isSchoolDay && attendanceSummary?.todayStatus.dhuha === null ? [{ id: 'dhuha', icon: Clock, title: 'Status Sholat Dhuha belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
-    ...(isSchoolDay && attendanceSummary?.todayStatus.dzuhur === null ? [{ id: 'dzuhur', icon: Clock, title: 'Status Sholat Dzuhur belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
-    ...(todayDay === 5 && attendanceSummary?.gender === 'L' && attendanceSummary.todayStatus.jumat === null ? [{ id: 'jumat', icon: Clock, title: 'Status Sholat Jumat belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
     ...(announcements.length ? [{ id: 'announcement', icon: Bell, title: 'Informasi kelas', description: announcements[0].text, tone: 'slate' }] : []),
   ].slice(0, 3);
 
@@ -202,38 +201,6 @@ const StudentDashboard = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
-      {/* Sidebar */}
-      <aside className="hidden md:flex w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col shrink-0">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-700">
-          <h1 className="text-2xl font-black bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent flex items-center gap-2">
-            <User className="h-8 w-8 text-emerald-500" />
-            Area Siswa
-          </h1>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          {[
-            { id: 'dashboard', label: 'Dashboard Siswa', icon: User },
-            { id: 'assignments', label: 'Tugas Saya', icon: FileText },
-            { id: 'materials', label: 'Materi Belajar', icon: BookOpen },
-            { id: 'schedule', label: 'Jadwal', icon: Calendar },
-            { id: 'behavior', label: 'Sikap & Prestasi', icon: Award },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                activeTab === item.id 
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-semibold shadow-sm' 
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
@@ -256,6 +223,20 @@ const StudentDashboard = () => {
             </div>
           </div>
         </header>
+
+        <nav className="hidden items-center justify-center gap-2 border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-800 md:flex">
+          {[
+            { id: 'dashboard', label: 'Beranda', icon: User },
+            { id: 'assignments', label: 'Tugas', icon: FileText },
+            { id: 'materials', label: 'Materi', icon: BookOpen },
+            { id: 'schedule', label: 'Jadwal', icon: Calendar },
+            { id: 'behavior', label: 'Sikap & Prestasi', icon: Award },
+          ].map((item) => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${activeTab === item.id ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+              <item.icon className="h-4 w-4" />{item.label}
+            </button>
+          ))}
+        </nav>
 
         {/* Content Scrollable Area */}
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
@@ -307,7 +288,7 @@ const StudentDashboard = () => {
                   <div className="flex items-center justify-between"><FileText className="h-5 w-5 text-orange-600" /><ChevronRight className="h-4 w-4 text-orange-500" /></div>
                   <p className="mt-4 text-2xl font-black text-orange-700 dark:text-orange-300">{pendingAssignments.length}</p><p className="text-xs font-semibold text-orange-800/70 dark:text-orange-200/70">Tugas belum dikerjakan</p>
                 </button>
-                <button onClick={() => setActiveTab('schedule')} className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-left transition hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/15">
+                <button onClick={() => setShowScheduleModal(true)} className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-left transition hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/15">
                   <div className="flex items-center justify-between"><Calendar className="h-5 w-5 text-blue-600" /><ChevronRight className="h-4 w-4 text-blue-500" /></div>
                   <p className="mt-4 truncate text-base font-black text-blue-800 dark:text-blue-200">{nextSchedule?.subject || 'Tidak ada jadwal'}</p><p className="text-xs font-semibold text-blue-800/70 dark:text-blue-200/70">{nextSchedule ? `${nextSchedule.timeStart}–${nextSchedule.timeEnd}` : `Jadwal ${todayName}`}</p>
                 </button>
@@ -330,7 +311,7 @@ const StudentDashboard = () => {
 
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Ringkasan perkembangan</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Pantau kebiasaan belajar kamu.</p></div><button onClick={() => setActiveTab('behavior')} className="text-xs font-bold text-emerald-600">Detail</button></div>
-                <div className="grid grid-cols-3 divide-x divide-slate-100 dark:divide-slate-700"><div className="px-2 text-center"><p className="text-xl font-black text-emerald-600">{completedTasksCount}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Tugas selesai</p></div><div className="px-2 text-center"><p className="text-xl font-black text-blue-600">{attendanceSummary?.monthly.total ? `${Math.round((attendanceSummary.monthly.Hadir / attendanceSummary.monthly.total) * 100)}%` : '—'}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Kehadiran</p></div><div className="px-2 text-center"><p className="text-xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Prestasi</p></div></div>
+                <div className="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-700"><div className="px-2 text-center"><p className="text-xl font-black text-emerald-600">{completedTasksCount}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Tugas selesai</p></div><div className="px-2 text-center"><p className="text-xl font-black text-blue-600">{attendanceSummary?.monthly.total ? `${Math.round((attendanceSummary.monthly.Hadir / attendanceSummary.monthly.total) * 100)}%` : '—'}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Kehadiran</p></div><button onClick={() => setActiveTab('behavior')} className="px-2 text-center"><p className="text-xl font-black text-violet-600">{behaviorScore}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Skor sikap</p></button><button onClick={() => setActiveTab('behavior')} className="px-2 text-center"><p className="text-xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Prestasi</p></button></div>
               </section>
             </div>
           )}
@@ -714,6 +695,18 @@ const StudentDashboard = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {showScheduleModal && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+              <button aria-label="Tutup jadwal dan kalender" onClick={() => setShowScheduleModal(false)} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+              <div role="dialog" aria-modal="true" aria-labelledby="student-schedule-modal-title" className="relative max-h-[88vh] w-full overflow-y-auto rounded-t-3xl border border-slate-200 bg-slate-50 p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:max-w-2xl sm:rounded-3xl sm:p-6">
+                <div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Informasi akademik</p><h3 id="student-schedule-modal-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Jadwal & Kalender Akademik</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{selectedClass} · {selectedYear}</p></div><button onClick={() => setShowScheduleModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800" aria-label="Tutup"><X className="h-5 w-5" /></button></div>
+                <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm dark:border-emerald-900/40 dark:bg-slate-800"><div className="mb-3 flex items-center justify-between"><h4 className="font-bold text-slate-800 dark:text-slate-100">Jadwal hari ini</h4><span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{todayName}</span></div>{todaySchedules.length ? <div className="grid gap-2 sm:grid-cols-2">{todaySchedules.map((schedule) => <div key={schedule.id} className="rounded-xl border border-slate-100 border-l-4 border-l-emerald-500 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50"><p className="text-sm font-bold text-slate-800 dark:text-slate-100">{schedule.subject}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{schedule.timeStart}–{schedule.timeEnd}{schedule.teacherName ? ` · ${schedule.teacherName.split(',')[0]}` : ''}</p></div>)}</div> : <p className="text-xs italic text-slate-400">Tidak ada jadwal hari ini.</p>}</section>
+                <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><h4 className="mb-3 font-bold text-slate-800 dark:text-slate-100">Jadwal mingguan</h4><div className="grid gap-2 sm:grid-cols-2">{['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].map((day) => { const daySchedules = (schedules || []).filter((schedule) => schedule.day === day).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return <div key={day} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/50"><p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{day}</p>{daySchedules.length ? daySchedules.map((schedule) => <div key={schedule.id} className="mt-2 border-l-2 border-emerald-400 pl-2"><p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{schedule.subject}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">{schedule.timeStart}–{schedule.timeEnd}</p></div>) : <p className="mt-2 text-[10px] italic text-slate-400">Tidak ada jadwal</p>}</div>; })}</div></section>
+                <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-3 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-blue-500" /><h4 className="font-bold text-slate-800 dark:text-slate-100">Agenda akademik</h4></div>{agenda?.length ? <div className="space-y-2">{agenda.slice(0, 5).map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-900/50"><span className="min-w-12 rounded-lg bg-blue-50 px-2 py-1 text-center text-xs font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">{item.date}</span><div><p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{item.title}</p><p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{item.type}</p></div></div>)}</div> : <p className="text-xs italic text-slate-400">Belum ada agenda akademik.</p>}</section>
               </div>
             </div>
           )}

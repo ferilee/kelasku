@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload } from 'lucide-react';
+import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
@@ -68,6 +68,7 @@ const StudentDashboard = () => {
     return () => window.removeEventListener('keydown', handleEscape);
   }, [showSubmitModal, isSubmitting]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showMobileMore, setShowMobileMore] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -140,30 +141,16 @@ const StudentDashboard = () => {
 
   // Compute tasks summary
   const completedTasksCount = assignments.filter(a => a.type === 'tugas' && a.submission).length;
-  const pendingTasksCount = assignments.filter(a => a.type === 'tugas' && !a.submission).length;
 
   const sRecords = (behaviorRecords || []).filter(r => r.studentId === dbStudentId);
   const posPoints = sRecords.filter(r => r.type === 'positif').reduce((sum, r) => sum + r.points, 0);
   const negPoints = sRecords.filter(r => r.type === 'negatif').reduce((sum, r) => sum + r.points, 0);
   const behaviorScore = 100 + posPoints - negPoints;
 
-  const stats = [
-    { title: "Tugas Selesai", value: `${completedTasksCount} Tugas`, icon: CheckSquare, color: "text-emerald-500" },
-    { title: "Tugas Menunggu", value: `${pendingTasksCount} Tugas`, icon: FileText, color: "text-orange-500" },
-    { title: "Skor Sikap", value: `${behaviorScore} Poin`, icon: Award, color: behaviorScore >= 100 ? "text-emerald-500" : "text-amber-500" },
-  ];
-
   const attendanceStatusLabel = (status: string | null, prayer = false) => {
     if (!status) return 'Belum dicatat';
     if (prayer && (status === 'Berjamaah' || status === 'Munfarid')) return 'Sholat';
     return status;
-  };
-
-  const attendanceStatusClass = (status: string | null) => {
-    if (status === 'Hadir' || status === 'Sholat' || status === 'Berjamaah' || status === 'Munfarid') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
-    if (status === 'Sakit' || status === 'Izin' || status === 'Berhalangan') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
-    if (status === 'Alfa') return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300';
-    return 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400';
   };
 
   const todayDay = new Date().getDay();
@@ -185,6 +172,33 @@ const StudentDashboard = () => {
     ...(todayDay === 5 && attendanceSummary?.gender === 'L' && attendanceSummary.todayStatus.jumat === null ? [{ id: 'jumat', icon: Clock, title: 'Status Sholat Jumat belum dicatat', description: 'Tunggu pencatatan presensi dari wali kelas.', tone: 'blue' }] : []),
     ...(announcements.length ? [{ id: 'announcement', icon: Bell, title: 'Informasi kelas', description: announcements[0].text, tone: 'slate' }] : []),
   ].slice(0, 3);
+
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const todayName = days[todayDay];
+  const todaySchedules = (schedules || []).filter((schedule) => schedule.day === todayName)
+    .sort((first, second) => first.timeStart.localeCompare(second.timeStart));
+  const pendingAssignments = assignments
+    .filter((assignment) => assignment.type === 'tugas' && !assignment.submission)
+    .sort((first, second) => {
+      if (!first.dueDate) return 1;
+      if (!second.dueDate) return -1;
+      return new Date(first.dueDate).getTime() - new Date(second.dueDate).getTime();
+    });
+  const recentMaterials = assignments
+    .filter((assignment) => assignment.type === 'materi')
+    .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())
+    .slice(0, 3);
+  const studentAchievements = (achievements || []).filter((achievement) => achievement.studentId === dbStudentId);
+  const nextSchedule = todaySchedules[0];
+
+  const openAssignment = (assignment: any) => {
+    sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: assignment.id, resourceTitle: assignment.title });
+    setActiveTab('assignments');
+    setSelectedAssignmentId(assignment.id);
+    setSubmitFile(null);
+    setExistingSubmissionName(assignment.submission?.originalName || 'PDF yang sudah dikumpulkan');
+    setShowSubmitModal(true);
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
@@ -246,7 +260,7 @@ const StudentDashboard = () => {
         {/* Content Scrollable Area */}
         <div className="flex-1 overflow-auto p-4 md:p-8 pb-24 md:pb-8">
           {teachingAnnouncements.length > 0 && (
-            <div className="mb-6 w-full overflow-hidden rounded-xl border border-cyan-200 bg-cyan-100/80 py-2.5 dark:border-cyan-900/50 dark:bg-cyan-950/30">
+            <div className="mx-auto mb-4 max-w-5xl overflow-hidden rounded-xl border border-cyan-200 bg-cyan-100/80 py-2.5 dark:border-cyan-900/50 dark:bg-cyan-950/30">
               <style>{`@keyframes student-teaching-marquee { 0% { transform: translateX(100vw); } 100% { transform: translateX(-100%); } } .student-teaching-marquee { animation: student-teaching-marquee 25s linear infinite; }`}</style>
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="z-10 flex shrink-0 items-center gap-2 bg-gradient-to-r from-slate-50 via-slate-50 to-transparent px-4 text-xs font-bold uppercase tracking-wider text-cyan-700 dark:from-slate-900 dark:via-slate-900 dark:text-cyan-300"><Bell className="h-4 w-4" /> INFO GURU</div>
@@ -257,236 +271,67 @@ const StudentDashboard = () => {
             </div>
           )}
           {activeTab === 'dashboard' && (
-            <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:p-6">
-                <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Pusat Perhatian Hari Ini</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Informasi pribadi yang perlu Anda cek hari ini.</p></div><Bell className="h-5 w-5 text-emerald-500" /></div>
-                {attentionItems.length ? <div className="space-y-3">{attentionItems.map((item) => <button key={item.id} onClick={item.action} className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition hover:shadow-sm ${item.tone === 'rose' ? 'border-rose-100 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/15' : item.tone === 'amber' ? 'border-amber-100 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/15' : item.tone === 'blue' ? 'border-blue-100 bg-blue-50/60 dark:border-blue-900/40 dark:bg-blue-950/15' : 'border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50'}`}>
-                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${item.tone === 'rose' ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' : item.tone === 'amber' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300' : item.tone === 'blue' ? 'bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}><item.icon className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-800 dark:text-slate-100">{item.title}</span><span className="mt-0.5 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.description}</span></span>{item.action && <span className="self-center text-xs font-bold text-emerald-600 dark:text-emerald-400">Buka →</span>}
-                </button>)}</div> : <div className="flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:text-emerald-300"><CheckSquare className="h-5 w-5 shrink-0" />Tidak ada hal mendesak. Terus pertahankan kebiasaan baik hari ini.</div>}
+            <div className="mx-auto max-w-5xl space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <section className="flex flex-col gap-4 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-600 to-teal-600 p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-emerald-100">Beranda Siswa</p>
+                  <h3 className="mt-1 text-2xl font-black">Halo, {authenticatedStudent?.name?.split(' ')[0] || 'Siswa'}!</h3>
+                  <p className="mt-1 text-sm text-emerald-50">{selectedClass} · {selectedYear}</p>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold">
+                  <ClipboardCheck className="h-4 w-4" />
+                  Presensi hari ini: {isLoadingAttendance ? 'Memuat...' : attendanceStatusLabel(attendanceSummary?.todayStatus.harian || null)}
+                </div>
               </section>
 
-              {/* Personal attendance: this endpoint is scoped to the logged-in student. */}
-              <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                <div className="xl:col-span-2 bg-white dark:bg-slate-800 p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                  <div className="flex items-start justify-between gap-4 mb-5">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                        <ClipboardCheck className="h-5 w-5 text-emerald-500" /> Status Presensi Hari Ini
-                      </h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        {attendanceSummary ? new Date(`${attendanceSummary.today}T12:00:00`).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Memuat data presensi...'}
-                      </p>
-                    </div>
-                    <span className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold ${attendanceStatusClass(attendanceSummary?.todayStatus.harian || null)}`}>
-                      {isLoadingAttendance ? 'Memuat...' : attendanceStatusLabel(attendanceSummary?.todayStatus.harian || null)}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {[
-                      { label: 'Presensi Kelas', status: attendanceSummary?.todayStatus.harian || null, prayer: false },
-                      { label: 'Sholat Dhuha', status: attendanceSummary?.todayStatus.dhuha || null, prayer: true },
-                      { label: 'Sholat Dzuhur', status: attendanceSummary?.todayStatus.dzuhur || null, prayer: true },
-                      ...(attendanceSummary?.gender === 'L' ? [{ label: 'Sholat Jumat', status: attendanceSummary.todayStatus.jumat, prayer: true }] : []),
-                    ].map((item) => (
-                      <div key={item.label} className="rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 px-3 py-3">
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.label}</p>
-                        <p className={`mt-1 text-sm font-bold ${item.status ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}>{attendanceStatusLabel(item.status, item.prayer)}</p>
-                      </div>
+              <section>
+                <div className="mb-3 flex items-end justify-between gap-3">
+                  <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Prioritas hari ini</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Hal yang paling perlu kamu cek sekarang.</p></div>
+                  <Bell className="h-5 w-5 text-emerald-500" />
+                </div>
+                {attentionItems.length ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {attentionItems.map((item) => (
+                      <button key={item.id} onClick={item.action} className={`flex min-h-[92px] items-start gap-3 rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${item.tone === 'rose' ? 'border-rose-100 bg-rose-50/70 dark:border-rose-900/40 dark:bg-rose-950/15' : item.tone === 'amber' ? 'border-amber-100 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/15' : item.tone === 'blue' ? 'border-blue-100 bg-blue-50/70 dark:border-blue-900/40 dark:bg-blue-950/15' : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800'}`}>
+                        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${item.tone === 'rose' ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' : item.tone === 'amber' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300' : item.tone === 'blue' ? 'bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}><item.icon className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-slate-800 dark:text-slate-100">{item.title}</span><span className="mt-1 block line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.description}</span></span>
+                        {item.action && <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />}
+                      </button>
                     ))}
                   </div>
-                </div>
+                ) : <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:text-emerald-300"><CheckSquare className="h-5 w-5 shrink-0" />Tidak ada hal mendesak. Semangat belajar hari ini!</div>}
+              </section>
 
-                <div className="bg-gradient-to-br from-emerald-600 to-teal-600 p-5 sm:p-6 rounded-2xl shadow-sm text-white">
-                  <p className="text-sm font-semibold text-emerald-50">Kehadiran Bulan Ini</p>
-                  <p className="text-4xl font-black mt-2">{attendanceSummary?.monthly.Hadir ?? 0}<span className="text-lg font-bold text-emerald-100"> hari</span></p>
-                  <p className="text-xs text-emerald-100 mt-2">Dari {attendanceSummary?.monthly.total ?? 0} presensi yang telah dicatat.</p>
+              <section className="grid gap-3 md:grid-cols-3">
+                <button onClick={() => setActiveTab('assignments')} className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4 text-left transition hover:shadow-sm dark:border-orange-900/40 dark:bg-orange-950/15">
+                  <div className="flex items-center justify-between"><FileText className="h-5 w-5 text-orange-600" /><ChevronRight className="h-4 w-4 text-orange-500" /></div>
+                  <p className="mt-4 text-2xl font-black text-orange-700 dark:text-orange-300">{pendingAssignments.length}</p><p className="text-xs font-semibold text-orange-800/70 dark:text-orange-200/70">Tugas belum dikerjakan</p>
+                </button>
+                <button onClick={() => setActiveTab('schedule')} className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-left transition hover:shadow-sm dark:border-blue-900/40 dark:bg-blue-950/15">
+                  <div className="flex items-center justify-between"><Calendar className="h-5 w-5 text-blue-600" /><ChevronRight className="h-4 w-4 text-blue-500" /></div>
+                  <p className="mt-4 truncate text-base font-black text-blue-800 dark:text-blue-200">{nextSchedule?.subject || 'Tidak ada jadwal'}</p><p className="text-xs font-semibold text-blue-800/70 dark:text-blue-200/70">{nextSchedule ? `${nextSchedule.timeStart}–${nextSchedule.timeEnd}` : `Jadwal ${todayName}`}</p>
+                </button>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/15">
+                  <div className="flex items-center justify-between"><ClipboardCheck className="h-5 w-5 text-emerald-600" /><span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Bulan ini</span></div>
+                  <p className="mt-4 text-2xl font-black text-emerald-700 dark:text-emerald-300">{attendanceSummary?.monthly.Hadir ?? 0} <span className="text-sm">hari</span></p><p className="text-xs font-semibold text-emerald-800/70 dark:text-emerald-200/70">Presensi hadir</p>
                 </div>
               </section>
 
-              <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  { label: 'Hari Ini', value: attendanceSummary?.daily },
-                  { label: 'Minggu Ini', value: attendanceSummary?.weekly },
-                  { label: 'Bulan Ini', value: attendanceSummary?.monthly },
-                ].map((item) => (
-                  <div key={item.label} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{item.label}</p>
-                    <p className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">{item.value?.Hadir ?? 0} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Hadir</span></p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px] font-semibold">
-                      <span className="rounded-md bg-amber-50 dark:bg-amber-950/30 py-1 text-amber-700 dark:text-amber-300">Sakit {item.value?.Sakit ?? 0}</span>
-                      <span className="rounded-md bg-blue-50 dark:bg-blue-950/30 py-1 text-blue-700 dark:text-blue-300">Izin {item.value?.Izin ?? 0}</span>
-                      <span className="rounded-md bg-rose-50 dark:bg-rose-950/30 py-1 text-rose-700 dark:text-rose-300">Alfa {item.value?.Alfa ?? 0}</span>
-                    </div>
-                  </div>
-                ))}
+              <section className="grid gap-5 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                  <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Tugas terdekat</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Selesaikan sebelum tenggat.</p></div><button onClick={() => setActiveTab('assignments')} className="text-xs font-bold text-emerald-600">Lihat semua</button></div>
+                  {pendingAssignments.length ? <div className="space-y-2">{pendingAssignments.slice(0, 3).map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-950/50 dark:text-orange-300"><FileText className="h-4 w-4" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{item.title}</p><p className="mt-0.5 text-[11px] text-rose-500">{item.dueDate ? `Tenggat ${new Date(item.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}` : 'Tidak ada tenggat'}</p></div><button onClick={() => openAssignment(item)} className="shrink-0 rounded-lg bg-orange-600 px-2.5 py-1.5 text-[10px] font-bold text-white">Kerjakan</button></div>)}</div> : <p className="rounded-xl bg-emerald-50 p-4 text-center text-xs text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-300">Semua tugas sudah selesai. Hebat!</p>}
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                  <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Materi terbaru</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Bahan belajar dari guru.</p></div><button onClick={() => setActiveTab('materials')} className="text-xs font-bold text-emerald-600">Lihat semua</button></div>
+                  {recentMaterials.length ? <div className="space-y-2">{recentMaterials.map((item) => <a key={item.id} href={item.fileDownloadUrl || item.filePath || '#'} target={item.filePath ? '_blank' : undefined} rel="noreferrer" onClick={() => sendStudentActivity('material_opened', { page: 'dashboard', resourceType: 'material', resourceId: item.id, resourceTitle: item.title })} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3 transition hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/40"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300"><BookOpen className="h-4 w-4" /></span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{item.title}</span><span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">{item.createdAt ? new Date(item.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : 'Materi belajar'}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-slate-400" /></a>)}</div> : <p className="rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">Belum ada materi baru.</p>}
+                </div>
               </section>
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {stats.map((stat, i) => (
-                  <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow group">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">{stat.title}</p>
-                        <h3 className="text-3xl font-bold text-slate-800 dark:text-slate-100">{stat.value}</h3>
-                      </div>
-                      <div className={`p-3 rounded-xl bg-slate-50 dark:bg-slate-700 group-hover:scale-110 transition-transform ${stat.color}`}>
-                        <stat.icon className="h-6 w-6" />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Tasks & Announcements */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Pending Tasks */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-orange-500" />
-                    Tugas Pending
-                  </h3>
-                  <div className="space-y-4">
-                    {assignments.filter(a => a.type === 'tugas' && !a.submission).length === 0 ? (
-                      <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
-                        Tidak ada tugas tertunda. Luar biasa!
-                      </div>
-                    ) : (
-                      assignments.filter(a => a.type === 'tugas' && !a.submission).slice(0, 3).map((item) => (
-                        <div key={item.id} className="p-4 rounded-xl border border-orange-200 dark:border-orange-950/30 bg-orange-50/30 dark:bg-orange-950/10 flex gap-4 items-start">
-                          <div className="h-10 w-10 rounded-full bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center shrink-0">
-                            <FileText className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-200 truncate">{item.title}</h4>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{item.description || 'Tidak ada deskripsi.'}</p>
-                            <div className="flex justify-between items-center mt-3">
-                              <span className="text-[10px] font-semibold text-red-500">
-                                {item.dueDate 
-                                  ? `Tenggat: ${new Date(item.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` 
-                                  : 'Tidak ada tenggat'
-                                }
-                              </span>
-                              <button 
-                                onClick={() => {
-                                  sendStudentActivity('assignment_opened', { page: 'assignments', resourceType: 'assignment', resourceId: item.id, resourceTitle: item.title });
-                                  setActiveTab('assignments');
-                                  setSelectedAssignmentId(item.id);
-                                  setSubmitFile(null);
-                                  setExistingSubmissionName('');
-                                  setShowSubmitModal(true);
-                                }}
-                                className="text-[10px] bg-orange-600 hover:bg-orange-700 text-white font-bold px-2.5 py-1.5 rounded-lg transition-colors"
-                              >
-                                Kumpulkan
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Announcements */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-                    <Bell className="h-5 w-5 text-blue-500" />
-                    Pengumuman Kelas
-                  </h3>
-                  <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1">
-                    {(!announcements || announcements.length === 0) ? (
-                      <div className="text-center py-6 text-slate-400 dark:text-slate-500 text-xs italic">
-                        Belum ada pengumuman dari wali kelas.
-                      </div>
-                    ) : (
-                      announcements.slice(0, 4).map((ann) => (
-                        <div key={ann.id} className="p-4 rounded-xl border border-slate-100 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/80 flex gap-4">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/70 flex items-center justify-center shrink-0">
-                            <Bell className="h-5 w-5 text-blue-600 dark:text-blue-200" />
-                          </div>
-                          <div>
-                            <span className={`font-bold text-[9px] px-2 py-0.5 rounded ${
-                              ann.type === 'PENTING' ? 'bg-red-50 text-red-600 dark:bg-red-950/70 dark:text-red-200' : ann.type === 'SELAMAT' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/70 dark:text-emerald-200' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/70 dark:text-blue-200'
-                            }`}>{ann.type}</span>
-                            <p className="text-xs text-slate-700 dark:text-slate-100 mt-2 leading-relaxed">{ann.text}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Today's Schedule */}
-                <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-emerald-500" />
-                      Jadwal Hari Ini
-                    </h3>
-                    <span className="text-xs font-bold px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                      {(() => {
-                        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                        const todayIndex = new Date().getDay();
-                        return days[todayIndex];
-                      })()}
-                    </span>
-                  </div>
-
-                  {(() => {
-                    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                    const todayName = days[new Date().getDay()];
-                    
-                    const todaySchedules = (schedules || []).filter(s => s.day === todayName)
-                      .sort((a, b) => a.timeStart.localeCompare(b.timeStart));
-
-                    if (todaySchedules.length === 0) {
-                      return (
-                        <div className="text-center py-6 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
-                          <p className="text-xs text-slate-400 dark:text-slate-500 italic">Tidak ada jadwal hari ini</p>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                        {todaySchedules.map((sched) => {
-                          const borderColors: Record<string, string> = {
-                            blue: 'border-l-blue-500',
-                            emerald: 'border-l-emerald-500',
-                            amber: 'border-l-amber-500',
-                            rose: 'border-l-rose-500',
-                            indigo: 'border-l-indigo-500',
-                            violet: 'border-l-violet-500',
-                          };
-                          const colorStyle = borderColors[sched.color] || borderColors.blue;
-
-                          return (
-                            <div key={sched.id} className={`p-3 rounded-r-xl border-l-4 border bg-slate-50/50 dark:bg-slate-900/20 border-slate-200 dark:border-slate-700/50 ${colorStyle} flex justify-between items-center`}>
-                              <div>
-                                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200">{sched.subject}</h4>
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sched.timeStart} - {sched.timeEnd}</p>
-                              </div>
-                              {sched.teacherName && (
-                                <span className="text-[9px] font-medium text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-400 px-2 py-0.5 rounded-full max-w-[110px] truncate" title={sched.teacherName}>
-                                  {sched.teacherName.split(',')[0]}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-
-                  <button 
-                    onClick={() => setActiveTab('schedule')}
-                    className="w-full text-center text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline pt-1 block"
-                  >
-                    Lihat Selengkapnya &rarr;
-                  </button>
-                </div>
-              </div>
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Ringkasan perkembangan</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Pantau kebiasaan belajar kamu.</p></div><button onClick={() => setActiveTab('behavior')} className="text-xs font-bold text-emerald-600">Detail</button></div>
+                <div className="grid grid-cols-3 divide-x divide-slate-100 dark:divide-slate-700"><div className="px-2 text-center"><p className="text-xl font-black text-emerald-600">{completedTasksCount}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Tugas selesai</p></div><div className="px-2 text-center"><p className="text-xl font-black text-blue-600">{attendanceSummary?.monthly.total ? `${Math.round((attendanceSummary.monthly.Hadir / attendanceSummary.monthly.total) * 100)}%` : '—'}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Kehadiran</p></div><div className="px-2 text-center"><p className="text-xl font-black text-amber-600">{studentAchievements.length}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">Prestasi</p></div></div>
+              </section>
             </div>
           )}
           
@@ -951,19 +796,19 @@ const StudentDashboard = () => {
 
       {/* Bottom Navigation for Mobile */}
       {showPasswordModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600">Keamanan Akun</p><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Ubah Password</h3></div><button onClick={() => setShowPasswordModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup"><X className="h-5 w-5" /></button></div><form onSubmit={handleChangePassword} className="space-y-4"><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password saat ini</label><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Password baru</label><input type="password" autoComplete="new-password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /><p className="mt-1 text-[11px] text-slate-400">Minimal 6 karakter.</p></div><div><label className="mb-1.5 block text-xs font-bold text-slate-500">Konfirmasi password baru</label><input type="password" autoComplete="new-password" minLength={6} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900" /></div><button type="submit" className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white hover:bg-emerald-700">Simpan Password Baru</button></form></div></div>}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 flex justify-around items-center py-2 px-1 shadow-lg">
+      {showMobileMore && <div className="fixed bottom-[4.25rem] right-3 z-40 w-48 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-800 md:hidden"><button onClick={() => { setActiveTab('schedule'); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Calendar className="h-4 w-4 text-emerald-500" />Jadwal & agenda</button><button onClick={() => { setActiveTab('behavior'); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Award className="h-4 w-4 text-amber-500" />Sikap & prestasi</button><button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); setShowMobileMore(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"><Key className="h-4 w-4 text-blue-500" />Ubah password</button></div>}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white/95 px-1 py-2 shadow-lg backdrop-blur-md dark:border-slate-700 dark:bg-slate-800/95 md:hidden">
         {[
-          { id: 'dashboard', label: 'Dashboard', icon: User },
-          { id: 'assignments', label: 'Tugas Saya', icon: FileText },
+          { id: 'dashboard', label: 'Beranda', icon: User },
+          { id: 'assignments', label: 'Tugas', icon: FileText },
           { id: 'materials', label: 'Materi', icon: BookOpen },
-          { id: 'schedule', label: 'Jadwal', icon: Calendar },
-          { id: 'behavior', label: 'Sikap', icon: Award },
+          { id: 'more', label: 'Lainnya', icon: MoreHorizontal },
         ].map((item) => (
           <button
             key={item.id}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => item.id === 'more' ? setShowMobileMore((current) => !current) : (setActiveTab(item.id), setShowMobileMore(false))}
             className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all duration-200 ${
-              activeTab === item.id 
+              (activeTab === item.id || (item.id === 'more' && (showMobileMore || activeTab === 'schedule' || activeTab === 'behavior')))
               ? 'text-emerald-600 dark:text-emerald-400 font-medium' 
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
             }`}

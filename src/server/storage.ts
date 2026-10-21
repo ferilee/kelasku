@@ -5,8 +5,11 @@ const DEFAULT_REGION = 'us-east-1';
 const DEFAULT_BUCKET = 'webkelas-submissions';
 
 function getStorageConfig() {
-  const accessKeyId = process.env.RUSTFS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.RUSTFS_SECRET_ACCESS_KEY;
+  // RustFS itself commonly uses RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY,
+  // while the app's older .env template used the AWS-style *_ID names.
+  // Accept both forms so the app can share the compose environment safely.
+  const accessKeyId = process.env.RUSTFS_ACCESS_KEY_ID || process.env.RUSTFS_ACCESS_KEY;
+  const secretAccessKey = process.env.RUSTFS_SECRET_ACCESS_KEY || process.env.RUSTFS_SECRET_KEY;
   if (!accessKeyId || !secretAccessKey) throw new Error('Konfigurasi credential RustFS belum lengkap.');
   return {
     endpoint: process.env.RUSTFS_ENDPOINT || DEFAULT_ENDPOINT,

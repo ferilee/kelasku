@@ -1828,7 +1828,7 @@ app.get('/api/student/attendance-summary', async (c) => {
       return c.json({ error: 'Fitur ini hanya tersedia untuk akun siswa.' }, 403);
     }
 
-    const student = await db.select({ gender: users.gender }).from(users).where(eq(users.id, authenticatedUser.id)).limit(1);
+    const student = await db.select({ gender: users.gender, classId: users.classId }).from(users).where(eq(users.id, authenticatedUser.id)).limit(1);
     if (!student[0]) return c.json({ error: 'Data siswa tidak ditemukan.' }, 404);
 
     const dateParts = new Intl.DateTimeFormat('en-CA', {
@@ -1836,6 +1836,7 @@ app.get('/api/student/attendance-summary', async (c) => {
     }).formatToParts(new Date());
     const part = (type: string) => dateParts.find((item) => item.type === type)?.value || '';
     const today = `${part('year')}-${part('month')}-${part('day')}`;
+    const todayDayName = new Intl.DateTimeFormat('id-ID', { timeZone: JAKARTA_TIME_ZONE, weekday: 'long' }).format(new Date());
     const todayDate = new Date(`${today}T12:00:00+07:00`);
     const daysSinceMonday = (todayDate.getUTCDay() + 6) % 7;
     const weekStartDate = new Date(todayDate);
@@ -1843,6 +1844,31 @@ app.get('/api/student/attendance-summary', async (c) => {
     const weekStart = weekStartDate.toISOString().slice(0, 10);
 
     const records = await db.select().from(attendance).where(eq(attendance.userId, authenticatedUser.id));
+    const subjectSchedules = student[0].classId
+      ? await db.select({ subject: schedules.subject, timeStart: schedules.timeStart, timeEnd: schedules.timeEnd })
+        .from(schedules)
+        .where(and(eq(schedules.classId, student[0].classId), eq(schedules.day, todayDayName)))
+        .orderBy(schedules.timeStart)
+      : [];
+    const todaySubjectRecords = records
+      .filter((record) => record.type === 'mapel' && record.date === today && record.subject)
+      .sort((first, second) => second.createdAt.getTime() - first.createdAt.getTime());
+    const subjectAttendanceMap = new Map<string, { subject: string; status: string | null; timeStart: string | null; timeEnd: string | null }>();
+    for (const schedule of subjectSchedules) {
+      if (!subjectAttendanceMap.has(schedule.subject)) {
+        subjectAttendanceMap.set(schedule.subject, {
+          subject: schedule.subject,
+          status: todaySubjectRecords.find((record) => record.subject === schedule.subject)?.status || null,
+          timeStart: schedule.timeStart,
+          timeEnd: schedule.timeEnd,
+        });
+      }
+    }
+    for (const record of todaySubjectRecords) {
+      if (record.subject && !subjectAttendanceMap.has(record.subject)) {
+        subjectAttendanceMap.set(record.subject, { subject: record.subject, status: record.status, timeStart: null, timeEnd: null });
+      }
+    }
     const createDailyCounts = () => ({ Hadir: 0, Sakit: 0, Izin: 0, Alfa: 0, total: 0 });
     const countDailyAttendance = (source: typeof records) => source.reduce((totals, record) => {
       if (record.type !== 'harian') return totals;
@@ -1855,6 +1881,7 @@ app.get('/api/student/attendance-summary', async (c) => {
     return c.json({
       today,
       gender: student[0].gender,
+      subjectAttendance: Array.from(subjectAttendanceMap.values()),
       todayStatus: {
         harian: todayRecord('harian'),
         dhuha: todayRecord('dhuha'),

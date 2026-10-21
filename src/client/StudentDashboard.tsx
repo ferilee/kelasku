@@ -10,6 +10,7 @@ type DailyAttendanceStats = { Hadir: number; Sakit: number; Izin: number; Alfa: 
 type StudentAttendanceSummary = {
   today: string;
   gender: 'L' | 'P';
+  subjectAttendance: Array<{ subject: string; status: string | null; timeStart: string | null; timeEnd: string | null }>;
   todayStatus: { harian: string | null; dhuha: string | null; dzuhur: string | null; jumat: string | null };
   daily: DailyAttendanceStats;
   weekly: DailyAttendanceStats;
@@ -185,6 +186,9 @@ const StudentDashboard = () => {
     return status;
   };
 
+  const subjectAttendance = attendanceSummary?.subjectAttendance || [];
+  const pendingSubjectAttendance = subjectAttendance.filter((item) => !item.status);
+
   const todayDay = new Date().getDay();
   const isSchoolDay = todayDay >= 1 && todayDay <= 5;
   const startOfToday = new Date();
@@ -199,6 +203,15 @@ const StudentDashboard = () => {
       description: nearestPendingAssignment.title, tone: new Date(nearestPendingAssignment.dueDate).getTime() < startOfToday.getTime() ? 'rose' : 'amber'
     }] : []),
     ...(isSchoolDay && attendanceSummary?.todayStatus.harian === null ? [{ id: 'daily', icon: CheckSquare, title: 'Presensi kelas belum dicatat', description: 'Status kehadiran hari ini masih menunggu pencatatan wali kelas.', tone: 'amber' }] : []),
+    ...(isSchoolDay && subjectAttendance.length ? [{
+      id: 'subject-attendance', icon: ClipboardCheck,
+      action: () => setShowScheduleModal(true),
+      title: pendingSubjectAttendance.length ? 'Presensi mata pelajaran belum lengkap' : 'Presensi mata pelajaran tercatat',
+      description: pendingSubjectAttendance.length
+        ? `${pendingSubjectAttendance.length} dari ${subjectAttendance.length} mata pelajaran belum dicatat guru.`
+        : subjectAttendance.map((item) => `${item.subject}: ${attendanceStatusLabel(item.status)}`).join(' · '),
+      tone: pendingSubjectAttendance.length ? 'amber' : 'blue'
+    }] : []),
     ...(announcements.length ? [{ id: 'announcement', icon: Bell, title: 'Informasi kelas', description: announcements[0].text, tone: 'slate' }] : []),
   ].slice(0, 3);
 
@@ -320,6 +333,26 @@ const StudentDashboard = () => {
                   </div>
                 ) : <div className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:text-emerald-300"><CheckSquare className="h-5 w-5 shrink-0" />Tidak ada hal mendesak. Semangat belajar hari ini!</div>}
               </section>
+
+              {isSchoolDay && subjectAttendance.length > 0 && (
+                <section className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/40 dark:bg-blue-950/15">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div><h3 className="font-bold text-slate-800 dark:text-slate-100">Presensi mata pelajaran hari ini</h3><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Status dicatat oleh guru pengajar masing-masing.</p></div>
+                    <ClipboardCheck className="h-5 w-5 text-blue-600 dark:text-blue-300" />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {subjectAttendance.map((item) => {
+                      const status = attendanceStatusLabel(item.status);
+                      const statusTone = status === 'Hadir'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                        : status === 'Belum dicatat'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                          : 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300';
+                      return <div key={`${item.subject}-${item.timeStart || 'recorded'}`} className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-white px-3 py-2.5 dark:border-blue-900/40 dark:bg-slate-800"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">{item.subject}</p><p className="text-[11px] text-slate-500 dark:text-slate-400">{item.timeStart && item.timeEnd ? `${item.timeStart}–${item.timeEnd}` : 'Presensi tercatat'}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusTone}`}>{status}</span></div>;
+                    })}
+                  </div>
+                </section>
+              )}
 
               <section className="grid gap-3 md:grid-cols-3">
                 <button onClick={() => setActiveTab('assignments')} className="rounded-2xl border border-orange-100 bg-orange-50/70 p-4 text-left transition hover:shadow-sm dark:border-orange-900/40 dark:bg-orange-950/15">

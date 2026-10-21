@@ -749,6 +749,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [manualName, setManualName] = useState('');
   const [manualGender, setManualGender] = useState<'L' | 'P'>('L');
   const [manualStatus, setManualStatus] = useState<'Aktif' | 'Nonaktif'>('Aktif');
+  const [manualClassId, setManualClassId] = useState('');
   const [showLearningProfileModal, setShowLearningProfileModal] = useState(false);
   const [selectedLearningStudent, setSelectedLearningStudent] = useState<Student | null>(null);
   const [learningProfileData, setLearningProfileData] = useState<StudentLearningData | null>(null);
@@ -3286,6 +3287,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       setManualName('');
                       setManualGender('L');
                       setManualStatus('Aktif');
+                      setManualClassId(classData.classId || '');
                       setEditingStudent(null);
                       setShowAddModal(true);
                     }}
@@ -3373,7 +3375,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {canViewLearningProfiles && <button type="button" onClick={() => loadLearningProfile(student)} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/30"><FileText className="h-3.5 w-3.5" /> Profil belajar</button>}
-                          {canManageStudents && <button type="button" onClick={() => { setManualNisn(student.nisn); setManualName(student.name); setManualGender(student.gender); setManualStatus(student.status); setEditingStudent(student); setShowAddModal(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"><Edit2 className="h-3.5 w-3.5" /> Ubah data</button>}
+                          {canManageStudents && <button type="button" onClick={() => { setManualNisn(student.nisn); setManualName(student.name); setManualGender(student.gender); setManualStatus(student.status); setManualClassId(student.classId || classData.classId || ''); setEditingStudent(student); setShowAddModal(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"><Edit2 className="h-3.5 w-3.5" /> Ubah data</button>}
                         </div>
                       </article>
                     ))
@@ -3414,6 +3416,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                               setManualName(student.name);
                               setManualGender(student.gender);
                               setManualStatus(student.status);
+                              setManualClassId(student.classId || classData.classId || '');
                               setEditingStudent(student);
                               setShowAddModal(true);
                             }}
@@ -5069,7 +5072,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     nisn: manualNisn,
                     name: manualName,
                     gender: manualGender,
-                    status: manualStatus
+                    status: manualStatus,
+                    classId: manualClassId,
                   });
                   notify('Siswa berhasil diperbarui!', 'success');
                 } else {
@@ -5078,7 +5082,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     nisn: manualNisn,
                     name: manualName,
                     gender: manualGender,
-                    status: manualStatus
+                    status: manualStatus,
+                    classId: manualClassId,
                   });
                   notify('Siswa berhasil ditambahkan!', 'success');
                 }
@@ -5111,6 +5116,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-400"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Kelas</label>
+                <select
+                  value={manualClassId}
+                  onChange={(e) => setManualClassId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all cursor-pointer"
+                  required
+                >
+                  <option value="">Pilih kelas</option>
+                  {classData.classes.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.academicYear}</option>)}
+                </select>
+                {editingStudent && <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">Pemindahan kelas mempertahankan seluruh riwayat siswa berdasarkan ID akun.</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

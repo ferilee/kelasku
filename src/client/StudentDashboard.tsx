@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, Upload, ChevronRight } from 'lucide-react';
-import { useClassData } from './ClassContext';
+import { useClassData, BehaviorRecord, Achievement } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 import { sendStudentActivity, useStudentActivity } from './studentActivity';
@@ -14,6 +14,18 @@ type StudentAttendanceSummary = {
   daily: DailyAttendanceStats;
   weekly: DailyAttendanceStats;
   monthly: DailyAttendanceStats;
+};
+type StudentProfile = {
+  id: number;
+  name: string;
+  identifier: string;
+  gender: 'L' | 'P';
+  status: 'Aktif' | 'Nonaktif';
+  classId: string | null;
+  className: string;
+  academicYear: string | null;
+  behaviorRecords: BehaviorRecord[];
+  achievements: Achievement[];
 };
 
 const StudentAvatar = ({ gender }: { gender?: 'L' | 'P' | null }) => {
@@ -36,11 +48,14 @@ const StudentAvatar = ({ gender }: { gender?: 'L' | 'P' | null }) => {
 const StudentDashboard = () => {
   useModalAccessibility();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const { selectedClass, selectedYear, schedules, agenda, announcements, teachingAnnouncements, behaviorRecords, achievements } = useClassData();
-  const [authenticatedStudent, setAuthenticatedStudent] = useState<{ id: number; name: string } | null>(null);
+  const { selectedClass, selectedYear, schedules, agenda, announcements, teachingAnnouncements } = useClassData();
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [attendanceSummary, setAttendanceSummary] = useState<StudentAttendanceSummary | null>(null);
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
-  const currentStudentId = authenticatedStudent?.id.toString() || '';
+  const authenticatedStudent = studentProfile;
+  const studentClassName = studentProfile?.className || selectedClass;
+  const studentAcademicYear = studentProfile?.academicYear || selectedYear;
+  const currentStudentId = studentProfile?.id.toString() || '';
   const dbStudentId = currentStudentId;
   const { notify } = useNotifications();
 
@@ -50,14 +65,11 @@ const StudentDashboard = () => {
     const loadStudentDashboard = async () => {
       setIsLoadingAttendance(true);
       try {
-        const [authResponse, attendanceResponse] = await Promise.all([
-          fetch('/api/auth/me'),
+        const [profileResponse, attendanceResponse] = await Promise.all([
+          fetch('/api/student/profile'),
           fetch('/api/student/attendance-summary'),
         ]);
-        if (authResponse.ok) {
-          const authData = await authResponse.json();
-          if (authData.user?.role === 'student') setAuthenticatedStudent(authData.user);
-        }
+        if (profileResponse.ok) setStudentProfile(await profileResponse.json());
         if (attendanceResponse.ok) setAttendanceSummary(await attendanceResponse.json());
       } catch (error) {
         console.error('Error fetching student attendance:', error);
@@ -162,7 +174,7 @@ const StudentDashboard = () => {
   // Compute tasks summary
   const completedTasksCount = assignments.filter(a => a.type === 'tugas' && a.submission).length;
 
-  const sRecords = (behaviorRecords || []).filter(r => r.studentId === dbStudentId);
+  const sRecords = (studentProfile?.behaviorRecords || []).filter(r => r.studentId === dbStudentId);
   const posPoints = sRecords.filter(r => r.type === 'positif').reduce((sum, r) => sum + r.points, 0);
   const negPoints = sRecords.filter(r => r.type === 'negatif').reduce((sum, r) => sum + r.points, 0);
   const behaviorScore = 100 + posPoints - negPoints;
@@ -205,7 +217,7 @@ const StudentDashboard = () => {
     .filter((assignment) => assignment.type === 'materi')
     .sort((first, second) => new Date(second.createdAt || 0).getTime() - new Date(first.createdAt || 0).getTime())
     .slice(0, 3);
-  const studentAchievements = (achievements || []).filter((achievement) => achievement.studentId === dbStudentId);
+  const studentAchievements = (studentProfile?.achievements || []).filter((achievement) => achievement.studentId === dbStudentId);
   const nextSchedule = todaySchedules[0];
 
   const openAssignment = (assignment: any) => {
@@ -229,7 +241,7 @@ const StudentDashboard = () => {
         {/* Header */}
         <header className="h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate mr-2">
-            {activeTab === 'dashboard' ? `Ringkasan (${selectedClass})` : 'Detail'}
+            {activeTab === 'dashboard' ? `Ringkasan (${studentClassName})` : 'Detail'}
           </h2>
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Dark Mode Toggle */}
@@ -241,7 +253,7 @@ const StudentDashboard = () => {
               </div>
               <div className="hidden sm:flex flex-col">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{authenticatedStudent?.name || 'Siswa'} (Siswa)</span>
-                <span className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">{selectedClass} ({selectedYear})</span>
+                <span className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">{studentClassName} ({studentAcademicYear})</span>
               </div>
             </div>
           </div>
@@ -282,7 +294,7 @@ const StudentDashboard = () => {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-emerald-100">Beranda Siswa</p>
                     <h3 className="mt-1 text-2xl font-black">Halo, {authenticatedStudent?.name?.split(' ')[0] || 'Siswa'}!</h3>
-                    <p className="mt-1 text-sm text-emerald-50">{selectedClass} · {selectedYear}</p>
+                    <p className="mt-1 text-sm text-emerald-50">{studentClassName} · {studentAcademicYear}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold">
@@ -510,7 +522,7 @@ const StudentDashboard = () => {
                   Jadwal & Kalender Akademik
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Lihat jadwal pelajaran mingguan dan agenda kegiatan akademik kelas {selectedClass || 'aktif'}.
+                  Lihat jadwal pelajaran mingguan dan agenda kegiatan akademik kelas {studentClassName || 'aktif'}.
                 </p>
               </div>
 
@@ -692,14 +704,14 @@ const StudentDashboard = () => {
                     </h4>
 
                     <div className="space-y-4">
-                      {((achievements || []).filter(a => a.studentId === dbStudentId)).length === 0 ? (
+                      {studentAchievements.length === 0 ? (
                         <div className="text-center py-10 text-slate-400">
                           <Award className="h-12 w-12 mx-auto text-slate-200 mb-3" />
                           <p className="text-xs italic">Belum ada catatan prestasi yang terdaftar.</p>
                           <p className="text-[10px] mt-1">Ayo tunjukkan bakatmu dan raih prestasi gemilang!</p>
                         </div>
                       ) : (
-                        (achievements || []).filter(a => a.studentId === dbStudentId).map((item) => (
+                        studentAchievements.map((item) => (
                           <div key={item.id} className="p-4 rounded-xl border border-amber-100 dark:border-amber-900/30 bg-amber-50/20 dark:bg-amber-950/5 flex gap-3 items-start">
                             <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
                               <Award className="h-5 w-5 text-amber-600 dark:text-amber-400" />
@@ -729,7 +741,7 @@ const StudentDashboard = () => {
             <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
               <button aria-label="Tutup jadwal dan kalender" onClick={() => setShowScheduleModal(false)} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
               <div role="dialog" aria-modal="true" aria-labelledby="student-schedule-modal-title" className="relative max-h-[88vh] w-full overflow-y-auto rounded-t-3xl border border-slate-200 bg-slate-50 p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:max-w-2xl sm:rounded-3xl sm:p-6">
-                <div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Informasi akademik</p><h3 id="student-schedule-modal-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Jadwal & Kalender Akademik</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{selectedClass} · {selectedYear}</p></div><button onClick={() => setShowScheduleModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800" aria-label="Tutup"><X className="h-5 w-5" /></button></div>
+              <div className="mb-5 flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Informasi akademik</p><h3 id="student-schedule-modal-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Jadwal & Kalender Akademik</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{studentClassName} · {studentAcademicYear}</p></div><button onClick={() => setShowScheduleModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800" aria-label="Tutup"><X className="h-5 w-5" /></button></div>
                 <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm dark:border-emerald-900/40 dark:bg-slate-800"><div className="mb-3 flex items-center justify-between"><h4 className="font-bold text-slate-800 dark:text-slate-100">Jadwal hari ini</h4><span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{todayName}</span></div>{todaySchedules.length ? <div className="grid gap-2 sm:grid-cols-2">{todaySchedules.map((schedule) => <div key={schedule.id} className="rounded-xl border border-slate-100 border-l-4 border-l-emerald-500 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50"><p className="text-sm font-bold text-slate-800 dark:text-slate-100">{schedule.subject}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{schedule.timeStart}–{schedule.timeEnd}{schedule.teacherName ? ` · ${schedule.teacherName.split(',')[0]}` : ''}</p></div>)}</div> : <p className="text-xs italic text-slate-400">Tidak ada jadwal hari ini.</p>}</section>
                 <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><h4 className="mb-3 font-bold text-slate-800 dark:text-slate-100">Jadwal mingguan</h4><div className="grid gap-2 sm:grid-cols-2">{['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'].map((day) => { const daySchedules = (schedules || []).filter((schedule) => schedule.day === day).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return <div key={day} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-900/50"><p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{day}</p>{daySchedules.length ? daySchedules.map((schedule) => <div key={schedule.id} className="mt-2 border-l-2 border-emerald-400 pl-2"><p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{schedule.subject}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">{schedule.timeStart}–{schedule.timeEnd}</p></div>) : <p className="mt-2 text-[10px] italic text-slate-400">Tidak ada jadwal</p>}</div>; })}</div></section>
                 <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-3 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-blue-500" /><h4 className="font-bold text-slate-800 dark:text-slate-100">Agenda akademik</h4></div>{agenda?.length ? <div className="space-y-2">{agenda.slice(0, 5).map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-900/50"><span className="min-w-12 rounded-lg bg-blue-50 px-2 py-1 text-center text-xs font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">{item.date}</span><div><p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{item.title}</p><p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{item.type}</p></div></div>)}</div> : <p className="text-xs italic text-slate-400">Belum ada agenda akademik.</p>}</section>

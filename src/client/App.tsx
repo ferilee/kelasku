@@ -11,18 +11,26 @@ const AppContent = () => {
   // Simple state-based routing/role management for demo purposes
   const [role, setRole] = useState<'landing' | 'login_admin' | 'admin' | 'teacher' | 'counselor' | 'student'>('landing');
   const [userSession, setUserSession] = useState<'admin' | 'teacher' | 'counselor' | 'student' | null>(null);
+  const classData = useClassData();
 
   useEffect(() => {
     fetch('/api/auth/me').then(async (response) => response.ok ? response.json() : null).then((result) => {
-      if (result?.user?.role) setUserSession(result.user.role);
+      if (result?.user?.role) {
+        setUserSession(result.user.role);
+        if (result.user.role === 'student') classData.selectClass('').catch(() => undefined);
+      }
     }).catch(() => undefined);
-  }, []);
-
-  const classData = useClassData();
+  }, [classData.selectClass]);
 
   const handleLoginSuccess = (newRole: 'admin' | 'teacher' | 'counselor' | 'student') => {
     setUserSession(newRole);
     setRole(newRole);
+    if (newRole === 'student') {
+      // A student must always use the class assigned to the authenticated account.
+      // Do not reuse a teacher/default class from the URL or the previous session.
+      classData.selectClass('').catch(() => undefined);
+      return;
+    }
     const requestedClassId = new URLSearchParams(window.location.search).get('classId');
     classData.selectClass(requestedClassId || classData.classId || '').catch(() => undefined);
   };

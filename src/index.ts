@@ -1216,7 +1216,10 @@ app.get('/api/class-data', async (c) => {
       nisn: s.identifier,
       name: s.name,
       gender: s.gender as 'L' | 'P',
-      status: s.status as 'Aktif' | 'Nonaktif'
+      status: s.status as 'Aktif' | 'Nonaktif',
+      classId: s.classId?.toString() || null,
+      className: currentClass.name,
+      academicYear: currentClass.academicYear,
     }));
 
     const activeStudentIds = new Set(allStudents.filter((student) => student.status === 'Aktif').map((student) => student.id));
@@ -1612,13 +1615,60 @@ app.put('/api/students/:id', async (c) => {
   try {
     const id = parseInt(c.req.param('id'));
     const body = await c.req.json();
+    const classId = Number(body.classId);
+    const classItem = Number.isInteger(classId) && classId > 0
+      ? await db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1)
+      : [];
+    if (!classItem.length) return c.json({ error: 'Kelas siswa tidak valid.' }, 400);
     await db.update(users).set({
       name: body.name,
       identifier: body.nisn,
       gender: body.gender,
-      status: body.status
+      status: body.status,
+      classId,
     }).where(eq(users.id, id));
     return c.json({ success: true });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Student profile is always resolved from the authenticated account. It is
+// the single source for the student's class label and personal development data.
+app.get('/api/student/profile', async (c) => {
+  try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || authenticatedUser.role !== 'student') {
+      return c.json({ error: 'Fitur ini hanya tersedia untuk akun siswa.' }, 403);
+    }
+    const student = (await db.select().from(users).where(and(eq(users.id, authenticatedUser.id), eq(users.role, 'student'))).limit(1))[0];
+    if (!student) return c.json({ error: 'Data siswa tidak ditemukan.' }, 404);
+    const classRow = student.classId
+      ? (await db.select({ id: classes.id, name: classes.name, academicYear: classes.academicYear }).from(classes).where(eq(classes.id, student.classId)).limit(1))[0]
+      : null;
+    const [studentBehavior, studentAchievements] = await Promise.all([
+      db.select().from(behaviorRecords).where(eq(behaviorRecords.studentId, student.id)),
+      db.select().from(achievements).where(eq(achievements.studentId, student.id)),
+    ]);
+    return c.json({
+      id: student.id,
+      name: student.name,
+      identifier: student.identifier,
+      gender: student.gender,
+      status: student.status,
+      classId: student.classId?.toString() || null,
+      className: classRow?.name || 'Belum berkelas',
+      academicYear: classRow?.academicYear || null,
+      behaviorRecords: studentBehavior.map((record) => ({
+        id: record.id.toString(), studentId: record.studentId.toString(), type: record.type,
+        points: record.points, category: record.category, description: record.description,
+        date: record.date, subject: record.subject || undefined,
+      })),
+      achievements: studentAchievements.map((achievement) => ({
+        id: achievement.id.toString(), studentId: achievement.studentId.toString(), title: achievement.title,
+        level: achievement.level, rank: achievement.rank, date: achievement.date, description: achievement.description || '',
+      })),
+    });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

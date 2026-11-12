@@ -303,10 +303,13 @@ const LandingPage = ({
                 </div>
                 )}
 
-                {/* Leaderboard & 3. Wall of Fame. While the leaderboard has
-                    no entries the pair collapses to a single column so the
-                    Wall of Fame card is not left stranded at half width. */}
-                <div className={`grid grid-cols-1 ${(isLoading || academicLeaderboard.length > 0) ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-8`}>
+                {/* Leaderboard & 3. Wall of Fame. Each card is only rendered
+                    once it has data (or while loading); the whole row is
+                    hidden while both are empty, and collapses to a single
+                    column while only one of them has data so the visible
+                    card is not left stranded at half width. */}
+                {(isLoading || academicLeaderboard.length > 0 || achievements.length > 0) && (
+                <div className={`grid grid-cols-1 ${((isLoading || academicLeaderboard.length > 0) && (isLoading || achievements.length > 0)) ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-8`}>
                   {/* Leaderboard. Like the grade-trend chart, this card is
                       only rendered once real leaderboard data exists: while
                       no student has grades it is hidden entirely instead of
@@ -335,7 +338,12 @@ const LandingPage = ({
                   </div>
                   )}
 
-                  {/* 4. Wall of Fame */}
+                  {/* 4. Wall of Fame. Like the leaderboard beside it, this
+                      card is only rendered once real achievements exist:
+                      while none have been recorded it is hidden entirely
+                      instead of showing a bare heading over an empty body.
+                      While loading it stays visible with its skeleton. */}
+                  {(isLoading || achievements.length > 0) && (
                   <div className="bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm dark:shadow-none transition-colors">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-6 transition-colors">
                       <Medal className="h-5 w-5 text-purple-500 dark:text-purple-400" />
@@ -353,9 +361,11 @@ const LandingPage = ({
                       ))}
                     </div>
                   </div>
+                  )}
                 </div>
+                )}
                 </div>
-                
+
                 {/* 5. Galeri Momen Kelas */}
                 <div id="galeri" className={`bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 overflow-hidden shadow-sm dark:shadow-none transition-colors ${tabClass('galeri')}`}>
                   <div className="flex justify-between items-center mb-6">

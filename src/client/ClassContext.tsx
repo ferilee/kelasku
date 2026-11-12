@@ -106,6 +106,7 @@ export interface ClassData {
   classId: string | null;
   classes: ClassRoom[];
   isLoading: boolean;
+  loadError: boolean;
   selectedClass: string | null;
   selectedYear: string | null;
   selectClass: (classId: string) => Promise<void>;
@@ -138,65 +139,59 @@ export interface ClassData {
   removeAchievement: (id: string) => Promise<void>;
 }
 
-const defaultData = {
-  announcements: [
-    { id: '1', type: 'PENTING' as const, text: 'Batas pengumpulan Tugas Akhir Fisika adalah hari Jumat, pukul 23:59 WIB.' },
-    { id: '2', type: 'INFO' as const, text: 'Jadwal Olahraga besok, jangan lupa membawa baju ganti dan air minum.' },
-    { id: '3', type: 'SELAMAT' as const, text: 'Kepada Tim Futsal Kelas atas raihan Juara 1 Antar Kelas!' }
-  ],
-  teachingAnnouncements: [],
-  agenda: [
-    { id: '1', date: "15 Okt", title: "Ujian Tengah Semester", type: "Ujian" },
-    { id: '2', date: "20 Okt", title: "Tugas Praktikum", type: "Tugas" },
-  ],
-  students: [
-    { id: '1', nisn: '10029381', name: 'Ahmad Fauzi', gender: 'L' as const, status: 'Aktif' as const },
-    { id: '2', nisn: '10029382', name: 'Citra Kirana', gender: 'P' as const, status: 'Aktif' as const },
-    { id: '3', nisn: '10029383', name: 'Budi Santoso', gender: 'L' as const, status: 'Aktif' as const },
-    { id: '4', nisn: '10029384', name: 'Dewi Lestari', gender: 'P' as const, status: 'Aktif' as const },
-  ],
+// Generic role descriptions for class officers. These are not class data:
+// they only describe what each role does, so they are safe as a fallback
+// when the API does not provide customised duties yet.
+const defaultOfficerDuties: OfficerDuty[] = [
+  { key: 'ketua' as const, label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
+  { key: 'wakil' as const, label: 'Wakil Ketua Kelas', description: 'Mendampingi ketua kelas dalam menjalankan tugas.\nMenggantikan ketua kelas saat berhalangan.\nMembantu menjaga koordinasi dan ketertiban kelas.' },
+  { key: 'sekretaris' as const, label: 'Sekretaris', description: 'Mencatat hasil rapat dan administrasi kelas.\nMembantu pencatatan kehadiran serta informasi kelas.\nMenyimpan dokumen penting kelas dengan rapi.' },
+  { key: 'bendahara' as const, label: 'Bendahara', description: 'Mencatat pemasukan dan pengeluaran kas kelas.\nMenyampaikan laporan kas secara terbuka dan berkala.\nMenjaga bukti transaksi serta saldo kas kelas.' },
+];
+
+// Initial state before the first /api/class-data response arrives.
+// This MUST stay empty: visitors must never see placeholder/sample class
+// data (names, student counts, officers, schedules) that is not real.
+// Components render skeletons while `isLoading` is true and an honest
+// error message when `loadError` is true instead.
+const emptyData = {
+  announcements: [] as Announcement[],
+  teachingAnnouncements: [] as TeachingAnnouncement[],
+  agenda: [] as AgendaItem[],
+  students: [] as Student[],
   quote: {
-    text: "Pendidikan adalah senjata paling mematikan di dunia, karena dengan pendidikan, Anda dapat mengubah dunia.",
-    author: "Nelson Mandela"
+    text: "",
+    author: ""
   },
   stats: {
     attendance: "—",
     averageGrade: "—",
-    totalStudents: "4"
+    totalStudents: "—"
   },
-  schedules: [],
-  behaviorRecords: [],
-  achievements: [],
-  officers: [
-    { id: '1', userId: '1', role: 'Ketua Kelas', name: 'Ahmad Fauzi' },
-    { id: '2', userId: '2', role: 'Wakil Ketua', name: 'Citra Kirana' },
-    { id: '3', userId: '3', role: 'Sekretaris', name: 'Budi Santoso' },
-    { id: '4', userId: '4', role: 'Bendahara', name: 'Dewi Lestari' },
-  ],
-  officerDuties: [
-    { key: 'ketua' as const, label: 'Ketua Kelas', description: 'Memimpin koordinasi kegiatan kelas.\nMenyampaikan informasi dari wali kelas kepada teman-teman.\nMenjaga ketertiban dan menjadi teladan bagi kelas.' },
-    { key: 'wakil' as const, label: 'Wakil Ketua Kelas', description: 'Mendampingi ketua kelas dalam menjalankan tugas.\nMenggantikan ketua kelas saat berhalangan.\nMembantu menjaga koordinasi dan ketertiban kelas.' },
-    { key: 'sekretaris' as const, label: 'Sekretaris', description: 'Mencatat hasil rapat dan administrasi kelas.\nMembantu pencatatan kehadiran serta informasi kelas.\nMenyimpan dokumen penting kelas dengan rapi.' },
-    { key: 'bendahara' as const, label: 'Bendahara', description: 'Mencatat pemasukan dan pengeluaran kas kelas.\nMenyampaikan laporan kas secara terbuka dan berkala.\nMenjaga bukti transaksi serta saldo kas kelas.' },
-  ],
-  academicLeaderboard: [],
-  gradeTrend: [],
-  galleryItems: [],
-  heroImage: '/hero-default.svg',
-  homeroomTeacherPhoto: '/wali-kelas-placeholder.svg'
+  schedules: [] as ScheduleItem[],
+  behaviorRecords: [] as BehaviorRecord[],
+  achievements: [] as Achievement[],
+  officers: [] as ClassOfficer[],
+  officerDuties: defaultOfficerDuties,
+  academicLeaderboard: [] as AcademicLeaderboardEntry[],
+  gradeTrend: [] as GradeTrendEntry[],
+  galleryItems: [] as GalleryItem[],
+  heroImage: '',
+  homeroomTeacherPhoto: ''
 };
 
 export const ClassContext = createContext<ClassData | undefined>(undefined);
 
 export const ClassProvider = ({ children }: { children: ReactNode }) => {
-  const [data, setData] = useState(defaultData);
+  const [data, setData] = useState(emptyData);
   const [classId, setClassId] = useState<string | null>(null);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const classIdRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
-  const [selectedClass, setSelectedClass] = useState<string | null>('X TKJ A');
-  const [selectedYear, setSelectedYear] = useState<string | null>('2026-2027');
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<string | null>(null);
 
   const handleSetSelectedClass = (cls: string | null) => {
     setSelectedClass(cls);
@@ -211,36 +206,41 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
     const classIdForRequest = requestedClassId === undefined ? classIdRef.current : requestedClassId || null;
     const query = classIdForRequest ? `?classId=${encodeURIComponent(classIdForRequest)}` : '';
     setIsLoading(true);
+    setLoadError(false);
     try {
       const res = await fetch(`/api/class-data${query}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (requestId === requestIdRef.current) setLoadError(true);
+        return;
+      }
       const json = await res.json();
       if (requestId !== requestIdRef.current) return;
       setData({
-        announcements: json.announcements,
+        announcements: json.announcements || [],
         teachingAnnouncements: json.teachingAnnouncements || [],
-        agenda: json.agenda,
+        agenda: json.agenda || [],
         schedules: json.schedules || [],
-        students: json.students,
+        students: json.students || [],
         behaviorRecords: json.behaviorRecords || [],
         achievements: json.achievements || [],
         officers: json.officers || [],
-        officerDuties: json.officerDuties || defaultData.officerDuties,
+        officerDuties: json.officerDuties || defaultOfficerDuties,
         academicLeaderboard: json.academicLeaderboard || [],
         gradeTrend: json.gradeTrend || [],
         galleryItems: json.galleryItems || [],
         heroImage: json.heroImage || '/hero-default.svg',
         homeroomTeacherPhoto: json.homeroomTeacherPhoto || '/wali-kelas-placeholder.svg',
-        quote: json.quote,
-        stats: json.stats,
+        quote: json.quote || { text: '', author: '' },
+        stats: json.stats || { attendance: '—', averageGrade: '—', totalStudents: '—' },
       });
       setClasses(json.classes || []);
       classIdRef.current = json.classId || null;
       setClassId(json.classId || null);
-      setSelectedClass(json.className || 'X TKJ A');
-      setSelectedYear(json.academicYear || '2026-2027');
+      setSelectedClass(json.className || null);
+      setSelectedYear(json.academicYear || null);
     } catch (err) {
       console.error('Error fetching class data:', err);
+      if (requestId === requestIdRef.current) setLoadError(true);
     } finally {
       if (requestId === requestIdRef.current) setIsLoading(false);
     }
@@ -529,6 +529,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       classId,
       classes,
       isLoading,
+      loadError,
       selectedClass,
       selectedYear,
       selectClass,

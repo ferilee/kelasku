@@ -4,6 +4,13 @@ import { useClassData } from './ClassContext';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 
+// Skeleton placeholder shown while real class data is still loading.
+// Real data is rendered only after /api/class-data responds; sample data
+// is never shown in its place.
+const SkeletonBar = ({ className = '' }: { className?: string }) => (
+  <div aria-hidden="true" className={`animate-pulse rounded-lg bg-slate-200 dark:bg-slate-700/70 ${className}`} />
+);
+
 const LandingPage = ({ 
   onLoginSuccess,
   userSession,
@@ -13,7 +20,7 @@ const LandingPage = ({
   userSession: 'admin' | 'teacher' | 'counselor' | 'student' | null;
   onLogout: () => void;
 }) => {
-  const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear } = useClassData();
+  const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, isLoading, loadError } = useClassData();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -93,6 +100,7 @@ const LandingPage = ({
           `}</style>
           
           <div className="whitespace-nowrap animate-marquee-scroll flex gap-24 text-xs font-medium text-cyan-900 dark:text-cyan-100 pl-40">
+            {isLoading && <span className="flex items-center gap-2">Memuat informasi kelas…</span>}
             {announcements.map((ann) => (
               <span key={ann.id} className="flex items-center gap-2">
                 <span className={`font-bold ${ann.type === 'PENTING' ? 'text-orange-600 dark:text-orange-400' : ann.type === 'INFO' ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
@@ -104,6 +112,16 @@ const LandingPage = ({
           </div>
         </div>
 
+        {/* Honest failure notice: shown instead of any placeholder data */}
+        {!isLoading && loadError && (
+          <div className="w-full bg-rose-50 dark:bg-rose-950/30 border-b border-rose-200 dark:border-rose-900/50 py-3 px-6">
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-3 text-sm text-rose-700 dark:text-rose-300">
+              <span>Data belum dapat dimuat. Periksa koneksi Anda, lalu coba lagi.</span>
+              <button onClick={() => window.location.reload()} className="font-bold underline underline-offset-2 hover:text-rose-900 dark:hover:text-rose-100">Muat Ulang</button>
+            </div>
+          </div>
+        )}
+
         {/* Navbar */}
         <nav className="w-full z-40 top-0 py-6 relative">
           <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
@@ -113,7 +131,7 @@ const LandingPage = ({
                 <span className="font-extrabold text-xl tracking-wide">WEBKELAS</span>
                 <span className="hidden md:inline text-slate-300 dark:text-slate-700">|</span>
                 <span className="text-xs md:text-sm font-semibold bg-cyan-100 dark:bg-cyan-950 text-cyan-800 dark:text-cyan-300 px-3 py-1 rounded-full border border-cyan-200/50 dark:border-cyan-800/50 shadow-sm">
-                  {selectedClass} ({selectedYear})
+                  {selectedClass ? `${selectedClass} (${selectedYear})` : 'Memuat…'}
                 </span>
               </div>
             </div>
@@ -143,11 +161,18 @@ const LandingPage = ({
           <div className="flex flex-col md:flex-row items-center justify-between gap-12 relative z-10">
             <div className="flex-1 space-y-8 animate-in slide-in-from-left-8 duration-700">
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-slate-900 dark:text-white tracking-tight leading-[1.15] transition-colors">
-                {selectedClass} <br /> <span className="text-cyan-600 dark:text-cyan-400">Kelas Interaktif</span>
+                {isLoading ? (
+                  <>
+                    <SkeletonBar className="h-14 md:h-16 lg:h-20 w-3/4 mb-3" />
+                    <SkeletonBar className="h-14 md:h-16 lg:h-20 w-1/2" />
+                  </>
+                ) : (
+                  <>{selectedClass} <br /> <span className="text-cyan-600 dark:text-cyan-400">Kelas Interaktif</span></>
+                )}
               </h1>
-              
+
               <p className="text-lg text-slate-600 dark:text-slate-400 max-w-lg leading-relaxed font-light transition-colors">
-                Portal resmi {selectedClass} tahun ajaran {selectedYear}. Pantau pengumuman, jadwal, agenda, prestasi, dan aktivitas kelas dalam satu tempat.
+                {selectedClass ? <>Portal resmi {selectedClass} tahun ajaran {selectedYear}. Pantau pengumuman, jadwal, agenda, prestasi, dan aktivitas kelas dalam satu tempat.</> : 'Portal resmi kelas. Pantau pengumuman, jadwal, agenda, prestasi, dan aktivitas kelas dalam satu tempat.'}
               </p>
 
               <div className="pt-4 flex gap-4">
@@ -172,12 +197,16 @@ const LandingPage = ({
             <div className="flex-1 flex justify-center md:justify-end animate-in fade-in duration-1000 delay-300 w-full mt-10 md:mt-0">
               <div className="relative w-full max-w-sm aspect-square">
                 <div className="absolute inset-0 bg-cyan-500 blur-[80px] dark:blur-[120px] opacity-30 dark:opacity-20 rounded-full transition-opacity"></div>
-                <img 
+                {isLoading || !heroImage ? (
+                  <div aria-hidden="true" className="relative z-10 w-full h-full animate-pulse rounded-full bg-slate-200 dark:bg-slate-700/70 shadow-2xl border-4 border-white dark:border-[#0A1118]" />
+                ) : (
+                <img
                   src={heroImage}
                   alt={`Suasana ${selectedClass}`}
                   className="relative z-10 w-full h-full object-cover rounded-[100px] shadow-2xl dark:shadow-[0_0_60px_rgba(6,182,212,0.4)] border-4 border-white dark:border-[#0A1118] transition-colors"
                   style={{ clipPath: 'circle(50% at 50% 50%)' }}
                 />
+                )}
               </div>
             </div>
           </div>
@@ -186,6 +215,16 @@ const LandingPage = ({
         <section className={`max-w-7xl mx-auto px-6 pb-14 ${tabClass('beranda')}`} aria-labelledby="wali-kelas-title">
           <div className="relative overflow-hidden rounded-3xl border border-cyan-200/70 dark:border-cyan-900/50 bg-white dark:bg-[#121C28] p-5 sm:p-7 shadow-lg shadow-cyan-950/5 dark:shadow-none">
             <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-cyan-100 dark:bg-cyan-950/30 blur-3xl" />
+            {isLoading ? (
+            <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center" aria-label="Memuat profil wali kelas">
+              <SkeletonBar className="h-24 w-24 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-3">
+                <SkeletonBar className="h-3 w-24" />
+                <SkeletonBar className="h-6 w-64 max-w-full" />
+                <SkeletonBar className="h-4 w-full max-w-md" />
+              </div>
+            </div>
+            ) : (
             <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center">
               <img src={homeroomTeacherPhoto} alt="Feri Dwi Hermawan, S.Pd" className="h-24 w-24 shrink-0 rounded-full border-4 border-white dark:border-slate-700 bg-slate-100 object-cover shadow-lg" onError={(event) => { event.currentTarget.src = '/wali-kelas-placeholder.svg'; }} />
               <div className="min-w-0 flex-1">
@@ -198,6 +237,7 @@ const LandingPage = ({
                 <a href="https://wa.me/6285174244128" target="_blank" rel="noreferrer" className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"><MessageCircle className="h-4 w-4" /> Hubungi Saya</a>
               </div>
             </div>
+            )}
           </div>
         </section>
 
@@ -218,7 +258,7 @@ const LandingPage = ({
                     <span className="text-slate-500 dark:text-slate-400 text-sm font-medium">{stat.label}</span>
                     <stat.icon className={`h-5 w-5 ${stat.color} group-hover:scale-110 transition-transform`} />
                   </div>
-                  <div className="text-3xl font-bold text-slate-900 dark:text-white transition-colors">{stat.value}</div>
+                  {isLoading ? <SkeletonBar className="h-9 w-20" /> : <div className="text-3xl font-bold text-slate-900 dark:text-white transition-colors">{stat.value}</div>}
                 </div>
               ))}
             </div>
@@ -253,7 +293,8 @@ const LandingPage = ({
                       </div>
                     ))}
                   </div>
-                  {!gradeTrend.some((data) => data.average !== null) && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai dalam enam bulan terakhir.</p>}
+                  {isLoading && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Memuat tren nilai…</p>}
+                  {!isLoading && !gradeTrend.some((data) => data.average !== null) && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai dalam enam bulan terakhir.</p>}
                 </div>
 
                 {/* Leaderboard & 3. Wall of Fame */}
@@ -265,7 +306,7 @@ const LandingPage = ({
                       Top Akademik
                     </h3>
                     <div className="space-y-4">
-                      {academicLeaderboard.length === 0 ? <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai untuk menentukan peringkat akademik.</p> : academicLeaderboard.map((student, index) => {
+                      {isLoading ? <div className="space-y-3"><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></div> : academicLeaderboard.length === 0 ? <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai untuk menentukan peringkat akademik.</p> : academicLeaderboard.map((student, index) => {
                         const rank = index + 1;
                         return <div key={student.studentId} className="flex items-center justify-between p-3 bg-white dark:bg-[#0A1118] rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
                           <div className="flex items-center gap-3">
@@ -287,6 +328,7 @@ const LandingPage = ({
                       Apresiasi Siswa
                     </h3>
                     <div className="space-y-4">
+                    {isLoading && <><SkeletonBar className="h-14 w-full" /><SkeletonBar className="h-14 w-full" /></>}
                     {achievements.slice(0, 3).map((award, i) => (
                       <div key={i} className="flex flex-col p-3 bg-white dark:bg-[#0A1118] rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
                         <div className="text-xs text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1.5 transition-colors">
@@ -310,7 +352,7 @@ const LandingPage = ({
                     {galleryItems.length > 3 && <button onClick={() => setShowAllGallery(true)} className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline">Lihat Semua</button>}
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {galleryItems.length === 0 ? <p className="col-span-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada momen kelas yang ditambahkan.</p> : galleryItems.slice(0, 3).map((item) => <button key={item.id} onClick={() => setShowAllGallery(true)} className="aspect-square overflow-hidden rounded-xl border border-slate-300 bg-slate-200 text-left dark:border-slate-800 dark:bg-[#0A1118]"><img src={item.imageUrl} className="h-full w-full object-cover opacity-90 transition-all hover:scale-110 hover:opacity-100" alt={item.title} onError={(event) => { event.currentTarget.style.display = 'none'; }} /></button>)}
+                    {isLoading ? <><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /></> : galleryItems.length === 0 ? <p className="col-span-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada momen kelas yang ditambahkan.</p> : galleryItems.slice(0, 3).map((item) => <button key={item.id} onClick={() => setShowAllGallery(true)} className="aspect-square overflow-hidden rounded-xl border border-slate-300 bg-slate-200 text-left dark:border-slate-800 dark:bg-[#0A1118]"><img src={item.imageUrl} className="h-full w-full object-cover opacity-90 transition-all hover:scale-110 hover:opacity-100" alt={item.title} onError={(event) => { event.currentTarget.style.display = 'none'; }} /></button>)}
                   </div>
                 </div>
 
@@ -331,7 +373,7 @@ const LandingPage = ({
                   <p className="text-xs font-semibold text-cyan-700 dark:text-cyan-300 mb-6 relative z-10 uppercase tracking-widest transition-colors">{todayName}</p>
                   
                   <div className="space-y-4 relative z-10">
-                    {todaySchedules.length ? todaySchedules.map((sched, idx) => (
+                    {isLoading ? <div className="space-y-4"><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /></div> : todaySchedules.length ? todaySchedules.map((sched, idx) => (
                       <div key={sched.id} className={`flex gap-4 items-start ${idx === 0 ? 'bg-white/60 dark:bg-cyan-950/50 p-3 -mx-3 rounded-xl border border-white dark:border-cyan-800/50 shadow-sm dark:shadow-none transition-colors' : 'px-0 transition-colors'}`}>
                         <div className={`w-12 font-mono text-xs pt-0.5 ${idx === 0 ? 'text-cyan-700 dark:text-cyan-300 font-bold' : 'text-slate-500'}`}>{sched.timeStart}</div>
                         <div className="flex-1">
@@ -354,6 +396,7 @@ const LandingPage = ({
                     Agenda Terdekat
                   </h3>
                   <div className="space-y-5">
+                    {isLoading && <><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></>}
                     {agenda.map((item) => (
                       <div key={item.id} className="flex items-start gap-4">
                         <div className="w-12 text-center shrink-0">
@@ -379,6 +422,8 @@ const LandingPage = ({
                     Pengurus Kelas
                   </h3>
                   <div className="space-y-3">
+                    {isLoading && <><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></>}
+                    {!isLoading && officers.length === 0 && <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada pengurus kelas yang ditambahkan.</p>}
                     {officers.map((person) => {
                       const duty = officerDuties.find((item) => item.key === getOfficerDutyKey(person.role));
                       return (
@@ -400,10 +445,20 @@ const LandingPage = ({
         <section className={`py-16 bg-white dark:bg-[#0A1118] border-t border-slate-200 dark:border-slate-800 transition-colors duration-500 ${tabClass('beranda')}`}>
           <div className="max-w-3xl mx-auto px-6 text-center">
             <Quote className="h-8 w-8 text-cyan-200 dark:text-cyan-900 mx-auto mb-6 transition-colors" />
-            <p className="text-xl md:text-2xl font-serif text-slate-700 dark:text-slate-300 italic mb-6 leading-relaxed transition-colors">
-              "{quote.text}"
-            </p>
-            <p className="text-cyan-600 dark:text-cyan-500 font-bold tracking-widest text-xs uppercase transition-colors">— {quote.author}</p>
+            {isLoading ? (
+              <div className="space-y-3" aria-label="Memuat kutipan">
+                <SkeletonBar className="h-6 w-3/4 mx-auto" />
+                <SkeletonBar className="h-6 w-1/2 mx-auto" />
+                <SkeletonBar className="h-3 w-32 mx-auto" />
+              </div>
+            ) : quote.text ? (
+              <>
+                <p className="text-xl md:text-2xl font-serif text-slate-700 dark:text-slate-300 italic mb-6 leading-relaxed transition-colors">
+                  "{quote.text}"
+                </p>
+                <p className="text-cyan-600 dark:text-cyan-500 font-bold tracking-widest text-xs uppercase transition-colors">— {quote.author}</p>
+              </>
+            ) : null}
           </div>
         </section>
 
@@ -513,7 +568,7 @@ const LandingPage = ({
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all"
-                    placeholder="Contoh: Ferilee atau 10029381"
+                    placeholder="Contoh: Ferilee atau NISN Anda"
                   />
                 </div>
                 

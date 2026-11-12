@@ -73,8 +73,9 @@ const LandingPage = ({
   const calendarDays = Array.from({ length: new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0).getDate() }, (_, index) => index + 1);
   const calendarLeadingDays = Array.from({ length: new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1).getDay() }, () => null);
   const openFullCalendar = () => {
-    const nearestAgenda = [...agendaWithDates].sort((first, second) => first.date.getTime() - second.date.getTime())[0];
-    setCalendarDate(nearestAgenda?.date || new Date());
+    // Always open on the current month; agenda in other months stay
+    // reachable through the month navigation in the modal.
+    setCalendarDate(new Date());
     setShowCalendarModal(true);
   };
 
@@ -251,7 +252,7 @@ const LandingPage = ({
                 { label: "Rata-rata Hadir", value: stats.attendance, icon: Users, color: "text-cyan-600 dark:text-cyan-400" },
                 { label: "Rata-rata Nilai", value: stats.averageGrade, icon: Award, color: "text-orange-500 dark:text-orange-400" },
                 { label: "Total Siswa", value: stats.totalStudents, icon: BookOpen, color: "text-emerald-500 dark:text-emerald-400" },
-                { label: "Agenda Tersisa", value: agenda.length.toString(), icon: Clock, color: "text-purple-500 dark:text-purple-400" },
+                { label: "Agenda Tersisa", value: agendaWithDates.length.toString(), icon: Clock, color: "text-purple-500 dark:text-purple-400" },
               ].map((stat, idx) => (
                 <div key={idx} className="bg-slate-50 dark:bg-[#121C28] p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 hover:bg-slate-100 dark:hover:bg-[#162232] transition-colors group cursor-default shadow-sm dark:shadow-none">
                   <div className="flex items-center justify-between mb-4">
@@ -397,7 +398,9 @@ const LandingPage = ({
                   </h3>
                   <div className="space-y-5">
                     {isLoading && <><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></>}
-                    {agenda.map((item) => (
+                    {agenda.map((item) => {
+                      const parsedDate = agendaWithDates.find((entry) => entry.item.id === item.id)?.date;
+                      return (
                       <div key={item.id} className="flex items-start gap-4">
                         <div className="w-12 text-center shrink-0">
                           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{item.date.split(' ')[1]}</div>
@@ -405,10 +408,11 @@ const LandingPage = ({
                         </div>
                         <div className="pt-1">
                           <div className="font-medium text-slate-800 dark:text-white text-sm leading-tight transition-colors">{item.title}</div>
-                          <div className="text-xs text-slate-500 mt-1">{item.type}</div>
+                          <div className="text-xs text-slate-500 mt-1">{parsedDate ? `${item.type} · ${parsedDate.getDate()} ${monthShortNames[parsedDate.getMonth()]} ${parsedDate.getFullYear()}` : item.type}</div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <button onClick={openFullCalendar} className="w-full mt-6 py-2.5 rounded-xl bg-white dark:bg-[#0A1118] text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
                     Lihat Kalender Penuh

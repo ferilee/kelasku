@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw, Bell } from 'lucide-react';
+import { BookOpen, Users, Calendar, ExternalLink, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw, Bell } from 'lucide-react';
 import { useClassData, Student } from './ClassContext';
 import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDate';
 import { useNotifications } from './NotificationCenter';
@@ -37,14 +37,9 @@ type CaseStatus = 'terbuka' | 'ditangani' | 'selesai';
 type CasePriority = 'rendah' | 'sedang' | 'tinggi' | 'mendesak';
 type CaseVisibility = 'ringkasan' | 'sensitif';
 type CaseCategory = 'akademik' | 'presensi' | 'sikap' | 'sosial-emosional' | 'kesehatan' | 'keluarga-lingkungan' | 'lainnya';
-type AssignmentStatus = 'draft' | 'published' | 'archived';
-
-function apiErrorMessage(payload: { error?: string; code?: string } | null, fallback: string) {
-  if (payload?.code === 'STORAGE_FORBIDDEN') return 'Penyimpanan sekolah menolak akses. Hubungi administrator.';
-  if (payload?.code === 'STORAGE_NOT_FOUND') return 'Penyimpanan sekolah belum siap. Hubungi administrator.';
-  if (payload?.code === 'STORAGE_UNAVAILABLE') return 'Penyimpanan sekolah sedang tidak tersedia. Silakan coba lagi.';
-  return payload?.error || fallback;
-}
+const RAPOR_GRADE_TYPE = 'Rapor';
+const RAPOR_GRADE_NAME = 'Nilai Akhir Rapor';
+const SIMAK_URL = 'https://simak.smkpasirian-lmj.sch.id';
 
 function escapePrintHtml(value: string | null | undefined) {
   return (value || '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character));
@@ -1063,15 +1058,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [subjects, setSubjects] = useState<{ id: number; name: string }[]>([]);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState('Matematika');
-  const [showSubjectManager, setShowSubjectManager] = useState(false);
-  const [subjectName, setSubjectName] = useState('');
-  const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null);
-  const [showAddModalAcademic, setShowAddModalAcademic] = useState(false);
-  const [newAssessmentName, setNewAssessmentName] = useState('');
-  const [newAssessmentType, setNewAssessmentType] = useState<'Tugas' | 'Ulangan' | 'PTS' | 'PAS'>('Tugas');
-  const [academicSearch, setAcademicSearch] = useState('');
-  const [tempScores, setTempScores] = useState<Record<string, number | ''>>({});
   const [sessionAssessments, setSessionAssessments] = useState<{ name: string; type: string }[]>([]);
+  const [raporScores, setRaporScores] = useState<Record<string, number | ''>>({});
+  const [isSavingRapor, setIsSavingRapor] = useState(false);
 
   useEffect(() => {
     if (workspaceMode === 'teaching' && activeTeachingSubject) {
@@ -1087,13 +1076,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       if (res.ok) {
         const data = await res.json();
         setGradesList(data);
-        
-        // Build initial tempScores map
-        const initialTempScores: Record<string, number> = {};
-        data.forEach((g: any) => {
-          initialTempScores[`${g.userId}_${g.name}`] = g.score;
-        });
-        setTempScores(initialTempScores);
       }
     } catch (err) {
       console.error('Error fetching grades:', err);
@@ -1139,24 +1121,50 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
   }, [activeTab, fetchGrades, fetchSubjects]);
 
-  const handleSaveSubject = async () => {
-    const name = subjectName.trim();
-    if (!name) return;
-    const url = editingSubjectId ? `/api/subjects/${editingSubjectId}` : '/api/subjects';
-    const res = await fetch(url, { method: editingSubjectId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (!res.ok) return notify((await res.json()).error || 'Gagal menyimpan mata pelajaran.');
-    setSelectedSubject(name);
-    setSubjectName('');
-    setEditingSubjectId(null);
-    fetchSubjects();
-    fetchGrades();
-  };
+  useEffect(() => {
+    const initialRaporScores: Record<string, number> = {};
+    gradesList
+      .filter((g) => g.subject === selectedSubject && g.type === RAPOR_GRADE_TYPE && g.name === RAPOR_GRADE_NAME)
+      .forEach((g) => { initialRaporScores[String(g.userId)] = g.score; });
+    setRaporScores(initialRaporScores);
+  }, [gradesList, selectedSubject]);
 
-  const handleDeleteSubject = async (subject: { id: number; name: string }) => {
-    if (!(await confirm({ title: 'Hapus mata pelajaran', message: `Hapus mata pelajaran "${subject.name}"?`, danger: true, confirmLabel: 'Hapus' }))) return;
-    const res = await fetch(`/api/subjects/${subject.id}`, { method: 'DELETE' });
-    if (!res.ok) return notify((await res.json()).error || 'Gagal menghapus mata pelajaran.');
-    fetchSubjects();
+  const handleSaveRapor = async () => {
+    if (!classData.classId) return;
+    const scores = classData.students
+      .filter((student) => student.status === 'Aktif')
+      .map((student) => ({ userId: student.id, score: raporScores[String(student.id)] }))
+      .filter((item) => item.score !== undefined && item.score !== '')
+      .map((item) => ({ userId: item.userId, score: Number(item.score) }));
+    if (!scores.length) {
+      notify('Belum ada nilai akhir yang diisi untuk mata pelajaran ini.', 'warning');
+      return;
+    }
+    setIsSavingRapor(true);
+    try {
+      const res = await fetch('/api/grades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: selectedSubject,
+          type: RAPOR_GRADE_TYPE,
+          name: RAPOR_GRADE_NAME,
+          scores,
+          classId: classData.classId,
+        }),
+      });
+      if (!res.ok) {
+        notify((await res.json()).error || 'Gagal menyimpan nilai akhir rapor.', 'error');
+        return;
+      }
+      notify('Nilai akhir rapor berhasil disimpan!', 'success');
+      fetchGrades();
+    } catch (err) {
+      console.error('Error saving rapor grades:', err);
+      notify('Gagal menyimpan nilai akhir rapor.', 'error');
+    } finally {
+      setIsSavingRapor(false);
+    }
   };
 
   useEffect(() => {
@@ -1172,53 +1180,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setSessionAssessments(distinct);
   }, [gradesList, selectedSubject]);
 
-  const handleSaveGrades = async () => {
-    try {
-      for (const assessment of sessionAssessments) {
-        const scores = classData.students.map(s => {
-          const score = tempScores[`${s.id}_${assessment.name}`] ?? 0;
-          return { userId: s.id, score };
-        });
-        
-        await fetch('/api/grades', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subject: selectedSubject,
-            type: assessment.type,
-            name: assessment.name,
-            scores,
-            classId: classData.classId
-          })
-        });
-      }
-      notify('Nilai berhasil disimpan!');
-      fetchGrades();
-    } catch (err) {
-      console.error('Error saving grades:', err);
-      notify('Gagal menyimpan nilai.');
-    }
-  };
-
-  const handleDeleteAssessment = async (assessmentName: string, assessmentType: string) => {
-    const isConfirmed = await confirm({ title: 'Hapus kolom penilaian', message: `Apakah Anda yakin ingin menghapus kolom penilaian "${assessmentName}"?`, danger: true, confirmLabel: 'Hapus' });
-    if (!isConfirmed) return;
-    try {
-      const res = await fetch(`/api/grades/assessment?subject=${encodeURIComponent(selectedSubject)}&type=${assessmentType}&name=${encodeURIComponent(assessmentName)}&classId=${classData.classId}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        notify('Kolom penilaian berhasil dihapus!');
-        fetchGrades();
-      }
-    } catch (err) {
-      console.error('Error deleting assessment:', err);
-      notify('Gagal menghapus kolom penilaian.');
-    }
-  };
-
-  // Academic Sub-tabs & Bank Materi / Tugas States
-  const [academicSubTab, setAcademicSubTab] = useState<'grades' | 'materials' | 'schedule'>('grades');
+  // Academic Sub-tabs States
+  const [academicSubTab, setAcademicSubTab] = useState<'grades' | 'schedule'>('grades');
   const [showAddScheduleModal, setShowAddScheduleModal] = useState(false);
   const [newScheduleDay, setNewScheduleDay] = useState('Senin');
   const [newScheduleSubject, setNewScheduleSubject] = useState('');
@@ -1251,247 +1214,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [achievementDate, setAchievementDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [achievementDescription, setAchievementDescription] = useState('');
 
-  const [assignmentsList, setAssignmentsList] = useState<any[]>([]);
-  const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
-  const [showAddAssignmentModal, setShowAddAssignmentModal] = useState(false);
-  const [newAssignmentTitle, setNewAssignmentTitle] = useState('');
-  const [newAssignmentDesc, setNewAssignmentDesc] = useState('');
-  const [newAssignmentType, setNewAssignmentType] = useState<'tugas' | 'materi'>('tugas');
-  const [newAssignmentDueDate, setNewAssignmentDueDate] = useState('');
-  const [newAssignmentFilePath, setNewAssignmentFilePath] = useState('');
-  const [newAssignmentFile, setNewAssignmentFile] = useState<File | null>(null);
-  const [newAssignmentStatus, setNewAssignmentStatus] = useState<AssignmentStatus>('published');
-  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
-  const [newAssignmentTargetClassIds, setNewAssignmentTargetClassIds] = useState<string[]>([]);
-  const [editingAssignmentId, setEditingAssignmentId] = useState<number | null>(null);
-  
-  const [viewSubmissionsAssignmentId, setViewSubmissionsAssignmentId] = useState<number | null>(null);
-  const [submissionClassId, setSubmissionClassId] = useState('');
-  const [submissionsList, setSubmissionsList] = useState<any[]>([]);
-  const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
-  const [tempSubGrades, setTempSubGrades] = useState<Record<number, number | ''>>({});
-  const [submissionSearch, setSubmissionSearch] = useState('');
-  const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | 'submitted' | 'pending' | 'ungraded' | 'late'>('all');
-
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (selectedActivityStudentId) setSelectedActivityStudentId(null);
-      else if (viewSubmissionsAssignmentId !== null) setViewSubmissionsAssignmentId(null);
-      else if (showAddAssignmentModal) setShowAddAssignmentModal(false);
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [selectedActivityStudentId, viewSubmissionsAssignmentId, showAddAssignmentModal]);
-
-  const filteredSubmissions = submissionsList.filter((submission) => {
-    const query = submissionSearch.trim().toLowerCase();
-    const matchesSearch = !query || submission.studentName.toLowerCase().includes(query) || String(submission.studentNisn || '').includes(query);
-    const matchesStatus = submissionStatusFilter === 'all'
-      || (submissionStatusFilter === 'submitted' && submission.hasSubmitted)
-      || (submissionStatusFilter === 'pending' && !submission.hasSubmitted)
-      || (submissionStatusFilter === 'ungraded' && submission.hasSubmitted && submission.grade === null)
-      || (submissionStatusFilter === 'late' && submission.late);
-    return matchesSearch && matchesStatus;
-  });
-
-  const [assignmentSearch, setAssignmentSearch] = useState('');
-  const [assignmentTypeFilter, setAssignmentTypeFilter] = useState<'all' | 'tugas' | 'materi'>('all');
-  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<'all' | AssignmentStatus>('all');
-  const [assignmentClassFilter, setAssignmentClassFilter] = useState('all');
-  const [assignmentSort, setAssignmentSort] = useState<'newest' | 'dueSoon'>('newest');
-
-  const filteredAssignments = assignmentsList
-    .filter((item) => {
-      const query = assignmentSearch.trim().toLowerCase();
-      const matchesQuery = !query || item.title.toLowerCase().includes(query) || (item.description || '').toLowerCase().includes(query);
-      const matchesType = assignmentTypeFilter === 'all' || item.type === assignmentTypeFilter;
-      const matchesStatus = assignmentStatusFilter === 'all' || (item.status || 'published') === assignmentStatusFilter;
-      const matchesClass = assignmentClassFilter === 'all' || (item.targetClassIds || []).includes(Number(assignmentClassFilter));
-      return matchesQuery && matchesType && matchesStatus && matchesClass;
-    })
-    .sort((a, b) => assignmentSort === 'dueSoon'
-      ? (a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER) - (b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER)
-      : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const fetchAssignments = useCallback(async () => {
-    setIsLoadingAssignments(true);
-    try {
-      const res = await fetch('/api/assignments');
-      if (res.ok) {
-        const data = await res.json();
-        setAssignmentsList(data);
-      }
-    } catch (err) {
-      console.error('Error fetching assignments:', err);
-    } finally {
-      setIsLoadingAssignments(false);
-    }
-  }, []);
-
-  const openNewAssignmentModal = () => {
-    setEditingAssignmentId(null);
-    setNewAssignmentTitle('');
-    setNewAssignmentDesc('');
-    setNewAssignmentType('tugas');
-    setNewAssignmentDueDate('');
-    setNewAssignmentFilePath('');
-    setNewAssignmentFile(null);
-    setNewAssignmentStatus('published');
-    setNewAssignmentTargetClassIds(classData.classId ? [classData.classId] : []);
-    setShowAddAssignmentModal(true);
-  };
-
-  const openEditAssignmentModal = (item: any) => {
-    setEditingAssignmentId(item.id);
-    setNewAssignmentTitle(item.title || '');
-    setNewAssignmentDesc(item.description || '');
-    setNewAssignmentType(item.type === 'materi' ? 'materi' : 'tugas');
-    setNewAssignmentDueDate(item.dueDate ? new Date(item.dueDate).toISOString().slice(0, 16) : '');
-    setNewAssignmentFilePath(item.filePath || '');
-    setNewAssignmentFile(null);
-    setNewAssignmentStatus(item.status || 'published');
-    setNewAssignmentTargetClassIds((item.targetClassIds || []).map((id: number | string) => String(id)));
-    setShowAddAssignmentModal(true);
-  };
-
-  const handleCreateAssignment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAssignmentTitle.trim()) {
-      notify('Judul tidak boleh kosong!');
-      return;
-    }
-    if (!newAssignmentTargetClassIds.length) {
-      notify('Pilih setidaknya satu kelas tujuan.');
-      return;
-    }
-
-    setIsSavingAssignment(true);
-    try {
-      const res = await fetch(editingAssignmentId ? `/api/assignments/${editingAssignmentId}` : '/api/assignments', {
-        method: editingAssignmentId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newAssignmentTitle.trim(),
-          description: newAssignmentDesc.trim(),
-          type: newAssignmentType,
-          status: newAssignmentStatus,
-          filePath: newAssignmentFilePath.trim() || null,
-          dueDate: newAssignmentType === 'tugas' && newAssignmentDueDate ? newAssignmentDueDate : null,
-          targetClassIds: newAssignmentTargetClassIds,
-        })
-      });
-
-      if (res.ok) {
-        const savedAssignment = await res.json();
-        if (newAssignmentFile) {
-          const fileForm = new FormData();
-          fileForm.append('file', newAssignmentFile);
-          const fileResponse = await fetch(`/api/assignments/${savedAssignment.id}/file`, { method: 'POST', body: fileForm });
-          if (!fileResponse.ok) {
-            const payload = await fileResponse.json().catch(() => null) as { error?: string; code?: string } | null;
-            notify(apiErrorMessage(payload, 'File pendukung gagal diunggah.'), 'error');
-            setIsSavingAssignment(false);
-            fetchAssignments();
-            return;
-          }
-        }
-        notify(editingAssignmentId ? 'Materi atau tugas berhasil diperbarui!' : (newAssignmentType === 'tugas' ? 'Tugas berhasil dibuat!' : 'Materi berhasil dibagikan!'));
-        setShowAddAssignmentModal(false);
-        setEditingAssignmentId(null);
-        fetchAssignments();
-      } else {
-        const payload = await res.json().catch(() => null) as { error?: string } | null;
-        notify(apiErrorMessage(payload, 'Gagal menyimpan.'), 'error');
-      }
-    } catch (err) {
-      console.error('Error saving assignment:', err);
-      notify('Terjadi kesalahan saat menyimpan.', 'error');
-    } finally {
-      setIsSavingAssignment(false);
-    }
-  };
-
-  const handleDeleteAssignment = async (id: number) => {
-    const isConfirmed = await confirm({ title: 'Hapus item', message: 'Apakah Anda yakin ingin menghapus item ini?', danger: true, confirmLabel: 'Hapus' });
-    if (!isConfirmed) return;
-    try {
-      const res = await fetch(`/api/assignments/${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        notify('Berhasil dihapus!');
-        fetchAssignments();
-      }
-    } catch (err) {
-      console.error('Error deleting assignment:', err);
-      notify('Gagal menghapus.');
-    }
-  };
-
-  const fetchSubmissions = useCallback(async (assignmentId: number, requestedClassId = submissionClassId || classData.classId || '') => {
-    if (!requestedClassId) {
-      setSubmissionsList([]);
-      return;
-    }
-    setIsLoadingSubmissions(true);
-    try {
-      const res = await fetch(`/api/assignments/${assignmentId}/submissions?classId=${encodeURIComponent(requestedClassId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSubmissionsList(data);
-        
-        // Build temp grades map
-        const initialTempGrades: Record<number, number> = {};
-        data.forEach((s: any) => {
-          if (s.grade !== null) {
-            initialTempGrades[s.studentId] = s.grade;
-          }
-        });
-        setTempSubGrades(initialTempGrades);
-      } else {
-        const payload = await res.json().catch(() => null) as { error?: string; code?: string } | null;
-        notify(apiErrorMessage(payload, 'Gagal memuat pengumpulan tugas.'), 'error');
-      }
-    } catch (err) {
-      console.error('Error fetching submissions:', err);
-    } finally {
-      setIsLoadingSubmissions(false);
-    }
-  }, [classData.classId, submissionClassId]);
-
-  const handleSaveSubmissionGrade = async (studentId: number, gradeVal: number) => {
-    if (viewSubmissionsAssignmentId === null) return;
-    try {
-      const res = await fetch(`/api/assignments/${viewSubmissionsAssignmentId}/student/${studentId}/grade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grade: gradeVal })
-      });
-      if (res.ok) {
-        fetchSubmissions(viewSubmissionsAssignmentId, submissionClassId);
-        notify('Nilai berhasil disimpan.', 'success');
-      } else {
-        const payload = await res.json().catch(() => null) as { error?: string; code?: string } | null;
-        notify(apiErrorMessage(payload, 'Gagal menyimpan nilai.'), 'error');
-      }
-    } catch (err) {
-      console.error('Error grading submission:', err);
-      notify('Gagal menyimpan nilai.');
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === 'academic') {
-      fetchAssignments();
-    }
-  }, [activeTab, fetchAssignments]);
-
-  useEffect(() => {
-    if (viewSubmissionsAssignmentId !== null) {
-      fetchSubmissions(viewSubmissionsAssignmentId);
-    }
-  }, [viewSubmissionsAssignmentId, fetchSubmissions, submissionClassId]);
+  }, [selectedActivityStudentId]);
 
   const getSholatCount = (prayerAttendance: { Berjamaah: number; Munfarid: number }) =>
     prayerAttendance.Berjamaah + prayerAttendance.Munfarid;
@@ -1836,31 +1566,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       <table><thead><tr><th>No</th><th>Nama Siswa</th><th>L/P</th><th>Poin Positif</th><th>Poin Negatif</th><th>Skor Akhir</th><th>Predikat</th></tr></thead><tbody>${rows}</tbody></table>
       <p class="footer">Wali Kelas,<br><br><br><b>Feri Dwi Hermawan, S.Pd.</b></p>
     `);
-  };
-
-  const handlePrintTeachingGradesPDF = () => {
-    if (!activeTeachingSubject) return notify('Pilih kelas dan mata pelajaran dari Dashboard Saya terlebih dahulu.');
-    const assessments = teachingAssessments;
-    if (!assessments.length) return notify('Belum ada data penilaian untuk mata pelajaran ini.');
-
-    const headers = assessments.map((assessment: { name: string; type: string }) => `<th>${assessment.type}<br>${assessment.name}</th>`).join('');
-    const rows = classData.students.map((student, index) => {
-      const scores: (number | undefined)[] = assessments.map((assessment: { name: string; type: string }) => gradesList.find((grade: any) =>
-        grade.userId === Number(student.id) && grade.subject === activeTeachingSubject && grade.type === assessment.type && grade.name === assessment.name
-      )?.score);
-      const filledScores = scores.filter((score): score is number => score !== undefined);
-      const average = filledScores.length ? Math.round(filledScores.reduce((sum, score) => sum + score, 0) / filledScores.length) : '-';
-      const predicate = typeof average === 'number' ? (average >= 90 ? 'Sangat Baik' : average >= 75 ? 'Baik' : 'Perlu Bimbingan') : '-';
-      return `<tr><td>${index + 1}</td><td class="name">${student.name}</td><td>${student.nisn}</td>${scores.map((score: number | undefined) => `<td>${score ?? '-'}</td>`).join('')}<td><b>${average}</b></td><td>${predicate}</td></tr>`;
-    }).join('');
-
-    printReportDocument(`Rekap Nilai ${activeTeachingSubject}`, `
-      <h1>REKAP NILAI MATA PELAJARAN</h1>
-      <p class="subtitle">${activeTeachingSubject} — ${classData.selectedClass}</p>
-      <p class="meta">Guru Pengajar: ${workspace?.user.name || 'Guru Pengajar'}<br>Periode: ${teachingReportPeriod} &nbsp; | &nbsp; Tahun Ajaran: ${classData.selectedYear} &nbsp; | &nbsp; KKM: 75</p>
-      <table><thead><tr><th>No</th><th>Nama Siswa</th><th>NISN</th>${headers}<th>Rata-rata</th><th>Predikat</th></tr></thead><tbody>${rows}</tbody></table>
-      <p class="footer">${new Date().toLocaleDateString('id-ID')}<br>Guru Mata Pelajaran,<br><br><br><b>${workspace?.user.name || 'Guru Pengajar'}</b></p>
-    `, true);
   };
 
   const handlePrintTeachingBehaviorPDF = () => {
@@ -2387,12 +2092,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       return matchSearch && matchGender && matchFriday && matchAlfa;
     });
 
-  const filteredAcademicStudents = classData.students
-    .filter(student => {
-      const matchSearch = student.name.toLowerCase().includes(academicSearch.toLowerCase()) || student.nisn.includes(academicSearch);
-      return matchSearch;
-    });
-
   const visibleBehaviorRecords = (classData.behaviorRecords || []).filter((record) => workspaceMode !== 'teaching' || record.subject === activeTeachingSubject);
   const filteredStudentCases = studentCases.filter((item) => {
     const query = monitoringSearch.trim().toLowerCase();
@@ -2404,13 +2103,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const openStudentCases = studentCases.filter((item) => item.status !== 'selesai').length;
   const urgentStudentCases = studentCases.filter((item) => item.status !== 'selesai' && (item.priority === 'tinggi' || item.priority === 'mendesak')).length;
   const overdueStudentCases = studentCases.filter((item) => item.status !== 'selesai' && item.dueDate && item.dueDate < new Date().toISOString().slice(0, 10)).length;
-  const teachingAssessments: { name: string; type: string }[] = gradesList
-    .filter((grade: any) => grade.subject === activeTeachingSubject)
-    .reduce((items: { name: string; type: string }[], grade: any) => (
-      items.some((item) => item.name === grade.name && item.type === grade.type)
-        ? items
-        : [...items, { name: grade.name, type: grade.type }]
-    ), []);
+  const raporStudents = classData.students.filter((student) => student.status === 'Aktif');
   const activeContext = workspaceMode === 'teaching'
     ? `${classData.selectedClass || 'Kelas belum dipilih'}${activeTeachingSubject ? ` · ${activeTeachingSubject}` : ''}`
     : classData.selectedClass || 'Kelas belum dipilih';
@@ -2628,11 +2321,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Buat jurnal mengajar</p>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Simpan materi dan kejadian kelas</p>
                     </button>
-                    {workspaceMode === 'teaching' ? <button type="button" onClick={() => { setAcademicSubTab('materials'); setActiveTab('academic'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
+                    {workspaceMode === 'teaching' ? <button type="button" onClick={() => { setAcademicSubTab('grades'); setActiveTab('academic'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
                       <BookOpen className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                       <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Pembelajaran</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Materi & tugas</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Bagikan materi dan pantau tugas</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Materi & tugas di SIMAK</p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Materi, LKPD, dan penugasan dikelola di SIMAK</p>
                     </button> : <button type="button" onClick={() => { setStudentView('roster'); setActiveTab('students'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
                       <Users className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                       <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Kelas aktif</p>
@@ -2642,7 +2335,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   </div>
                 </section>
                 {workspaceMode === 'homeroom' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Perwalian</h3><p className="text-xs text-slate-500">Akses penuh sebagai wali kelas.</p></div><Users className="h-5 w-5 text-blue-500" /></div>{workspace?.homeroomClasses.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{workspace.homeroomClasses.map((item) => <button key={item.id} onClick={async () => { await classData.selectClass(item.id); setWorkspaceMode('homeroom'); setActiveTeachingSubject(null); setActiveTab('dashboard'); }} className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:border-blue-300 hover:shadow-sm dark:border-blue-900/60 dark:bg-blue-950/20"><p className="font-bold text-slate-800 dark:text-slate-100">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.academicYear}</p><span className="mt-3 inline-block text-xs font-bold text-blue-600 dark:text-blue-400">Buka Dashboard Kelas →</span></button>)}</div> : <p className="py-4 text-sm text-slate-400">Belum ada kelas perwalian.</p>}</section>}
-                {workspaceMode === 'teaching' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka buku nilai mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Buku Nilai →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>}
+                {workspaceMode === 'teaching' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka konteks kelas dan mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Kelas →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>}
               </>)}
             </div>
           )}
@@ -3810,11 +3503,15 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
               {teachingReportCategory === 'grades' ? (
                 <div className="space-y-5">
-                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between">
-                    <div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rekap Nilai Mata Pelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Memuat komponen nilai, rata-rata, KKM, dan predikat untuk kelas serta mapel aktif.</p></div>
-                    <button onClick={handlePrintTeachingGradesPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-6 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Nilai Proses Dikelola di SIMAK</h3>
+                    <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                      Rekap nilai tugas, ulangan, dan penilaian proses untuk {activeTeachingSubject || 'mata pelajaran aktif'} — {classData.selectedClass} — tidak lagi dibuat dari buku nilai WebKelas. Nilai proses dikelola di SIMAK agar tidak tercatat ganda; laporan Presensi Mapel dan Sikap &amp; Karakter pada halaman ini tetap tersedia seperti sebelumnya.
+                    </p>
+                    <a href={SIMAK_URL} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700">
+                      Buka SIMAK <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    </a>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th>{teachingAssessments.map((assessment) => <th key={`${assessment.type}-${assessment.name}`} className="px-5 py-4 text-center whitespace-nowrap">{assessment.name}</th>)}<th className="px-5 py-4 text-center">Rata-rata</th></tr></thead><tbody>{classData.students.map((student) => { const scores: (number | undefined)[] = teachingAssessments.map((assessment) => gradesList.find((grade: any) => grade.userId === Number(student.id) && grade.subject === activeTeachingSubject && grade.type === assessment.type && grade.name === assessment.name)?.score); const filled = scores.filter((score): score is number => score !== undefined); const average = filled.length ? Math.round(filled.reduce((sum, score) => sum + score, 0) / filled.length) : '-'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td>{scores.map((score, index) => <td key={index} className="px-5 py-3 text-center">{score ?? '-'}</td>)}<td className="px-5 py-3 text-center font-bold">{average}</td></tr>; })}</tbody></table></div></div>
                 </div>
               ) : teachingReportCategory === 'behavior' ? (
                 <div className="space-y-5">
@@ -4049,17 +3746,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />Buku Nilai Digital</span>
-                </button>
-                <button
-                  onClick={() => setAcademicSubTab('materials')}
-                  className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
-                    academicSubTab === 'materials'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2"><BookOpen className="h-4 w-4" aria-hidden="true" />Bank Materi & Tugas</span>
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />{workspaceMode === 'teaching' ? 'Jembatan SIMAK' : 'Rekap Nilai Rapor'}</span>
                 </button>
                 <button
                   onClick={() => setAcademicSubTab('schedule')}
@@ -4073,22 +3760,42 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </button>
               </div>
 
-              {academicSubTab === 'grades' && (
+              {academicSubTab === 'grades' && workspaceMode === 'teaching' && (
+                <div className="space-y-6">
+                  <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm dark:border-blue-900/50 dark:from-slate-800 dark:to-slate-800 sm:p-8">
+                    <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Mode Pengajar · Jembatan SIMAK</p>
+                    <h3 className="mt-2 text-2xl font-black text-slate-800 dark:text-slate-100">Materi &amp; Penilaian Berlanjut di SIMAK</h3>
+                    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                      Materi, LKPD, penugasan, dan penilaian proses untuk kelas dan mata pelajaran yang sedang dibuka dikelola di SIMAK — Sumber Informasi, Materi, dan Aktivitas Kelas. WebKelas tidak lagi menyimpan buku nilai mode Pengajar agar nilai tidak tercatat ganda di dua tempat.
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">Kelas: {classData.selectedClass || 'Belum dipilih'}</span>
+                      <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-violet-700 shadow-sm ring-1 ring-violet-200 dark:bg-slate-900 dark:text-violet-300 dark:ring-violet-800">Mata Pelajaran: {activeTeachingSubject || selectedSubject}</span>
+                    </div>
+                    <a
+                      href={SIMAK_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+                    >
+                      Buka SIMAK <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    </a>
+                    <p className="mt-3 text-xs text-slate-400">SIMAK terbuka di tab baru. Presensi mapel, sikap &amp; karakter, dan jadwal tetap dikelola di WebKelas.</p>
+                  </div>
+                </div>
+              )}
+
+              {academicSubTab === 'grades' && workspaceMode !== 'teaching' && (
                 <div className="space-y-6">
                   <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                     <div>
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Buku Nilai Digital</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Kelola nilai tugas, ulangan harian, PTS, dan PAS siswa secara realtime.</p>
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Rekap Nilai Rapor</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Satu nilai akhir semester per siswa untuk kelas perwalian {classData.selectedClass}. Nilai ini menjadi sumber rata-rata kelas dan peringkat akademik di halaman publik kelas.</p>
                     </div>
-                    
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Mata Pelajaran:</span>
-                        {workspaceMode === 'teaching' ? (
-                          <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-bold text-violet-700 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-300" title="Mata pelajaran mengikuti penugasan guru">
-                            <Lock className="h-4 w-4" /> {activeTeachingSubject || selectedSubject}
-                          </div>
-                        ) : (<><select
+                        <select
                           value={selectedSubject}
                           onChange={(e) => setSelectedSubject(e.target.value)}
                           className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium"
@@ -4097,66 +3804,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             <option key={subject.id} value={subject.name}>{subject.name}</option>
                           ))}
                         </select>
-                        <button onClick={() => { setShowSubjectManager(!showSubjectManager); setSubjectName(''); setEditingSubjectId(null); }} className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg" title="Kelola Mata Pelajaran" aria-label="Kelola Mata Pelajaran">
-                          <Settings className="h-4 w-4" />
-                        </button></>)}
                       </div>
-
-                      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto">
                       <button
-                        onClick={() => {
-                          setNewAssessmentName('');
-                          setNewAssessmentType('Tugas');
-                          setShowAddModalAcademic(true);
-                        }}
-                        className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 sm:px-4 py-2 rounded-lg transition-all shadow-sm"
+                        onClick={handleSaveRapor}
+                        disabled={isSavingRapor}
+                        className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all shadow-sm"
                       >
-                        <Plus className="h-4 w-4" /> Tambah Penilaian
+                        <Save className="h-4 w-4" /> {isSavingRapor ? 'Menyimpan…' : 'Simpan Nilai Akhir'}
                       </button>
-
-                      <button
-                        onClick={handleSaveGrades}
-                        className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 sm:px-4 py-2 rounded-lg transition-all shadow-sm"
-                      >
-                        <Save className="h-4 w-4" /> Simpan Semua Nilai
-                      </button>
-                      </div>
                     </div>
                   </div>
 
-                  {showSubjectManager && (
-                    <div className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                      <div className="flex items-center justify-between mb-4"><h4 className="font-bold text-slate-800 dark:text-slate-100">Kelola Mata Pelajaran</h4><button onClick={() => setShowSubjectManager(false)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button></div>
-                      <div className="flex gap-2 mb-4"><input value={subjectName} onChange={(e) => setSubjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveSubject()} placeholder="Nama mata pelajaran" className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-100" /><button onClick={handleSaveSubject} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">{editingSubjectId ? 'Simpan' : 'Tambah'}</button></div>
-                      <div className="space-y-2">{subjects.map((subject) => <div key={subject.id} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-900 px-3 py-2"><span className="text-sm text-slate-700 dark:text-slate-200">{subject.name}</span><div className="flex gap-1"><button onClick={() => { setEditingSubjectId(subject.id); setSubjectName(subject.name); }} className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded" aria-label={`Ubah ${subject.name}`}><Edit2 className="h-4 w-4" /></button><button onClick={() => handleDeleteSubject(subject)} className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded" aria-label={`Hapus ${subject.name}`}><Trash2 className="h-4 w-4" /></button></div></div>)}</div>
-                    </div>
-                  )}
-
-                  {/* Search & Statistics summary for Gradebook */}
-                  <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex-1 relative">
-                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                        <Search className="h-4 w-4" />
-                      </span>
-                      <input
-                        type="text"
-                        value={academicSearch}
-                        onChange={(e) => setAcademicSearch(e.target.value)}
-                        placeholder="Cari berdasarkan nama siswa..."
-                        className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-6">
-                      <div className="text-right">
-                        <span className="text-xs text-slate-400 block">Total Kolom Penilaian</span>
-                        <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{sessionAssessments.length} Kolom</span>
-                      </div>
-                      <div className="text-right border-l border-slate-200 dark:border-slate-700 pl-6">
-                        <span className="text-xs text-slate-400 block">KKM Kelas</span>
-                        <span className="text-sm font-bold text-blue-600 dark:text-blue-400">75</span>
-                      </div>
-                    </div>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs leading-relaxed text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-200">
+                    Nilai tersimpan sebagai satu kolom penilaian <b>“{RAPOR_GRADE_NAME}”</b> untuk mata pelajaran terpilih. Mengubah nilai lalu menekan <b>Simpan Nilai Akhir</b> akan memperbarui nilai yang sama — tidak membuat kolom baru. Nilai proses (tugas, ulangan, PTS, PAS) dikelola di SIMAK dan tidak dicatat di sini.
                   </div>
 
                   <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -4167,98 +3827,51 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                             <th className="px-6 py-4" style={{ width: '5%' }}>No</th>
                             <th className="px-6 py-4" style={{ minWidth: '200px' }}>Nama Lengkap</th>
                             <th className="px-6 py-4 text-center">NISN</th>
-                            
-                            {sessionAssessments.map((assessment) => (
-                              <th key={assessment.name} className="px-6 py-4 text-center relative group min-w-[140px]">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono uppercase scale-90">
-                                    {assessment.type}
-                                  </span>
-                                  <span className="truncate max-w-[100px]" title={assessment.name}>{assessment.name}</span>
-                                  
-                                  <button
-                                    onClick={() => handleDeleteAssessment(assessment.name, assessment.type)}
-                                    className="opacity-0 group-hover:opacity-100 hover:text-red-500 p-0.5 rounded transition-all ml-1"
-                                    title="Hapus kolom ini"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              </th>
-                            ))}
-                            
-                            <th className="px-6 py-4 text-center font-bold text-slate-800 dark:text-slate-100 min-w-[100px]">Rata-Rata</th>
+                            <th className="px-6 py-4 text-center" style={{ minWidth: '160px' }}>Nilai Akhir Semester (0–100)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                           {isLoadingGrades ? (
                             <tr>
-                              <td colSpan={4 + sessionAssessments.length} className="text-center py-8 text-slate-400">Loading data penilaian...</td>
+                              <td colSpan={4} className="text-center py-8 text-slate-400">Memuat data nilai…</td>
                             </tr>
-                          ) : filteredAcademicStudents.length === 0 ? (
+                          ) : raporStudents.length === 0 ? (
                             <tr>
-                              <td colSpan={4 + sessionAssessments.length} className="text-center py-8 text-slate-400">Tidak ada data siswa yang cocok dengan filter.</td>
+                              <td colSpan={4} className="text-center py-8 text-slate-400">Belum ada siswa Aktif pada kelas ini.</td>
                             </tr>
                           ) : (
-                            filteredAcademicStudents.map((student, index) => {
-                              let totalScore = 0;
-                              let count = 0;
-                              sessionAssessments.forEach(assessment => {
-                                const val = tempScores[`${student.id}_${assessment.name}`];
-                                if (val !== undefined && val !== null && val !== '') {
-                                  totalScore += Number(val);
-                                  count++;
-                                }
-                              });
-                              const average = count > 0 ? Math.round(totalScore / count) : null;
-
+                            raporStudents.map((student, index) => {
+                              const currentVal = raporScores[String(student.id)] ?? '';
+                              const isBelowKkm = currentVal !== '' && Number(currentVal) < 75;
                               return (
                                 <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                                   <td className="px-6 py-4 text-xs font-mono text-slate-400">{index + 1}</td>
                                   <td className="px-6 py-4 font-medium text-slate-800 dark:text-slate-200">{student.name}</td>
-                                  <td className="px-6 py-4 text-xs font-mono">{student.nisn}</td>
-                                  
-                                  {sessionAssessments.map((assessment) => {
-                                    const scoreKey = `${student.id}_${assessment.name}`;
-                                    const currentVal = tempScores[scoreKey] ?? '';
-                                    const isBelowKkm = currentVal !== '' && Number(currentVal) < 75;
-
-                                    return (
-                                      <td key={assessment.name} className="px-6 py-3 text-center">
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          max="100"
-                                          value={currentVal}
-                                          onChange={(e) => {
-                                            const valStr = e.target.value;
-                                            const scoreVal = valStr === '' ? '' : Math.min(100, Math.max(0, parseInt(valStr) || 0));
-                                            setTempScores(prev => ({
-                                              ...prev,
-                                              [scoreKey]: scoreVal
-                                            }));
-                                          }}
-                                          className={`w-16 px-2 py-1 text-center text-sm font-semibold rounded-lg border focus:outline-none transition-colors ${
-                                            isBelowKkm 
-                                              ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 focus:border-red-500 focus:ring-1 focus:ring-red-500' 
-                                              : currentVal !== ''
-                                                ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
-                                                : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
-                                          }`}
-                                          placeholder="0"
-                                        />
-                                      </td>
-                                    );
-                                  })}
-                                  
-                                  <td className="px-6 py-4 text-center font-bold">
-                                    {average !== null ? (
-                                      <span className={average < 75 ? 'text-red-500 font-semibold' : 'text-emerald-500 font-semibold'}>
-                                        {average}
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-400">-</span>
-                                    )}
+                                  <td className="px-6 py-4 text-xs font-mono text-center">{student.nisn}</td>
+                                  <td className="px-6 py-3 text-center">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      value={currentVal}
+                                      onChange={(e) => {
+                                        const valStr = e.target.value;
+                                        const scoreVal = valStr === '' ? '' : Math.min(100, Math.max(0, parseInt(valStr) || 0));
+                                        setRaporScores(prev => ({
+                                          ...prev,
+                                          [String(student.id)]: scoreVal
+                                        }));
+                                      }}
+                                      className={`w-20 px-2 py-1 text-center text-sm font-semibold rounded-lg border focus:outline-none transition-colors ${
+                                        isBelowKkm
+                                          ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+                                          : currentVal !== ''
+                                            ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                                            : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                                      }`}
+                                      placeholder="—"
+                                      aria-label={`Nilai akhir ${student.name}`}
+                                    />
                                   </td>
                                 </tr>
                               );
@@ -4268,141 +3881,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       </table>
                     </div>
                   </div>
-                </div>
-              )}
-
-              {academicSubTab === 'materials' && (
-                <div className="space-y-6">
-                  <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Bank Materi & Tugas</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Bagikan materi belajar dan pantau pengumpulan tugas siswa.</p>
-                    </div>
-                    
-                    <button
-                      onClick={openNewAssignmentModal}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-all shadow-sm"
-                    >
-                      <Plus className="h-4 w-4" /> Tambah Materi / Tugas
-                    </button>
-                  </div>
-
-                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-5">
-                    <label className="relative lg:col-span-2"><span className="sr-only">Cari materi atau tugas</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={assignmentSearch} onChange={(event) => setAssignmentSearch(event.target.value)} placeholder="Cari materi atau tugas..." className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" /></label>
-                    <select aria-label="Filter tipe konten" value={assignmentTypeFilter} onChange={(event) => setAssignmentTypeFilter(event.target.value as typeof assignmentTypeFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua tipe</option><option value="tugas">Tugas</option><option value="materi">Materi</option></select>
-                    <select aria-label="Filter status konten" value={assignmentStatusFilter} onChange={(event) => setAssignmentStatusFilter(event.target.value as typeof assignmentStatusFilter)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua status</option><option value="draft">Draft</option><option value="published">Terbit</option><option value="archived">Arsip</option></select>
-                    <select aria-label="Filter kelas tujuan" value={assignmentClassFilter} onChange={(event) => setAssignmentClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{classData.classes.filter((item) => item.status === 'Aktif').map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-                    <select aria-label="Urutkan materi dan tugas" value={assignmentSort} onChange={(event) => setAssignmentSort(event.target.value as typeof assignmentSort)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><option value="newest">Terbaru dibuat</option><option value="dueSoon">Tenggat terdekat</option></select>
-                  </div>
-
-                  {isLoadingAssignments ? (
-                    <div className="text-center py-12 text-slate-400">Memuat data bank materi...</div>
-                  ) : assignmentsList.length === 0 ? (
-                    <div className="text-center py-16 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                      <FileText className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-                      <h4 className="font-semibold text-slate-600 dark:text-slate-400">Belum ada materi atau tugas</h4>
-                      <p className="text-sm text-slate-400 mt-1">Klik tombol di atas untuk membagikan materi pertama Anda.</p>
-                    </div>
-                  ) : filteredAssignments.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center dark:border-slate-700 dark:bg-slate-800"><Search className="mx-auto mb-3 h-10 w-10 text-slate-300 dark:text-slate-600" /><h4 className="font-semibold text-slate-600 dark:text-slate-400">Tidak ada item yang sesuai</h4><p className="mt-1 text-sm text-slate-400">Ubah kata kunci atau filter pencarian.</p></div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {filteredAssignments.map((item) => (
-                        <div key={item.id} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col justify-between hover:shadow-md transition-all duration-300">
-                          <div>
-                            <div className="flex justify-between items-start mb-4">
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg ${
-                                  item.type === 'tugas'
-                                    ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50'
-                                    : 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/50'
-                                }`}>
-                                  {item.type === 'tugas' ? 'Tugas' : 'Materi'}
-                                </span>
-                                <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${item.status === 'draft' ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300' : item.status === 'archived' ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'}`}>{item.status === 'draft' ? 'Draft' : item.status === 'archived' ? 'Arsip' : 'Terbit'}</span>
-                                <div className="flex flex-wrap gap-1">
-                                  {(item.targetClasses || []).map((target: any) => (
-                                    <span key={target.id} className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-300" title={`${target.name} · ${target.academicYear}`}>
-                                      Kelas {target.name}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => openEditAssignmentModal(item)}
-                                  className="text-slate-400 hover:text-blue-500 p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                                  title="Edit"
-                                  aria-label={`Edit ${item.title}`}
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteAssignment(item.id)}
-                                  className="text-slate-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                                  title="Hapus"
-                                  aria-label={`Hapus ${item.title}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </div>
-                            
-                            <h4 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-2">{item.title}</h4>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 mb-4">{item.description || 'Tidak ada deskripsi.'}</p>
-                            
-                            {item.filePath && (
-                              <div className="flex items-center gap-2 mb-4 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
-                                <FileText className="h-4 w-4 text-blue-600" />
-                                <span className="text-xs text-slate-600 dark:text-slate-400 truncate max-w-[220px]" title={item.fileName || item.filePath}>
-                                  {item.fileName || 'File pendukung'}
-                                </span>
-                                <a 
-                                  href={item.fileDownloadUrl || item.filePath}
-                                  target="_blank" 
-                                  rel="noreferrer"
-                                  className="text-xs text-blue-600 hover:underline font-bold ml-auto"
-                                >
-                                  Lihat File
-                                </a>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="border-t border-slate-100 dark:border-slate-700/50 pt-4 mt-2 flex justify-between items-center text-xs">
-                            <div>
-                              <span className="text-slate-400 block">Dibuat Pada</span>
-                              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                {new Date(item.createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                              </span>
-                            </div>
-                            
-                            {item.type === 'tugas' ? (
-                              <>
-                                <div>
-                                  <span className="text-slate-400 block">Tenggat Waktu</span>
-                                  <span className="font-semibold text-red-500">
-                                    {item.dueDate 
-                                      ? new Date(item.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
-                                      : '-'
-                                    }
-                                  </span>
-                                </div>
-                                <button
-                                  onClick={() => { setSubmissionSearch(''); setSubmissionStatusFilter('all'); setSubmissionClassId(String(item.targetClassIds?.[0] || classData.classId || '')); setViewSubmissionsAssignmentId(item.id); }}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-lg transition-all"
-                                >
-                                  Lihat Pengumpulan
-                                </button>
-                              </>
-                            ) : (
-                              <span className="text-slate-400 italic">Materi Belajar</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -5242,401 +4720,6 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
       {showLearningInterventionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"><div onClick={() => setShowLearningInterventionModal(false)} className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" /><div className="relative z-10 max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800" role="dialog" aria-modal="true" aria-labelledby="learning-intervention-title"><div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-slate-700"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Rencana Dukungan</p><h3 id="learning-intervention-title" className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Buat kelompok intervensi</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{selectedInterventionStudentIds.length} siswa dipilih · {learningSummarySubject} · {learningSummaryTopic}</p></div><button type="button" onClick={() => setShowLearningInterventionModal(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup dialog intervensi"><X className="h-5 w-5" /></button></div><form onSubmit={handleSaveLearningIntervention} className="mt-5 space-y-4"><label className="block text-xs font-bold text-slate-500">Nama kelompok / rencana<input value={learningInterventionForm.title} onChange={(event) => setLearningInterventionForm((current) => ({ ...current, title: event.target.value }))} placeholder="Contoh: Math Recovery Barisan dan Deret" className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="block text-xs font-bold text-slate-500">Tujuan belajar<textarea value={learningInterventionForm.goal} onChange={(event) => setLearningInterventionForm((current) => ({ ...current, goal: event.target.value }))} placeholder="Contoh: siswa mampu menjelaskan makna beda sebelum menggunakan rumus." rows={3} className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><label className="block text-xs font-bold text-slate-500">Strategi / aktivitas<textarea value={learningInterventionForm.strategy} onChange={(event) => setLearningInterventionForm((current) => ({ ...current, strategy: event.target.value }))} placeholder="Contoh: gunakan pola konkret, diskusi berpasangan, lalu checkpoint 10 menit." rows={3} className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" required /></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-slate-500">Tanggal rencana<input type="date" value={learningInterventionForm.scheduledDate} onChange={(event) => setLearningInterventionForm((current) => ({ ...current, scheduledDate: event.target.value }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /></label><label className="text-xs font-bold text-slate-500">Status<select value={learningInterventionForm.status} onChange={(event) => setLearningInterventionForm((current) => ({ ...current, status: event.target.value as LearningInterventionStatus }))} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="rencana">Rencana</option><option value="berjalan">Berjalan</option><option value="selesai">Selesai</option></select></label></div><div className="flex gap-3 pt-2"><button type="button" onClick={() => setShowLearningInterventionModal(false)} className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600">Batal</button><button type="submit" disabled={isSavingLearningIntervention} className="flex-1 rounded-xl bg-violet-600 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">{isSavingLearningIntervention ? 'Menyimpan…' : 'Simpan rencana'}</button></div></form></div></div>
-      )}
-
-      {/* Add Assessment Modal */}
-      {showAddModalAcademic && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            onClick={() => setShowAddModalAcademic(false)}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-          ></div>
-          
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative" role="dialog" aria-modal="true" aria-labelledby="assessment-modal-title">
-            <button 
-              onClick={() => setShowAddModalAcademic(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <h3 id="assessment-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              Tambah Kolom Penilaian
-            </h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nama Penilaian</label>
-                <input 
-                  type="text" 
-                  value={newAssessmentName}
-                  onChange={(e) => setNewAssessmentName(e.target.value)}
-                  placeholder="Misal: Tugas 1, Ulangan Harian 2" 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kategori</label>
-                <select 
-                  value={newAssessmentType}
-                  onChange={(e) => setNewAssessmentType(e.target.value as any)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 cursor-pointer"
-                >
-                  <option value="Tugas">Tugas</option>
-                  <option value="Ulangan">Ulangan</option>
-                  <option value="PTS">PTS</option>
-                  <option value="PAS">PAS</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button 
-                  onClick={() => setShowAddModalAcademic(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl transition-all"
-                >
-                  Batal
-                </button>
-                <button 
-                  onClick={() => {
-                    if (!newAssessmentName.trim()) {
-                      notify('Nama penilaian tidak boleh kosong!');
-                      return;
-                    }
-                    const exists = sessionAssessments.some(a => a.name.toLowerCase() === newAssessmentName.trim().toLowerCase());
-                    if (exists) {
-                      notify('Nama penilaian sudah ada!');
-                      return;
-                    }
-                    setSessionAssessments(prev => [...prev, { name: newAssessmentName.trim(), type: newAssessmentType }]);
-                    setShowAddModalAcademic(false);
-                  }}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)] hover:shadow-[0_0_25px_rgba(37,99,235,0.3)]"
-                >
-                  Tambah
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Assignment Modal */}
-      {showAddAssignmentModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            onClick={() => setShowAddAssignmentModal(false)}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-          ></div>
-          
-          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative max-h-[90vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="assignment-modal-title">
-            <button 
-              onClick={() => setShowAddAssignmentModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <h3 id="assignment-modal-title" className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-              {editingAssignmentId ? <Edit2 className="h-5 w-5 text-blue-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
-              {editingAssignmentId ? 'Edit Materi / Tugas' : 'Tambah Materi / Tugas'}
-            </h3>
-            
-            <form onSubmit={handleCreateAssignment} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Judul</label>
-                <input 
-                  type="text" 
-                  value={newAssignmentTitle}
-                  onChange={(e) => setNewAssignmentTitle(e.target.value)}
-                  placeholder="Misal: Tugas Matematika Aljabar" 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Deskripsi</label>
-                <textarea 
-                  value={newAssignmentDesc}
-                  onChange={(e) => setNewAssignmentDesc(e.target.value)}
-                  placeholder="Deskripsi tugas atau petunjuk pengerjaan..." 
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 h-24 resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tipe</label>
-                <select 
-                  value={newAssignmentType}
-                  onChange={(e) => setNewAssignmentType(e.target.value as any)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 cursor-pointer"
-                >
-                  <option value="tugas">Tugas (Memerlukan Pengumpulan & Nilai)</option>
-                  <option value="materi">Materi (Hanya untuk Dibaca/Didownload)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Status publikasi</label>
-                <select value={newAssignmentStatus} onChange={(event) => setNewAssignmentStatus(event.target.value as AssignmentStatus)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
-                  <option value="draft">Draft — belum tampil ke siswa</option>
-                  <option value="published">Terbit — tampil ke siswa</option>
-                  <option value="archived">Arsip — tidak tampil ke siswa</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Kelas Tujuan</label>
-                <div className="max-h-36 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
-                  {classData.classes.filter((item) => item.status === 'Aktif').map((item) => {
-                    const checked = newAssignmentTargetClassIds.includes(item.id);
-                    return (
-                      <label key={item.id} className={`flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm transition-colors ${checked ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setNewAssignmentTargetClassIds((current) => checked ? current.filter((id) => id !== item.id) : [...current, item.id])}
-                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span><span className="font-semibold">{item.name}</span><span className="ml-2 text-xs text-slate-400">{item.academicYear}</span></span>
-                      </label>
-                    );
-                  })}
-                  {classData.classes.filter((item) => item.status === 'Aktif').length === 0 && <p className="text-xs text-slate-400">Belum ada kelas aktif yang dapat dipilih.</p>}
-                </div>
-                <p className="mt-1 text-xs text-slate-400">Materi/tugas hanya akan tampil untuk siswa pada kelas yang dipilih.</p>
-              </div>
-
-              {newAssignmentType === 'tugas' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tenggat Waktu</label>
-                  <input 
-                    type="datetime-local" 
-                    value={newAssignmentDueDate}
-                    onChange={(e) => setNewAssignmentDueDate(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">File Pendukung PDF (Opsional)</label>
-                <label className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 px-4 py-3 text-sm text-blue-700 hover:border-blue-400 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-300">
-                  <Upload className="h-5 w-5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{newAssignmentFile?.name || 'Pilih PDF dari perangkat (maks. 10 MB)'}</span>
-                  <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => {
-                    const file = event.target.files?.[0] || null;
-                    if (!file) return;
-                    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && !['application/pdf', 'application/octet-stream'].includes(file.type))) { notify('File pendukung harus berformat PDF.', 'warning'); event.currentTarget.value = ''; return; }
-                    if (file.size > 10 * 1024 * 1024) { notify('Ukuran PDF maksimal 10 MB.', 'warning'); event.currentTarget.value = ''; return; }
-                    setNewAssignmentFile(file);
-                  }} />
-                </label>
-                {newAssignmentFile && <p className="mt-1 text-xs text-slate-400">{(newAssignmentFile.size / 1024 / 1024).toFixed(2)} MB · siap diunggah ke penyimpanan sekolah</p>}
-                <p className="mb-2 mt-3 text-[11px] text-slate-400">Atau gunakan link eksternal yang sudah tersedia.</p>
-                <input 
-                  type="text" 
-                  value={newAssignmentFilePath}
-                  onChange={(e) => setNewAssignmentFilePath(e.target.value)}
-                  placeholder="Misal: https://drive.google.com/..."
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setShowAddAssignmentModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold py-3 rounded-xl transition-all"
-                >
-                  Batal
-                </button>
-                <button 
-                  type="submit"
-                  disabled={isSavingAssignment}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.2)]"
-                >
-                  {isSavingAssignment ? 'Menyimpan…' : newAssignmentStatus === 'draft' ? 'Simpan Draft' : 'Simpan & Terbitkan'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* View Submissions & Grading Modal */}
-      {viewSubmissionsAssignmentId !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            onClick={() => setViewSubmissionsAssignmentId(null)}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-          ></div>
-          
-          <div className="bg-white dark:bg-slate-800 w-full max-w-3xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 z-10 animate-in zoom-in-95 duration-200 relative max-h-[85vh] flex flex-col" role="dialog" aria-modal="true" aria-labelledby="submissions-modal-title">
-            <button 
-              onClick={() => setViewSubmissionsAssignmentId(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors p-1"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <h3 id="submissions-modal-title" className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2 flex items-center gap-2">
-              <CheckSquare className="h-5 w-5 text-blue-600" />
-              Pantau Pengumpulan Tugas & Beri Nilai
-            </h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-              Berikut adalah daftar pengumpulan tugas oleh siswa pada kelas tujuan beserta status penilaiannya.
-            </p>
-
-            {(() => {
-              const assignment = assignmentsList.find((item) => item.id === viewSubmissionsAssignmentId);
-              const targetClasses = assignment?.targetClasses || [];
-              return targetClasses.length > 1 ? (
-                <div className="mb-4 flex items-center gap-3">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Kelas</label>
-                  <select
-                    value={submissionClassId}
-                    onChange={(event) => { setSubmissionClassId(event.target.value); fetchSubmissions(viewSubmissionsAssignmentId, event.target.value); }}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                  >
-                    {targetClasses.map((target: any) => <option key={target.id} value={target.id}>{target.name} · {target.academicYear}</option>)}
-                  </select>
-                </div>
-              ) : null;
-            })()}
-
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={submissionSearch}
-                  onChange={(event) => setSubmissionSearch(event.target.value)}
-                  placeholder="Cari nama atau NISN siswa..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                />
-              </div>
-              <select
-                value={submissionStatusFilter}
-                onChange={(event) => setSubmissionStatusFilter(event.target.value as typeof submissionStatusFilter)}
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              >
-                <option value="all">Semua Status</option>
-                <option value="submitted">Sudah Mengumpulkan</option>
-                <option value="pending">Belum Mengumpulkan</option>
-                <option value="ungraded">Belum Dinilai</option>
-                <option value="late">Terlambat</option>
-              </select>
-            </div>
-
-            <div className="overflow-y-auto flex-1 pr-1">
-              {isLoadingSubmissions ? (
-                <div className="text-center py-12 text-slate-400">Memuat data pengumpulan...</div>
-              ) : submissionsList.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">Belum ada siswa terdaftar di kelas ini.</div>
-              ) : filteredSubmissions.length === 0 ? (
-                <div className="py-12 text-center text-sm text-slate-400">Tidak ada siswa yang sesuai dengan pencarian atau filter.</div>
-              ) : (
-                <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
-                  <table className="w-full min-w-[760px] text-left text-sm text-slate-600 dark:text-slate-300">
-                    <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-200 font-semibold border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="px-6 py-4">Nama Siswa</th>
-                        <th className="px-6 py-4 text-center">Status</th>
-                        <th className="px-6 py-4 text-center">Waktu Kirim</th>
-                        <th className="px-6 py-4">File Lampiran</th>
-                        <th className="px-6 py-4 text-center" style={{ width: '150px' }}>Nilai</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                      {filteredSubmissions.map((sub) => {
-                        const studentGrade = tempSubGrades[sub.studentId] ?? '';
-
-                        return (
-                          <tr key={sub.studentId} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="px-6 py-4">
-                              <span className="font-semibold text-slate-800 dark:text-slate-200 block">{sub.studentName}</span>
-                              <span className="text-xs text-slate-400 font-mono">{sub.studentNisn}</span>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              {sub.hasSubmitted ? (
-                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${sub.late ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-300 dark:border-rose-900/50' : 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-300 dark:border-emerald-900/50'}`}>
-                                  {sub.late ? 'Terlambat' : 'Terkumpul'}
-                                </span>
-                              ) : (
-                                <span className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full text-xs font-medium">
-                                  Belum Mengumpulkan
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-center text-xs text-slate-500 dark:text-slate-400 font-mono">
-                              {sub.submittedAt 
-                                ? new Date(sub.submittedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) 
-                                : '-'
-                              }
-                            </td>
-                            <td className="px-6 py-4 text-xs font-mono">
-                              {sub.hasSubmitted && sub.downloadUrl ? (
-                                <a 
-                                  href={sub.downloadUrl}
-                                  target="_blank" 
-                                  rel="noreferrer"
-                                  className="text-blue-600 hover:underline font-bold"
-                                >
-                                  {sub.originalName || 'Lihat PDF'}
-                                </a>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-3 text-center">
-                              <div className="flex items-center justify-center gap-2">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  value={studentGrade}
-                                  onChange={(e) => {
-                                    const valStr = e.target.value;
-                                    const gradeVal = valStr === '' ? '' : Math.min(100, Math.max(0, parseInt(valStr) || 0));
-                                    setTempSubGrades(prev => ({
-                                      ...prev,
-                                      [sub.studentId]: gradeVal
-                                    }));
-                                  }}
-                                  className="w-16 px-2 py-1 text-center font-bold text-sm bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                  placeholder="-"
-                                />
-                                <button
-                                  onClick={() => handleSaveSubmissionGrade(sub.studentId, Number(studentGrade))}
-                                  disabled={studentGrade === ''}
-                                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white font-bold p-1.5 rounded-lg transition-all"
-                                  title="Simpan Nilai"
-                                >
-                                  <Save className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            
-            <div className="pt-4 border-t border-slate-100 dark:border-slate-700/50 mt-4 flex justify-end">
-              <button
-                onClick={() => setViewSubmissionsAssignmentId(null)}
-                className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-6 py-2.5 rounded-xl transition-all"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {showScheduleRequestModal && selectedScheduleForRequest && <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">

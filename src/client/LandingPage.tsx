@@ -303,16 +303,23 @@ const LandingPage = ({
                 </div>
                 )}
 
-                {/* Leaderboard & 3. Wall of Fame */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {/* Leaderboard */}
+                {/* Leaderboard & 3. Wall of Fame. While the leaderboard has
+                    no entries the pair collapses to a single column so the
+                    Wall of Fame card is not left stranded at half width. */}
+                <div className={`grid grid-cols-1 ${(isLoading || academicLeaderboard.length > 0) ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-8`}>
+                  {/* Leaderboard. Like the grade-trend chart, this card is
+                      only rendered once real leaderboard data exists: while
+                      no student has grades it is hidden entirely instead of
+                      showing a permanent empty-state panel. While loading it
+                      stays visible with its skeleton. */}
+                  {(isLoading || academicLeaderboard.length > 0) && (
                   <div className="bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm dark:shadow-none transition-colors">
                     <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-6 transition-colors">
                       <Star className="h-5 w-5 text-orange-500 dark:text-orange-400" />
                       Top Akademik
                     </h3>
                     <div className="space-y-4">
-                      {isLoading ? <div className="space-y-3"><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></div> : academicLeaderboard.length === 0 ? <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai untuk menentukan peringkat akademik.</p> : academicLeaderboard.map((student, index) => {
+                      {isLoading ? <div className="space-y-3"><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /><SkeletonBar className="h-12 w-full" /></div> : academicLeaderboard.map((student, index) => {
                         const rank = index + 1;
                         return <div key={student.studentId} className="flex items-center justify-between p-3 bg-white dark:bg-[#0A1118] rounded-xl border border-slate-200 dark:border-slate-800 transition-colors">
                           <div className="flex items-center gap-3">
@@ -326,6 +333,7 @@ const LandingPage = ({
                       })}
                     </div>
                   </div>
+                  )}
 
                   {/* 4. Wall of Fame */}
                   <div className="bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm dark:shadow-none transition-colors">

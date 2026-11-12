@@ -80,3 +80,8 @@
     color: #ffffff;
   }
 }
+
+/* Gaya "Lingora" — font Nunito hanya berlaku di dalam dashboard siswa. */
+.student-dashboard {
+  font-family: 'Nunito', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}

@@ -743,6 +743,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [manualNisn, setManualNisn] = useState('');
+  const [manualRuasUsername, setManualRuasUsername] = useState('');
   const [manualName, setManualName] = useState('');
   const [manualGender, setManualGender] = useState<'L' | 'P'>('L');
   const [manualStatus, setManualStatus] = useState<'Aktif' | 'Nonaktif'>('Aktif');
@@ -1919,6 +1920,34 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (activeTab === 'students') fetchLearningInterventions();
   }, [activeTab, fetchLearningInterventions]);
 
+  // RUAS sign-in transition watchlist (homeroom mode only): students not
+  // yet linked to a RUAS account and students who still sign in through
+  // the legacy local-password fallback.
+  type RuasWatchlistEntry = { id: string; name: string; nisn: string; className: string | null };
+  type RuasWatchlist = {
+    ruasLoginEnabled: boolean;
+    fallbackUntil: string | null;
+    fallbackActive: boolean;
+    unmapped: RuasWatchlistEntry[];
+    localFallbackUsers: Array<RuasWatchlistEntry & { lastLocalLoginAt: string }>;
+  };
+  const [ruasWatchlist, setRuasWatchlist] = useState<RuasWatchlist | null>(null);
+  const fetchRuasWatchlist = useCallback(async () => {
+    try {
+      const query = classData.classId ? `?classId=${encodeURIComponent(classData.classId)}` : '';
+      const response = await fetch(`/api/students/ruas-watchlist${query}`);
+      if (!response.ok) { setRuasWatchlist(null); return; }
+      setRuasWatchlist(await response.json());
+    } catch (error) {
+      console.error('Gagal memuat pantauan login RUAS:', error);
+      setRuasWatchlist(null);
+    }
+  }, [classData.classId]);
+
+  useEffect(() => {
+    if (activeTab === 'students' && studentView === 'roster' && workspaceMode === 'homeroom' && canManageStudents) fetchRuasWatchlist();
+  }, [activeTab, studentView, workspaceMode, canManageStudents, fetchRuasWatchlist]);
+
   useEffect(() => {
     if (!learningSummarySource) {
       setLearningSummary(null);
@@ -2043,6 +2072,28 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       setIsSavingLearningEvaluation(false);
     }
   };
+
+  const openStudentEditor = (student: Student) => {
+    setManualNisn(student.nisn);
+    setManualRuasUsername(student.ruasUsername || '');
+    setManualName(student.name);
+    setManualGender(student.gender);
+    setManualStatus(student.status);
+    setManualClassId(student.classId || classData.classId || '');
+    setEditingStudent(student);
+    setShowAddModal(true);
+  };
+
+  // Suggestion only, never a saved value by itself: RUAS usernames follow
+  // a nama_jurusan pattern, but only a human-confirmed value may be stored
+  // because name spellings and majors cannot be derived reliably.
+  const ruasUsernameSuggestion = (() => {
+    const firstName = (manualName.trim().split(/\s+/)[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+    const classItem = classData.classes.find((item) => item.id === manualClassId);
+    const classTokens = (classItem?.name || '').trim().split(/\s+/).filter(Boolean);
+    const majorToken = (classTokens.length > 1 ? classTokens[1] : classTokens[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+    return firstName && majorToken ? `${firstName}_${majorToken}` : '';
+  })();
 
   const filteredStudents = classData.students
     .filter(student => {
@@ -2982,7 +3033,65 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               {studentView === 'followup' && canViewLearningProfiles && <section className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Rencana Tindak Lanjut</p><h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Rencana dukungan</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pilih siswa dari matriks untuk membuat rencana dukungan atau remedial bersama.</p></div><button type="button" onClick={openLearningInterventionModal} disabled={!selectedInterventionStudentIds.length || !learningSummaryTopic.trim()} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">Buat kelompok ({selectedInterventionStudentIds.length})</button></div><div className="mt-4 flex flex-wrap items-center gap-2"><button type="button" onClick={() => setSelectedInterventionStudentIds((learningSummary?.students || []).map((student) => student.id))} disabled={!learningSummary?.students.length} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">Pilih semua tampilan</button><button type="button" onClick={() => setSelectedInterventionStudentIds([])} disabled={!selectedInterventionStudentIds.length} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">Batal pilih</button>{!learningSummaryTopic.trim() && <span className="text-xs text-amber-600 dark:text-amber-300">Isi topik pada ringkasan agar kelompok dapat dibuat.</span>}</div>{learningSummary?.students.length ? <div className="mt-3 grid max-h-36 gap-2 overflow-y-auto sm:grid-cols-2">{learningSummary.students.map((student) => <label key={student.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs hover:border-violet-300 dark:border-slate-700"><input type="checkbox" checked={selectedInterventionStudentIds.includes(student.id)} onChange={(event) => setSelectedInterventionStudentIds((current) => event.target.checked ? [...new Set([...current, student.id])] : current.filter((id) => id !== student.id))} className="h-4 w-4 rounded border-slate-300 text-violet-600" /><span className="font-semibold text-slate-700 dark:text-slate-200">{student.name}</span>{!student.profile && <span className="ml-auto text-[10px] text-rose-500">belum ada profil</span>}</label>)}</div> : <p className="mt-3 rounded-xl border border-dashed border-slate-200 p-4 text-center text-sm text-slate-400 dark:border-slate-700">Muat ringkasan kelas terlebih dahulu untuk memilih siswa.</p>}{learningInterventions.length > 0 && <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-700"><div className="mb-3 flex items-center justify-between"><h4 className="font-bold text-slate-800 dark:text-slate-100">Rencana tersimpan</h4>{isLoadingLearningInterventions && <span className="text-xs text-slate-400">Memuat…</span>}</div><div className="space-y-2">{learningInterventions.map((intervention) => <article key={intervention.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h5 className="font-bold text-sm text-slate-700 dark:text-slate-200">{intervention.title}</h5><span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">{intervention.members.length} siswa</span></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{intervention.subject} · {intervention.topic}{intervention.scheduledDate ? ` · ${intervention.scheduledDate}` : ''}</p><p className="mt-2 text-xs text-slate-600 dark:text-slate-300">Tujuan: {intervention.goal}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Strategi: {intervention.strategy}</p></div><div className="flex shrink-0 items-center gap-2"><select value={intervention.status} onChange={(event) => handleUpdateLearningIntervention(intervention, event.target.value as LearningInterventionStatus)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs font-bold text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="rencana">Rencana</option><option value="berjalan">Berjalan</option><option value="selesai">Selesai</option></select><button type="button" onClick={() => handleDeleteLearningIntervention(intervention)} className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" aria-label="Hapus kelompok intervensi"><Trash2 className="h-4 w-4" /></button></div></div><p className="mt-2 text-[11px] text-slate-400">{intervention.members.map((member) => member.name).join(' · ')}</p></article>)}</div></div>}</section>}
               {studentView === 'progress' && canViewLearningProfiles && <section className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Ringkasan Kebutuhan</p><h3 className="mt-1 font-bold text-slate-800 dark:text-slate-100">Kebutuhan belajar</h3><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Pilih kelompok untuk menyaring matriks dan menentukan prioritas pembelajaran.</p></div><select value={learningSummaryFilter} onChange={(event) => setLearningSummaryFilter(event.target.value as LearningSummaryFilter)} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none dark:border-amber-800 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua siswa</option><option value="needs-support">Perlu dukungan</option><option value="developing">Sedang berkembang</option><option value="independent">Cukup mandiri</option><option value="no-data">Belum ada data</option></select></div>{learningSummarySource && <div className="mt-4 grid gap-2 sm:grid-cols-4"><button type="button" onClick={() => setLearningSummaryFilter('needs-support')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'needs-support' ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/30' : 'border-rose-100 bg-white hover:border-rose-300 dark:border-rose-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-rose-700 dark:text-rose-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'needs-support').length}</p><p className="text-xs font-bold text-rose-700 dark:text-rose-300">Perlu dukungan</p></button><button type="button" onClick={() => setLearningSummaryFilter('developing')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'developing' ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30' : 'border-amber-100 bg-white hover:border-amber-300 dark:border-amber-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-amber-700 dark:text-amber-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'developing').length}</p><p className="text-xs font-bold text-amber-700 dark:text-amber-300">Sedang berkembang</p></button><button type="button" onClick={() => setLearningSummaryFilter('independent')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'independent' ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30' : 'border-emerald-100 bg-white hover:border-emerald-300 dark:border-emerald-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-emerald-700 dark:text-emerald-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'independent').length}</p><p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Cukup mandiri</p></button><button type="button" onClick={() => setLearningSummaryFilter('no-data')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'no-data' ? 'border-slate-300 bg-slate-100 dark:border-slate-600 dark:bg-slate-700' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800'}`}><p className="text-2xl font-black text-slate-700 dark:text-slate-200">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'no-data').length}</p><p className="text-xs font-bold text-slate-700 dark:text-slate-200">Belum ada data</p></button></div>}{learningSummarySource && learningSummaryRecommendations.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{learningSummaryRecommendations.slice(0, 2).map((recommendation) => <article key={recommendation.key} className="rounded-xl border border-amber-100 bg-white p-3 dark:border-amber-900/40 dark:bg-slate-800"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-700 dark:text-slate-200">Prioritas: {recommendation.label}</p><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{recommendation.count} siswa</span></div><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{recommendation.suggestion}</p></article>)}</div>}</section>}
               {studentView === 'progress' && canViewLearningProfiles && <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peta Perkembangan Kelas</p><h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Ringkasan Profil Belajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Lihat kebutuhan dukungan seluruh siswa berdasarkan profil topik terakhir yang tercatat.</p></div><div className="flex flex-col gap-2 sm:flex-row"><input value={learningSummarySubject} onChange={(event) => setLearningSummarySubject(event.target.value)} placeholder="Mata pelajaran" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input value={learningSummaryTopic} onChange={(event) => setLearningSummaryTopic(event.target.value)} placeholder="Topik (opsional)" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button type="button" onClick={fetchLearningSummary} className="rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white hover:bg-cyan-700">Tampilkan</button></div></div>{isLoadingLearningSummary ? <p className="py-8 text-center text-sm text-slate-400">Memuat ringkasan perkembangan…</p> : learningSummary && <><div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400"><span className="font-bold text-slate-700 dark:text-slate-200">{learningSummary.class.name}</span><span>·</span><span>{learningSummary.subject || 'Semua mata pelajaran'}</span>{learningSummary.topic && <><span>·</span><span>{learningSummary.topic}</span></>}<span className="ml-auto">{learningSummary.students.filter((student) => student.profile).length}/{learningSummary.students.length} siswa memiliki profil</span></div><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Konsep</th><th className="px-3 py-3">Penalaran</th><th className="px-3 py-3">Literasi</th><th className="px-3 py-3">Mandiri</th><th className="px-3 py-3">Checkpoint</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{learningSummary.students.map((student) => { const profile = student.profile; const checkpoint = student.checkpoint; return <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-700 dark:text-slate-200">{student.name}</p><p className="text-[10px] text-slate-400">{student.identifier}</p></td>{[profile?.conceptLevel, profile?.reasoningLevel, profile?.literacyLevel, profile?.independenceLevel].map((level, index) => <td key={index} className="px-3 py-3"><span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 font-black ${learningLevelTone(level)}`}>{level ? `${level}/4` : '—'}</span></td>)}<td className="px-3 py-3">{checkpoint ? <div><span className="font-bold text-cyan-700 dark:text-cyan-300">{Math.round((checkpoint.recallLevel + checkpoint.reasoningLevel + checkpoint.transferLevel) / 3 * 10) / 10}/4</span><p className="mt-0.5 text-[10px] text-slate-400">{checkpoint.date}</p></div> : <span className="text-slate-400">—</span>}</td><td className="px-3 py-3 text-right"><button type="button" onClick={() => { const source = classData.students.find((item) => item.id === student.id); if (source) loadLearningProfile(source); }} className="rounded-lg px-2.5 py-1.5 font-bold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30">Profil</button></td></tr>; })}</tbody></table></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500 dark:text-slate-400"><span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">1 · Perlu dukungan</span><span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">2 · Berkembang</span><span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">3 · Cukup mandiri</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">4 · Sangat baik</span></div></>}</section>}
-              {studentView === 'roster' && <><div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+              {studentView === 'roster' && <>{workspaceMode === 'homeroom' && canManageStudents && ruasWatchlist && (
+                <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-5 shadow-sm dark:border-cyan-900/50 dark:bg-cyan-950/20">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">Masa Peralihan Login</p>
+                      <h3 className="mt-1 text-lg font-black text-slate-800 dark:text-slate-100">Pantauan Login RUAS</h3>
+                      <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-300">Siswa masuk WebKelas dengan akun RUAS. Pantau siapa yang belum terhubung dan siapa yang masih memakai NIS + kata sandi lama selama masa tenggang.</p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${ruasWatchlist.ruasLoginEnabled ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>{ruasWatchlist.ruasLoginEnabled ? 'Login RUAS aktif' : 'Login RUAS nonaktif (saklar server)'}</span>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${ruasWatchlist.fallbackActive ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>{ruasWatchlist.fallbackActive ? `Kata sandi lama berlaku s.d. ${ruasWatchlist.fallbackUntil}` : 'Masa tenggang kata sandi lama tidak aktif'}</span>
+                    </div>
+                  </div>
+                  {!ruasWatchlist.ruasLoginEnabled ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-cyan-200 bg-white/70 p-4 text-sm text-slate-500 dark:border-cyan-900/50 dark:bg-slate-800/60 dark:text-slate-400">Fitur login RUAS sedang dimatikan dari server, jadi seluruh siswa masih masuk dengan cara lama dan daftar di bawah belum berlaku.</p>
+                  ) : ruasWatchlist.unmapped.length === 0 && ruasWatchlist.localFallbackUsers.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/70 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Semua siswa aktif di kelas ini sudah terhubung ke akun RUAS dan tidak ada yang masih memakai jalur lama.</p>
+                  ) : (
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl border border-cyan-100 bg-white p-4 dark:border-cyan-900/50 dark:bg-slate-800">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Belum terhubung ke RUAS ({ruasWatchlist.unmapped.length})</h4>
+                        {ruasWatchlist.unmapped.length === 0 ? <p className="mt-2 text-xs text-slate-400">Tidak ada. Seluruh siswa aktif sudah memiliki username RUAS tercatat.</p> : (
+                          <ul className="mt-3 space-y-2">
+                            {ruasWatchlist.unmapped.map((entry) => {
+                              const source = classData.students.find((item) => item.id === entry.id);
+                              return (
+                                <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/50">
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
+                                    <span className="block text-[11px] text-slate-400">NIS {entry.nisn}{entry.className ? ` · ${entry.className}` : ''}</span>
+                                  </span>
+                                  {source && <button type="button" onClick={() => openStudentEditor(source)} className="shrink-0 rounded-lg border border-cyan-200 px-2.5 py-1.5 text-[11px] font-bold text-cyan-700 hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-950/30">Isi username</button>}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-amber-100 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Masih masuk memakai kata sandi lama ({ruasWatchlist.localFallbackUsers.length})</h4>
+                        {ruasWatchlist.localFallbackUsers.length === 0 ? <p className="mt-2 text-xs text-slate-400">Belum ada siswa yang tercatat memakai jalur lama pada masa tenggang ini.</p> : (
+                          <ul className="mt-3 space-y-2">
+                            {ruasWatchlist.localFallbackUsers.map((entry) => (
+                              <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/50">
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
+                                  <span className="block text-[11px] text-slate-400">NIS {entry.nisn}{entry.className ? ` · ${entry.className}` : ''}</span>
+                                </span>
+                                <span className="shrink-0 text-right text-[11px] font-semibold text-amber-600 dark:text-amber-300">terakhir {new Date(entry.lastLocalLoginAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+              <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                 <div>
                   <div className="flex flex-wrap items-center gap-2"><h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Daftar Siswa</h3><span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{classData.selectedClass} · {classData.selectedYear}</span></div>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{workspaceMode === 'teaching' ? `Mode Mengajar${activeTeachingSubject ? ` · ${activeTeachingSubject}` : ''} — daftar siswa hanya dapat dilihat.` : 'Mode Wali Kelas — kelola data siswa pada kelas aktif.'}</p>
@@ -3003,6 +3112,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   <button 
                     onClick={() => {
                       setManualNisn('');
+                      setManualRuasUsername('');
                       setManualName('');
                       setManualGender('L');
                       setManualStatus('Aktif');
@@ -3094,7 +3204,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {canViewLearningProfiles && <button type="button" onClick={() => loadLearningProfile(student)} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/30"><FileText className="h-3.5 w-3.5" /> Profil belajar</button>}
-                          {canManageStudents && <button type="button" onClick={() => { setManualNisn(student.nisn); setManualName(student.name); setManualGender(student.gender); setManualStatus(student.status); setManualClassId(student.classId || classData.classId || ''); setEditingStudent(student); setShowAddModal(true); }} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"><Edit2 className="h-3.5 w-3.5" /> Ubah data</button>}
+                          {canManageStudents && <button type="button" onClick={() => openStudentEditor(student)} className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"><Edit2 className="h-3.5 w-3.5" /> Ubah data</button>}
                         </div>
                       </article>
                     ))
@@ -3129,17 +3239,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         </td>
                         {canManageStudents && <td className="px-6 py-4 text-right">
                           <button onClick={() => handleResetPassword(student.name)} className="text-slate-400 hover:text-amber-500 p-1 mr-1" title="Reset Password"><Key className="h-4 w-4" /></button>
-                          <button 
-                            onClick={() => {
-                              setManualNisn(student.nisn);
-                              setManualName(student.name);
-                              setManualGender(student.gender);
-                              setManualStatus(student.status);
-                              setManualClassId(student.classId || classData.classId || '');
-                              setEditingStudent(student);
-                              setShowAddModal(true);
-                            }}
-                            className="text-slate-400 hover:text-blue-500 p-1" 
+                          <button
+                            onClick={() => openStudentEditor(student)}
+                            className="text-slate-400 hover:text-blue-500 p-1"
                             title="Edit"
                           >
                             <Edit2 className="h-4 w-4" />
@@ -4574,6 +4676,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   await classData.updateStudent({
                     id: editingStudent.id,
                     nisn: manualNisn,
+                    ruasUsername: manualRuasUsername.trim(),
                     name: manualName,
                     gender: manualGender,
                     status: manualStatus,
@@ -4584,6 +4687,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   await classData.addStudent({
                     id: '',
                     nisn: manualNisn,
+                    ruasUsername: manualRuasUsername.trim(),
                     name: manualName,
                     gender: manualGender,
                     status: manualStatus,
@@ -4591,6 +4695,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   });
                   notify('Siswa berhasil ditambahkan!', 'success');
                 }
+                if (workspaceMode === 'homeroom') void fetchRuasWatchlist();
                 setShowAddModal(false);
                 setEditingStudent(null);
               } catch (error) {
@@ -4599,8 +4704,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             }} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">NISN</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   pattern="[0-9]*"
                   value={manualNisn}
                   onChange={(e) => setManualNisn(e.target.value)}
@@ -4609,7 +4714,27 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   required
                 />
               </div>
-              
+
+              {workspaceMode === 'homeroom' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Username RUAS</label>
+                  <input
+                    type="text"
+                    value={manualRuasUsername}
+                    onChange={(e) => setManualRuasUsername(e.target.value)}
+                    placeholder="Contoh: budi_tkj"
+                    autoComplete="off"
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-cyan-300 dark:border-cyan-700 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all placeholder-slate-400"
+                  />
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Siswa memakai username ini untuk masuk dengan akun RUAS. Isi persis seperti username di RUAS; jangan menebak bila belum yakin.
+                    {ruasUsernameSuggestion && manualRuasUsername.trim() !== ruasUsernameSuggestion && (
+                      <> Dugaan dari pola nama_jurusan: <button type="button" onClick={() => setManualRuasUsername(ruasUsernameSuggestion)} className="font-bold text-cyan-600 hover:underline dark:text-cyan-300">{ruasUsernameSuggestion}</button> — klik untuk memakainya, lalu periksa dulu sebelum menyimpan.</>
+                    )}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Nama Lengkap</label>
                 <input 

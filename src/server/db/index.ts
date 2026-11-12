@@ -21,6 +21,13 @@ sqlite.run(`
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
+  CREATE TABLE IF NOT EXISTS student_login_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    pathway TEXT NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+  );
+
   CREATE TABLE IF NOT EXISTS classes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -392,6 +399,8 @@ function addColumnIfMissing(table: string, column: string, definition: string) {
 }
 
 addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+addColumnIfMissing('users', 'ruas_username', 'ruas_username TEXT');
+addColumnIfMissing('users', 'last_local_login_at', 'last_local_login_at TEXT');
 addColumnIfMissing('announcements', 'valid_until', 'valid_until TEXT');
 addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');

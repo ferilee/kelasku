@@ -26,6 +26,9 @@ export interface AgendaItem {
 export interface Student {
   id: string;
   nisn: string;
+  // The student's RUAS username as recorded by the homeroom teacher; the
+  // mapping key for RUAS sign-in. Null/undefined = not linked yet.
+  ruasUsername?: string | null;
   name: string;
   gender: 'L' | 'P';
   status: 'Aktif' | 'Nonaktif';
@@ -438,7 +441,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status, classId: student.classId || classId })
+        body: JSON.stringify({ name: student.name, nisn: student.nisn, ruasUsername: student.ruasUsername || '', gender: student.gender, status: student.status, classId: student.classId || classId })
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menambahkan siswa');
       await fetchClassData();
@@ -474,7 +477,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetch(`/api/students/${student.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: student.name, nisn: student.nisn, gender: student.gender, status: student.status, classId: student.classId || classId })
+        body: JSON.stringify({ name: student.name, nisn: student.nisn, ruasUsername: student.ruasUsername || '', gender: student.gender, status: student.status, classId: student.classId || classId })
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal memperbarui siswa');
       await fetchClassData();

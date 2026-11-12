@@ -664,16 +664,19 @@ const LandingPage = ({
               <form onSubmit={handleLoginSubmit} className="space-y-5">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-2 uppercase tracking-wide">
-                    Username / NISN
+                    Username
                   </label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all"
-                    placeholder="Contoh: Ferilee atau NISN Anda"
+                    placeholder="Contoh: Ferilee atau username RUAS siswa"
                   />
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    Khusus siswa: gunakan <strong>username akun RUAS</strong> Anda (contoh: nama_jurusan), bukan NIS. NIS dan kata sandi lama WebKelas hanya berlaku selama masa peralihan yang diumumkan wali kelas.
+                  </p>
                 </div>
                 
                 <div>
@@ -696,24 +699,33 @@ const LandingPage = ({
                 </button>
               </form>
 
-              {/* There is no self-service password reset; a forgotten
-                  password is resolved by the homeroom teacher, so the
-                  modal must say so and give a working way to reach him —
-                  the same public WhatsApp number as the teacher card. */}
-              <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                Lupa kata sandi? Hubungi wali kelas
-                {WALI_KELAS_PASSWORD_RESET_URL ? (
-                  <>
-                    {' '}melalui{' '}
-                    <a href={WALI_KELAS_PASSWORD_RESET_URL} target="_blank" rel="noreferrer" className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
-                      <MessageCircle className="mr-1 inline h-4 w-4 -mt-0.5" />WhatsApp
-                    </a>
-                    {' '}untuk dibantu mengatur ulang kata sandi Anda.
-                  </>
-                ) : (
-                  <> untuk dibantu mengatur ulang kata sandi Anda.</>
-                )}
-              </p>
+              {/* There is no self-service password reset, and the right
+                  direction now depends on who is asking: student passwords
+                  live in RUAS (the homeroom teacher can only link the
+                  account, not reset it), while staff passwords are still
+                  resolved by the homeroom teacher — so the help names both
+                  paths plainly instead of sending everyone to one place. */}
+              <div className="mt-6 space-y-2 text-center text-sm text-slate-500 dark:text-slate-400">
+                <p>
+                  <strong className="text-slate-600 dark:text-slate-300">Siswa lupa kata sandi?</strong>{' '}
+                  Kata sandi siswa sama dengan kata sandi akun RUAS dan hanya dapat diganti atau diatur ulang di RUAS. Bila akun RUAS Anda belum terhubung ke WebKelas, sampaikan ke wali kelas Anda.
+                </p>
+                <p>
+                  <strong className="text-slate-600 dark:text-slate-300">Guru lupa kata sandi?</strong>{' '}
+                  Hubungi wali kelas
+                  {WALI_KELAS_PASSWORD_RESET_URL ? (
+                    <>
+                      {' '}melalui{' '}
+                      <a href={WALI_KELAS_PASSWORD_RESET_URL} target="_blank" rel="noreferrer" className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
+                        <MessageCircle className="mr-1 inline h-4 w-4 -mt-0.5" />WhatsApp
+                      </a>
+                      {' '}untuk dibantu mengatur ulang kata sandi Anda.
+                    </>
+                  ) : (
+                    <> untuk dibantu mengatur ulang kata sandi Anda.</>
+                  )}
+                </p>
+              </div>
             </div>
           </div>
         </div>

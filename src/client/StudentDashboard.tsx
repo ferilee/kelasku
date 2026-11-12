@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, ChevronRight, ExternalLink } from 'lucide-react';
 import { useClassData, BehaviorRecord, Achievement } from './ClassContext';
-import { useNotifications } from './NotificationCenter';
+
 import { ThemePicker } from './ThemeContext';
 import { useStudentActivity } from './studentActivity';
 import { useModalAccessibility } from './useModalAccessibility';
@@ -103,7 +103,6 @@ const StudentDashboard = () => {
   const studentAcademicYear = studentProfile?.academicYear || selectedYear;
   const currentStudentId = studentProfile?.id.toString() || '';
   const dbStudentId = currentStudentId;
-  const { notify } = useNotifications();
 
   useStudentActivity(currentStudentId, activeTab);
 
@@ -137,22 +136,9 @@ const StudentDashboard = () => {
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [showScheduleModal, showBehaviorModal]);
+  // Student passwords are owned by RUAS now: the account menu's key button
+  // opens an explanation modal instead of the old local change form.
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-
-  const handleChangePassword = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (newPassword !== confirmPassword) return notify('Konfirmasi password baru tidak sama.', 'warning');
-    try {
-      const response = await fetch('/api/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
-      const data = await response.json();
-      if (!response.ok) return notify(data.error || 'Gagal mengubah password.', 'error');
-      setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(false);
-      notify('Password berhasil diubah.', 'success');
-    } catch (error) { console.error('Error changing password:', error); notify('Terjadi kesalahan saat mengubah password.', 'error'); }
-  };
 
   const sRecords = (studentProfile?.behaviorRecords || []).filter(r => r.studentId === dbStudentId);
   const posPoints = sRecords.filter(r => r.type === 'positif').reduce((sum, r) => sum + r.points, 0);
@@ -209,7 +195,7 @@ const StudentDashboard = () => {
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Dark Mode Toggle */}
             <ThemePicker />
-            <button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); }} className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#2F8CFF] dark:text-slate-400 dark:hover:bg-slate-800" title="Ubah password"><Key className="h-5 w-5" /></button>
+            <button onClick={() => setShowPasswordModal(true)} className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-[#2F8CFF] dark:text-slate-400 dark:hover:bg-slate-800" title="Kata sandi akun"><Key className="h-5 w-5" /></button>
             <div className="flex items-center gap-2 border-l border-blue-100 pl-2 dark:border-slate-700 sm:gap-3 sm:pl-4">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2F8CFF] font-extrabold text-white shadow-md shadow-blue-200 dark:shadow-none">
                 {(authenticatedStudent?.name || 'S').charAt(0).toUpperCase()}
@@ -638,7 +624,7 @@ const StudentDashboard = () => {
       </main>
 
       {/* Bottom Navigation for Mobile */}
-      {showPasswordModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-extrabold uppercase tracking-wider text-[#2F8CFF]">Keamanan Akun</p><h3 className="text-xl font-black text-slate-800 dark:text-slate-100">Ubah Password</h3></div><button onClick={() => setShowPasswordModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-700" aria-label="Tutup"><X className="h-5 w-5" /></button></div><form onSubmit={handleChangePassword} className="space-y-4"><div><label className="mb-1.5 block text-xs font-extrabold text-slate-500">Password saat ini</label><input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required className="w-full rounded-2xl border border-blue-100 bg-[#F8FCFF] px-4 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900" /></div><div><label className="mb-1.5 block text-xs font-extrabold text-slate-500">Password baru</label><input type="password" autoComplete="new-password" minLength={6} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required className="w-full rounded-2xl border border-blue-100 bg-[#F8FCFF] px-4 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900" /><p className="mt-1 text-[11px] font-semibold text-slate-400">Minimal 6 karakter.</p></div><div><label className="mb-1.5 block text-xs font-extrabold text-slate-500">Konfirmasi password baru</label><input type="password" autoComplete="new-password" minLength={6} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="w-full rounded-2xl border border-blue-100 bg-[#F8FCFF] px-4 py-3 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900" /></div><button type="submit" className="w-full rounded-full bg-[#2F8CFF] py-3 text-sm font-extrabold text-white shadow-md shadow-blue-200 transition hover:bg-[#1D7BE0] dark:shadow-none">Simpan Password Baru</button></form></div></div>}
+      {showPasswordModal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-extrabold uppercase tracking-wider text-[#2F8CFF]">Keamanan Akun</p><h3 className="text-xl font-black text-slate-800 dark:text-slate-100">Kata Sandi Akun RUAS</h3></div><button onClick={() => setShowPasswordModal(false)} className="rounded-full p-2 text-slate-400 hover:bg-blue-50 dark:hover:bg-slate-700" aria-label="Tutup"><X className="h-5 w-5" /></button></div><div className="space-y-4"><p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">Kata sandi yang Anda pakai untuk masuk ke WebKelas adalah kata sandi akun <strong>RUAS</strong> Anda — sama seperti saat masuk ke SIMAK. Karena itu kata sandi tidak diubah di sini.</p><p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">Untuk menggantinya, masuk ke RUAS lalu ubah kata sandi di sana. Kata sandi baru itu langsung berlaku juga untuk masuk ke WebKelas.</p><a href="https://ruas.smkpasirian-lmj.sch.id" target="_blank" rel="noreferrer" className="block w-full rounded-full bg-[#2F8CFF] py-3 text-center text-sm font-extrabold text-white shadow-md shadow-blue-200 transition hover:bg-[#1D7BE0] dark:shadow-none">Buka RUAS</a><p className="text-center text-xs font-semibold text-slate-400">Lupa kata sandi RUAS? Sampaikan ke wali kelas Anda untuk dibantu.</p></div></div></div>}
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-blue-100 bg-white/95 px-1 py-2 shadow-lg backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95 md:hidden">
         {[
           { id: 'dashboard', label: 'Beranda', icon: User },

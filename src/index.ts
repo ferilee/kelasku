@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers, studentLearningInterventionEvaluations } from './server/db/schema';
-import { eq, and, like, isNull, inArray, lt } from 'drizzle-orm';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers, studentLearningInterventionEvaluations, studentLoginEvents } from './server/db/schema';
+import { eq, and, like, isNull, inArray, lt, ne } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
 const app = new Hono();
@@ -123,6 +123,183 @@ async function recordActivityEvent(sessionId: number, studentId: number, action:
     resourceTitle: details.resourceTitle,
     metadata: details.metadata ? JSON.stringify(details.metadata) : null,
   });
+}
+
+// --- Student sign-in through RUAS accounts --------------------------------
+// Students sign in with the same credentials as RUAS/SIMAK: this server
+// forwards the typed username + password to RUAS's own sign-in endpoint
+// (the exact pattern SIMAK's ruas-auth adapter uses in production), maps
+// the confirmed RUAS username to a local student row through
+// users.ruas_username, and then issues the ordinary WebKelas session.
+// The RUAS password is never stored, hashed, or logged by WebKelas.
+//
+// During a dated transition window (STUDENT_LOCAL_FALLBACK_UNTIL) the old
+// local passwords keep working as a fallback; every successful fallback
+// sign-in is recorded so the homeroom teacher can watch who still depends
+// on it. Setting WEBKELAS_RUAS_LOGIN=off restores the pre-change local
+// behaviour completely (rollback switch; no data is removed).
+const RUAS_LOGIN_ENABLED = (process.env.WEBKELAS_RUAS_LOGIN || 'on').trim().toLowerCase() !== 'off';
+const RUAS_AUTH_ENDPOINT = (process.env.RUAS_AUTH_ENDPOINT || 'https://ruas.smkpasirian-lmj.sch.id/api/auth').trim();
+const RUAS_PROFILE_ENDPOINT = (process.env.RUAS_PROFILE_ENDPOINT || RUAS_AUTH_ENDPOINT.replace(/\/auth\/?$/, '/profile')).trim();
+const STUDENT_FALLBACK_UNTIL = (process.env.STUDENT_LOCAL_FALLBACK_UNTIL || '').trim();
+
+class RuasAuthUnavailable extends Error {}
+
+type RuasAuthResult = { token: string; role: string | null; mustChangePassword: boolean };
+
+// Mirrors SIMAK's authenticateWithEndpoint: 400/401/403 from RUAS means the
+// credentials are wrong (null); any other status, a network failure, a
+// broken body, or a success without a usable token means RUAS cannot vouch
+// for the attempt right now and the caller must answer 503 instead of
+// guessing. The 5-second timeout matches SIMAK's.
+async function authenticateAgainstRuas(username: string, password: string): Promise<RuasAuthResult | null> {
+  let response: Response;
+  try {
+    response = await fetch(RUAS_AUTH_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username, password }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    throw new RuasAuthUnavailable('RUAS sign-in endpoint unreachable');
+  }
+  if (response.status === 400 || response.status === 401 || response.status === 403) return null;
+  if (!response.ok) throw new RuasAuthUnavailable(`RUAS sign-in endpoint answered ${response.status}`);
+  let data: any;
+  try {
+    data = await response.json();
+  } catch {
+    throw new RuasAuthUnavailable('RUAS sign-in endpoint returned an unreadable body');
+  }
+  const token = typeof data?.token === 'string' ? data.token.trim() : '';
+  if (!token) throw new RuasAuthUnavailable('RUAS sign-in success without a token');
+  return {
+    token,
+    role: typeof data?.role === 'string' ? data.role : null,
+    mustChangePassword: data?.must_change_password === true,
+  };
+}
+
+// RUAS sign-in responses carry no display name, so — again like SIMAK — the
+// name is fetched from the profile endpoint with the fresh token. This is a
+// soft step: any failure returns null and never blocks a sign-in. WebKelas
+// keeps its own row's name as authoritative for report cards; the profile
+// call exists to prove the issued token end-to-end, exactly as SIMAK does.
+async function fetchRuasProfileName(token: string): Promise<string | null> {
+  try {
+    const response = await fetch(RUAS_PROFILE_ENDPOINT, {
+      headers: { Accept: 'application/json', 'x-auth-token': token },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const data: any = await response.json().catch(() => null);
+    const name = typeof data?.display_name === 'string' ? data.display_name : typeof data?.name === 'string' ? data.name : null;
+    return name && name.trim() ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function jakartaTodayString(): string {
+  // en-CA renders ISO dates (YYYY-MM-DD); the timezone is pinned to Jakarta
+  // so the fallback deadline follows the school's clock, not the host's.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: JAKARTA_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+// The fallback window is open only when a well-formed date is configured
+// and Jakarta's today has not passed it. An empty/invalid value closes the
+// window, so local student passwords die unless a date is deliberately set.
+function studentFallbackWindowOpen(): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(STUDENT_FALLBACK_UNTIL)) return false;
+  return jakartaTodayString() <= STUDENT_FALLBACK_UNTIL;
+}
+
+// Failed-attempt limit for the student pathways only (SIMAK's numbers:
+// 5 failures per 15 minutes per IP + username, in memory). Teacher/admin
+// sign-ins are never limited, and successful attempts are not counted.
+const STUDENT_LOGIN_MAX_FAILURES = 5;
+const STUDENT_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const studentLoginFailures = new Map<string, { count: number; windowStartedAt: number }>();
+
+function studentLoginFailureKey(ip: string, identifier: string) {
+  return `${ip}|${identifier.toLowerCase()}`;
+}
+
+function isStudentLoginRateLimited(ip: string, identifier: string): boolean {
+  const key = studentLoginFailureKey(ip, identifier);
+  const entry = studentLoginFailures.get(key);
+  if (!entry) return false;
+  if (Date.now() - entry.windowStartedAt > STUDENT_LOGIN_WINDOW_MS) {
+    studentLoginFailures.delete(key);
+    return false;
+  }
+  return entry.count >= STUDENT_LOGIN_MAX_FAILURES;
+}
+
+function recordStudentLoginFailure(ip: string, identifier: string) {
+  const key = studentLoginFailureKey(ip, identifier);
+  const now = Date.now();
+  const entry = studentLoginFailures.get(key);
+  if (!entry || now - entry.windowStartedAt > STUDENT_LOGIN_WINDOW_MS) {
+    studentLoginFailures.set(key, { count: 1, windowStartedAt: now });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function clientIpAddress(c: { req: { header: (name: string) => string | undefined } }): string {
+  const forwarded = c.req.header('x-forwarded-for');
+  const first = forwarded ? forwarded.split(',')[0].trim() : '';
+  return first || c.req.header('x-real-ip') || 'unknown';
+}
+
+type UserRow = typeof users.$inferSelect;
+
+// The pre-change local password check, kept byte-for-byte in behaviour
+// (Bun hash when the stored value is a hash, legacy plaintext comparison
+// otherwise, with the automatic upgrade to a Bun hash on success). Used by
+// teacher/admin sign-in, the dated student fallback, and the rollback mode.
+async function verifyLocalPassword(user: UserRow, password: string): Promise<boolean> {
+  const storedPassword = user.passwordHash;
+  const validPassword = storedPassword.startsWith('$')
+    ? await Bun.password.verify(password, storedPassword)
+    : storedPassword === password;
+  if (validPassword && !storedPassword.startsWith('$')) {
+    await db.update(users).set({ passwordHash: await Bun.password.hash(password) }).where(eq(users.id, user.id));
+  }
+  return validPassword;
+}
+
+// Issues the ordinary WebKelas session for an authenticated row — the same
+// cookie, lifetime, and student activity bookkeeping as before this change.
+async function issueSession(c: any, user: UserRow): Promise<AuthUser> {
+  const token = crypto.randomUUID();
+  const roleRows = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, user.id));
+  const roles = [...new Set([
+    ...roleRows.map((item) => item.role as AuthUser['roles'][number]),
+    ...(user.role === 'counselor' ? ['counselor' as const] : []),
+  ])];
+  const sessionUser: AuthUser = { id: user.id, name: user.name, role: user.role as AuthUser['role'], roles };
+  let activitySessionId: number | undefined;
+  if (user.role === 'student') {
+    const classRow = user.classId ? await db.select({ academicYear: classes.academicYear }).from(classes).where(eq(classes.id, user.classId)).limit(1) : [];
+    const insertedSession = await db.insert(studentActivitySessions).values({
+      studentId: user.id,
+      classId: user.classId ?? null,
+      academicYear: classRow[0]?.academicYear ?? null,
+    }).returning({ id: studentActivitySessions.id });
+    activitySessionId = insertedSession[0]?.id;
+    if (activitySessionId) await recordActivityEvent(activitySessionId, user.id, 'login', { page: 'login' });
+  }
+  activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12, activitySessionId });
+  setCookie(c, 'webkelas_session', token, { httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 12 });
+  return sessionUser;
+}
+
+async function recordLocalFallbackLogin(userId: number) {
+  await db.update(users).set({ lastLocalLoginAt: new Date().toISOString() }).where(eq(users.id, userId));
+  await db.insert(studentLoginEvents).values({ userId, pathway: 'local-fallback' });
 }
 
 async function accessibleClassIds(user: AuthUser) {
@@ -604,38 +781,97 @@ app.post('/api/auth/login', async (c) => {
     const body = await c.req.json();
     const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
-    const account = await db.select().from(users).where(and(eq(users.identifier, identifier), eq(users.status, 'Aktif'))).limit(1);
-    if (!account[0]) return c.json({ error: 'Username atau password salah.' }, 401);
-    const storedPassword = account[0].passwordHash;
-    const validPassword = storedPassword.startsWith('$')
-      ? await Bun.password.verify(password, storedPassword)
-      : storedPassword === password;
-    if (!validPassword) return c.json({ error: 'Username atau password salah.' }, 401);
-    if (!storedPassword.startsWith('$')) {
-      await db.update(users).set({ passwordHash: await Bun.password.hash(password) }).where(eq(users.id, account[0].id));
+    if (!identifier || !password) return c.json({ error: 'Username atau password salah.' }, 401);
+
+    const accountRows = await db.select().from(users).where(and(eq(users.identifier, identifier), eq(users.status, 'Aktif'))).limit(1);
+    const localAccount = accountRows[0] || null;
+
+    // An attempt belongs to the student pathways only when the RUAS
+    // feature is on and the typed identifier is not a known staff account.
+    // Staff rows (admin/teacher/counselor) and the rollback mode always
+    // take the original local path below, completely unchanged.
+    const studentFlow = RUAS_LOGIN_ENABLED && (!localAccount || localAccount.role === 'student');
+
+    if (!studentFlow) {
+      if (!localAccount) return c.json({ error: 'Username atau password salah.' }, 401);
+      if (!(await verifyLocalPassword(localAccount, password))) return c.json({ error: 'Username atau password salah.' }, 401);
+      const sessionUser = await issueSession(c, localAccount);
+      return c.json({ user: sessionUser });
     }
-    const user = account[0];
-    const token = crypto.randomUUID();
-    const roleRows = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, user.id));
-    const roles = [...new Set([
-      ...roleRows.map((item) => item.role as AuthUser['roles'][number]),
-      ...(user.role === 'counselor' ? ['counselor' as const] : []),
-    ])];
-    const sessionUser: AuthUser = { id: user.id, name: user.name, role: user.role as AuthUser['role'], roles };
-    let activitySessionId: number | undefined;
-    if (user.role === 'student') {
-      const classRow = user.classId ? await db.select({ academicYear: classes.academicYear }).from(classes).where(eq(classes.id, user.classId)).limit(1) : [];
-      const insertedSession = await db.insert(studentActivitySessions).values({
-        studentId: user.id,
-        classId: user.classId ?? null,
-        academicYear: classRow[0]?.academicYear ?? null,
-      }).returning({ id: studentActivitySessions.id });
-      activitySessionId = insertedSession[0]?.id;
-      if (activitySessionId) await recordActivityEvent(activitySessionId, user.id, 'login', { page: 'login' });
+
+    // --- Student pathways (RUAS primary, dated local fallback) ---
+    const ip = clientIpAddress(c);
+    if (isStudentLoginRateLimited(ip, identifier)) {
+      return c.json({ error: 'Terlalu banyak percobaan login. Coba lagi nanti.' }, 429);
     }
-    activeSessions.set(token, { user: sessionUser, expiresAt: Date.now() + 1000 * 60 * 60 * 12, activitySessionId });
-    setCookie(c, 'webkelas_session', token, { httpOnly: true, sameSite: 'Lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 60 * 60 * 12 });
-    return c.json({ user: sessionUser });
+    const digitsOnly = /^\d+$/.test(identifier);
+
+    if (digitsOnly) {
+      // A digits-only identifier can only be a local NIS. Inside the
+      // transition window it is verified against the old local password;
+      // after the window it is refused without any verification at all,
+      // so students are pointed at their RUAS account instead.
+      if (!localAccount) {
+        recordStudentLoginFailure(ip, identifier);
+        return c.json({ error: 'Username atau password salah.' }, 401);
+      }
+      if (!studentFallbackWindowOpen()) {
+        return c.json({ error: 'Masa penggunaan NIS dan kata sandi lama WebKelas telah berakhir. Masuklah dengan username dan kata sandi akun RUAS Anda.' }, 401);
+      }
+      if (!(await verifyLocalPassword(localAccount, password))) {
+        recordStudentLoginFailure(ip, identifier);
+        return c.json({ error: 'Username atau password salah.' }, 401);
+      }
+      await recordLocalFallbackLogin(localAccount.id);
+      const sessionUser = await issueSession(c, localAccount);
+      return c.json({ user: sessionUser, loginPathway: 'local-fallback' });
+    }
+
+    // Non-digit identifiers are verified against RUAS itself.
+    let ruasResult: RuasAuthResult | null;
+    try {
+      ruasResult = await authenticateAgainstRuas(identifier, password);
+    } catch (error) {
+      if (error instanceof RuasAuthUnavailable) {
+        return c.json({ error: 'Layanan masuk RUAS sedang tidak dapat dihubungi. Coba lagi beberapa saat lagi; bila berlanjut, sampaikan ke wali kelas.' }, 503);
+      }
+      throw error;
+    }
+    if (!ruasResult) {
+      recordStudentLoginFailure(ip, identifier);
+      return c.json({ error: 'Username atau password salah.' }, 401);
+    }
+    if (ruasResult.role !== 'participant') {
+      return c.json({ error: 'Akun ini adalah akun guru/staf RUAS. Dashboard siswa hanya untuk akun murid; guru masuk dengan akun WebKelas seperti biasa.' }, 403);
+    }
+    if (ruasResult.mustChangePassword) {
+      // Dead end by design: WebKelas cannot prove whether the password the
+      // student just typed is the old or the new one, so the RUAS-side
+      // change has to happen first (same wall as re-typing it here).
+      return c.json({ error: 'Kata sandi akun RUAS Anda wajib diganti terlebih dahulu. Ganti di RUAS, lalu masuk lagi ke sini.' }, 403);
+    }
+    const mappedRows = await db.select().from(users).where(and(
+      eq(users.ruasUsername, identifier),
+      eq(users.role, 'student'),
+      eq(users.status, 'Aktif'),
+    )).limit(1);
+    const mappedStudent = mappedRows[0] || null;
+    if (!mappedStudent) {
+      // Transition kindness: before refusing, give the same typed
+      // identifier one chance through the legacy local path while the
+      // window is open. The usual case here is a student whose NIS row
+      // carries the same identifier they typed.
+      if (studentFallbackWindowOpen() && localAccount && (await verifyLocalPassword(localAccount, password))) {
+        await recordLocalFallbackLogin(localAccount.id);
+        const sessionUser = await issueSession(c, localAccount);
+        return c.json({ user: sessionUser, loginPathway: 'local-fallback' });
+      }
+      return c.json({ error: 'Akun RUAS Anda belum terhubung ke data siswa WebKelas. Sampaikan ke wali kelas Anda agar username RUAS Anda dicatat, lalu coba masuk lagi.' }, 403);
+    }
+    await fetchRuasProfileName(ruasResult.token);
+    await db.insert(studentLoginEvents).values({ userId: mappedStudent.id, pathway: 'ruas' });
+    const sessionUser = await issueSession(c, mappedStudent);
+    return c.json({ user: sessionUser, loginPathway: 'ruas' });
   } catch (err: any) { return c.json({ error: err.message }, 500); }
 });
 
@@ -649,6 +885,11 @@ app.put('/api/auth/password', async (c) => {
   try {
     const authenticatedUser = getAuthenticatedUser(c);
     if (!authenticatedUser) return c.json({ error: 'Silakan masuk terlebih dahulu.' }, 401);
+    if (authenticatedUser.role === 'student') {
+      // Student passwords belong to RUAS now; the local change form must
+      // not keep accepting changes that nothing would honour.
+      return c.json({ error: 'Kata sandi akun siswa dikelola di RUAS. Ubah kata sandi Anda di RUAS; perubahan itu berlaku juga untuk masuk ke WebKelas.' }, 403);
+    }
     const body = await c.req.json();
     const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
     const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
@@ -1238,6 +1479,7 @@ app.get('/api/class-data', async (c) => {
     const studentList = allStudents.map(s => ({
       id: s.id.toString(),
       nisn: s.identifier,
+      ruasUsername: s.ruasUsername ?? null,
       name: s.name,
       gender: s.gender as 'L' | 'P',
       status: s.status as 'Aktif' | 'Nonaktif',
@@ -1610,6 +1852,80 @@ app.delete('/api/agenda/:id', async (c) => {
   }
 });
 
+// Transition watchlist for the RUAS student sign-in: which active students
+// are not linked to a RUAS account yet, and which ones still sign in through
+// the legacy local-password fallback. Read-only; homeroom/admin only.
+app.get('/api/students/ruas-watchlist', async (c) => {
+  try {
+    const authenticatedUser = getAuthenticatedUser(c);
+    if (!authenticatedUser || !canManageClass(authenticatedUser)) {
+      return c.json({ error: 'Daftar pantauan hanya tersedia untuk wali kelas/admin.' }, 403);
+    }
+    const requestedClassId = Number(c.req.query('classId'));
+    const classFilter = Number.isInteger(requestedClassId) && requestedClassId > 0 ? requestedClassId : null;
+    const permittedClassIds = await accessibleClassIds(authenticatedUser);
+    if (classFilter && permittedClassIds !== null && !permittedClassIds.includes(classFilter)) {
+      return c.json({ error: 'Anda tidak memiliki akses ke kelas ini.' }, 403);
+    }
+    const emptyWatchlist = {
+      ruasLoginEnabled: RUAS_LOGIN_ENABLED,
+      fallbackUntil: STUDENT_FALLBACK_UNTIL || null,
+      fallbackActive: studentFallbackWindowOpen(),
+      unmapped: [] as any[],
+      localFallbackUsers: [] as any[],
+    };
+    const conditions = [eq(users.role, 'student'), eq(users.status, 'Aktif')];
+    if (classFilter) {
+      conditions.push(eq(users.classId, classFilter));
+    } else if (permittedClassIds !== null) {
+      if (!permittedClassIds.length) return c.json(emptyWatchlist);
+      conditions.push(inArray(users.classId, permittedClassIds));
+    }
+    const students = await db.select({
+      id: users.id,
+      name: users.name,
+      nisn: users.identifier,
+      ruasUsername: users.ruasUsername,
+      lastLocalLoginAt: users.lastLocalLoginAt,
+      classId: users.classId,
+    }).from(users).where(and(...conditions));
+    const classRows = await db.select({ id: classes.id, name: classes.name }).from(classes);
+    const classNameById = new Map(classRows.map((item) => [item.id, item.name]));
+    const baseShape = (student: (typeof students)[number]) => ({
+      id: student.id.toString(),
+      name: student.name,
+      nisn: student.nisn,
+      classId: student.classId?.toString() || null,
+      className: student.classId ? classNameById.get(student.classId) || null : null,
+    });
+    const unmapped = students
+      .filter((student) => !student.ruasUsername || !student.ruasUsername.trim())
+      .map(baseShape)
+      .sort((a, b) => a.name.localeCompare(b.name, 'id'));
+    const localFallbackUsers = students
+      .filter((student) => !!student.lastLocalLoginAt)
+      .map((student) => ({ ...baseShape(student), lastLocalLoginAt: student.lastLocalLoginAt }))
+      .sort((a, b) => String(b.lastLocalLoginAt).localeCompare(String(a.lastLocalLoginAt)));
+    return c.json({ ...emptyWatchlist, unmapped, localFallbackUsers });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Normalizes a typed RUAS username for storage and rejects one that is
+// already recorded for a different student (the mapping must stay 1:1).
+async function resolveRuasUsernameForSave(rawValue: unknown, excludeUserId?: number): Promise<{ value: string | null } | { error: string }> {
+  const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+  if (!value) return { value: null };
+  const clash = await db.select({ id: users.id }).from(users).where(and(
+    eq(users.ruasUsername, value),
+    eq(users.role, 'student'),
+    ...(excludeUserId ? [ne(users.id, excludeUserId)] : []),
+  )).limit(1);
+  if (clash.length) return { error: `Username RUAS "${value}" sudah tercatat untuk siswa lain.` };
+  return { value };
+}
+
 // Add a new student
 app.post('/api/students', async (c) => {
   try {
@@ -1617,6 +1933,8 @@ app.post('/api/students', async (c) => {
     const classId = Number(body.classId);
     const classItem = await db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1);
     if (!Number.isInteger(classId) || !classItem.length) return c.json({ error: 'Kelas tujuan tidak valid.' }, 400);
+    const ruasUsername = await resolveRuasUsernameForSave(body.ruasUsername);
+    if ('error' in ruasUsername) return c.json({ error: ruasUsername.error }, 409);
     await db.insert(users).values({
       name: body.name,
       role: 'student',
@@ -1625,6 +1943,7 @@ app.post('/api/students', async (c) => {
       gender: body.gender || 'L',
       status: body.status || 'Aktif',
       classId,
+      ruasUsername: ruasUsername.value,
     });
     return c.json({ success: true });
   } catch (err: any) {
@@ -1692,12 +2011,15 @@ app.put('/api/students/:id', async (c) => {
       ? await db.select({ id: classes.id }).from(classes).where(eq(classes.id, classId)).limit(1)
       : [];
     if (!classItem.length) return c.json({ error: 'Kelas siswa tidak valid.' }, 400);
+    const ruasUsername = await resolveRuasUsernameForSave(body.ruasUsername, id);
+    if ('error' in ruasUsername) return c.json({ error: ruasUsername.error }, 409);
     await db.update(users).set({
       name: body.name,
       identifier: body.nisn,
       gender: body.gender,
       status: body.status,
       classId,
+      ruasUsername: ruasUsername.value,
     }).where(eq(users.id, id));
     return c.json({ success: true });
   } catch (err: any) {

@@ -6,9 +6,28 @@ export const users = sqliteTable('users', {
   role: text('role', { enum: ['admin', 'teacher', 'counselor', 'student'] }).notNull().default('student'),
   identifier: text('identifier').notNull().unique(), // email for admin, NIS for student
   passwordHash: text('password_hash').notNull(),
+  // The student's RUAS username, recorded by the homeroom teacher. This is
+  // the only mapping key between a RUAS account and this row: RUAS knows
+  // students by username alone (its participant identity_key IS the
+  // username), and the RUAS username pattern (nama_jurusan) cannot be
+  // derived from the NIS. Null = not yet linked to a RUAS account.
+  ruasUsername: text('ruas_username'),
+  // ISO timestamp of the student's most recent successful sign-in through
+  // the legacy local-password fallback during the transition window.
+  // Feeds the homeroom watchlist; RUAS sign-ins never touch it.
+  lastLocalLoginAt: text('last_local_login_at'),
   gender: text('gender', { enum: ['L', 'P'] }).notNull().default('L'),
   status: text('status', { enum: ['Aktif', 'Nonaktif'] }).notNull().default('Aktif'),
   classId: integer('class_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+// One row per successful student sign-in, recording only which pathway was
+// used ('ruas' or 'local-fallback'). Passwords are never recorded anywhere.
+export const studentLoginEvents = sqliteTable('student_login_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id),
+  pathway: text('pathway', { enum: ['ruas', 'local-fallback'] }).notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

@@ -87,6 +87,7 @@ sqlite.run(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type TEXT NOT NULL DEFAULT 'INFO',
     text TEXT NOT NULL,
+    valid_until TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
   );
 
@@ -391,6 +392,7 @@ function addColumnIfMissing(table: string, column: string, definition: string) {
 }
 
 addColumnIfMissing('users', 'class_id', 'class_id INTEGER REFERENCES classes(id)');
+addColumnIfMissing('announcements', 'valid_until', 'valid_until TEXT');
 addColumnIfMissing('behavior_records', 'subject', 'subject TEXT');
 addColumnIfMissing('behavior_records', 'recorded_by', 'recorded_by INTEGER REFERENCES users(id)');
 addColumnIfMissing('attendance', 'subject', 'subject TEXT');

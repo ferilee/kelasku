@@ -1286,7 +1286,12 @@ app.get('/api/class-data', async (c) => {
     };
 
     return c.json({
-      announcements: allAnnouncements.map(a => ({ id: a.id.toString(), type: a.type, text: a.text })),
+      // Dated announcements whose last valid day has passed are withheld
+      // from anonymous visitors; signed-in users still receive them so the
+      // dashboard can show them (marked as expired) and clean them up.
+      announcements: allAnnouncements
+        .filter(a => authenticatedUser || !isAnnouncementExpired(a.validUntil))
+        .map(a => ({ id: a.id.toString(), type: a.type, text: a.text, date: a.validUntil ?? null })),
       teachingAnnouncements: authenticatedUser ? classTeachingAnnouncements.map((item) => ({
         id: item.id.toString(), type: item.type, text: item.text, teacherId: item.teacherId.toString(),
         teacherName: announcementTeachers.find((teacher) => teacher.id === item.teacherId)?.name || 'Guru Pengajar',
@@ -1518,12 +1523,55 @@ app.post('/api/quote', async (c) => {
   }
 });
 
+// Announcement "valid until" dates are plain YYYY-MM-DD strings naming the
+// last day the announcement may be shown publicly (inclusive).
+function isValidAnnouncementDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+// "Today" for expiry checks follows the school's timezone, not the host's.
+function schoolTodayString(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+function isAnnouncementExpired(validUntil: string | null | undefined): boolean {
+  if (!validUntil || !isValidAnnouncementDate(validUntil)) return false;
+  return validUntil < schoolTodayString();
+}
+
+const ANNOUNCEMENT_DATE_ERROR = 'Tanggal berlaku pengumuman tidak sah. Pilih tanggal kalender yang valid.';
+
 // Add a new announcement
 app.post('/api/announcements', async (c) => {
   try {
     const body = await c.req.json();
-    const result = await db.insert(announcements).values({ type: body.type, text: body.text }).returning();
+    const validUntil = body.date ?? null;
+    if (validUntil !== null && validUntil !== '' && !isValidAnnouncementDate(validUntil)) {
+      return c.json({ error: ANNOUNCEMENT_DATE_ERROR }, 400);
+    }
+    const result = await db.insert(announcements).values({ type: body.type, text: body.text, validUntil: validUntil || null }).returning();
     return c.json({ success: true, id: result[0]?.id?.toString() });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Set or clear the "valid until" date of an existing announcement
+app.put('/api/announcements/:id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'));
+    const body = await c.req.json();
+    const validUntil = body.date ?? null;
+    if (validUntil !== null && validUntil !== '' && !isValidAnnouncementDate(validUntil)) {
+      return c.json({ error: ANNOUNCEMENT_DATE_ERROR }, 400);
+    }
+    const existing = await db.select({ id: announcements.id }).from(announcements).where(eq(announcements.id, id)).limit(1);
+    if (!existing[0]) return c.json({ error: 'Pengumuman tidak ditemukan.' }, 404);
+    await db.update(announcements).set({ validUntil: validUntil || null }).where(eq(announcements.id, id));
+    return c.json({ success: true });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

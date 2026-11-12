@@ -85,6 +85,9 @@ export const announcements = sqliteTable('announcements', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   type: text('type', { enum: ['PENTING', 'INFO', 'SELAMAT'] }).notNull().default('INFO'),
   text: text('text').notNull(),
+  // Optional last day (YYYY-MM-DD) the announcement is shown publicly.
+  // Null means it has no expiry and is always shown.
+  validUntil: text('valid_until'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

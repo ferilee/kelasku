@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BookOpen, Users, Calendar, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, Lock, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw, Bell } from 'lucide-react';
 import { useClassData, Student } from './ClassContext';
+import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDate';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 import { useModalAccessibility } from './useModalAccessibility';
@@ -740,6 +741,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   
   const [newAnnType, setNewAnnType] = useState<'PENTING' | 'INFO' | 'SELAMAT'>('INFO');
   const [newAnnText, setNewAnnText] = useState('');
+  const [newAnnDate, setNewAnnDate] = useState('');
   const [teachingAnnouncementType, setTeachingAnnouncementType] = useState<'PENTING' | 'INFO' | 'SELAMAT'>('INFO');
   const [teachingAnnouncementText, setTeachingAnnouncementText] = useState('');
 
@@ -1951,11 +1953,21 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const handleAddAnnouncement = async () => {
     if (!newAnnText) return;
     try {
-      await classData.addAnnouncement({ id: Date.now().toString(), type: newAnnType, text: newAnnText });
+      await classData.addAnnouncement({ id: Date.now().toString(), type: newAnnType, text: newAnnText, date: newAnnDate || null });
       setNewAnnText('');
+      setNewAnnDate('');
       notify('Pengumuman berhasil ditampilkan.', 'success');
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Gagal menampilkan pengumuman.', 'error');
+    }
+  };
+
+  const handleAnnouncementDateChange = async (id: string, date: string) => {
+    try {
+      await classData.updateAnnouncementDate(id, date || null);
+      notify(date ? 'Tanggal berlaku pengumuman disimpan.' : 'Tanggal berlaku pengumuman dihapus.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Gagal memperbarui tanggal pengumuman.', 'error');
     }
   };
 
@@ -3158,21 +3170,35 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     <label className="block text-xs font-medium text-slate-500 mb-1">Isi Pengumuman</label>
                     <input type="text" value={newAnnText} onChange={e => setNewAnnText(e.target.value)} placeholder="Tulis pengumuman baru..." className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-4 py-2 text-slate-800 dark:text-slate-200 outline-none" />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Berlaku Sampai (opsional)</label>
+                    <input type="date" value={newAnnDate} onChange={e => setNewAnnDate(e.target.value)} className="rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-3 py-2 text-slate-800 dark:text-slate-200 outline-none" />
+                  </div>
                   <button onClick={handleAddAnnouncement} className="bg-emerald-600 hover:bg-emerald-700 text-white p-2.5 rounded-lg transition-colors">
                     <Plus className="h-5 w-5" />
                   </button>
                 </div>
+                <p className="-mt-3 mb-6 text-xs text-slate-400">Pengumuman bertanggal menampilkan tanggalnya di bilah info beranda dan otomatis berhenti tampil sesudah tanggal itu lewat. Kosongkan bila pengumuman berlaku tanpa batas.</p>
 
                 <div className="space-y-2">
                   {classData.announcements.map(ann => (
-                    <div key={ann.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-                      <div className="flex items-center gap-3">
+                    <div key={ann.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <span className="text-xs font-bold px-2 py-1 rounded bg-slate-200 dark:bg-slate-700">{ann.type}</span>
                         <span className="text-sm text-slate-700 dark:text-slate-300">{ann.text}</span>
+                        {formatAnnouncementDate(ann.date) && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded bg-cyan-100 text-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-200">s.d. {formatAnnouncementDate(ann.date)}</span>
+                        )}
+                        {isAnnouncementExpired(ann.date) && (
+                          <span className="text-xs font-bold px-2 py-1 rounded bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">Kedaluwarsa — tidak tampil di beranda</span>
+                        )}
                       </div>
-                      <button onClick={() => classData.removeAnnouncement(ann.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition-colors">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input type="date" value={ann.date ?? ''} onChange={e => handleAnnouncementDateChange(ann.id, e.target.value)} title="Tanggal berlaku terakhir pengumuman (kosongkan = tanpa batas)" className="rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 outline-none" />
+                        <button onClick={() => classData.removeAnnouncement(ann.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition-colors">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
+import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDate';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 
@@ -110,14 +111,20 @@ const LandingPage = ({
           
           <div className="whitespace-nowrap animate-marquee-scroll flex gap-24 text-xs font-medium text-cyan-900 dark:text-cyan-100 pl-40">
             {isLoading && <span className="flex items-center gap-2">Memuat informasi kelas…</span>}
-            {announcements.map((ann) => (
-              <span key={ann.id} className="flex items-center gap-2">
-                <span className={`font-bold ${ann.type === 'PENTING' ? 'text-orange-600 dark:text-orange-400' : ann.type === 'INFO' ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                  {ann.type === 'PENTING' ? '⚠️ PENTING:' : ann.type === 'INFO' ? '📢 INFO:' : '🏆 SELAMAT:'}
-                </span> 
-                {ann.text}
-              </span>
-            ))}
+            {announcements.filter((ann) => !isAnnouncementExpired(ann.date)).map((ann) => {
+              const validUntilLabel = formatAnnouncementDate(ann.date);
+              return (
+                <span key={ann.id} className="flex items-center gap-2">
+                  <span className={`font-bold ${ann.type === 'PENTING' ? 'text-orange-600 dark:text-orange-400' : ann.type === 'INFO' ? 'text-blue-600 dark:text-blue-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {ann.type === 'PENTING' ? '⚠️ PENTING:' : ann.type === 'INFO' ? '📢 INFO:' : '🏆 SELAMAT:'}
+                  </span>
+                  {ann.text}
+                  {validUntilLabel && (
+                    <span className="font-semibold">{`(s.d. ${validUntilLabel})`}</span>
+                  )}
+                </span>
+              );
+            })}
           </div>
         </div>
 

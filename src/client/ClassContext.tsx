@@ -4,6 +4,8 @@ export interface Announcement {
   id: string;
   text: string;
   type: 'PENTING' | 'INFO' | 'SELAMAT';
+  // Last day (YYYY-MM-DD) the announcement is shown publicly; null = no expiry.
+  date?: string | null;
 }
 
 export interface TeachingAnnouncement extends Announcement {
@@ -124,6 +126,7 @@ export interface ClassData {
   addGalleryItem: (item: Omit<GalleryItem, 'id'>) => Promise<void>;
   removeGalleryItem: (id: string) => Promise<void>;
   addAnnouncement: (ann: Announcement) => void;
+  updateAnnouncementDate: (id: string, date: string | null) => Promise<void>;
   removeAnnouncement: (id: string) => void;
   addAgenda: (item: AgendaItem) => void;
   removeAgenda: (id: string) => void;
@@ -347,7 +350,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       const response = await fetch('/api/announcements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: ann.type, text: ann.text })
+        body: JSON.stringify({ type: ann.type, text: ann.text, date: ann.date ?? null })
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal menampilkan informasi');
       await fetchClassData();
@@ -355,6 +358,16 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       console.error('Error adding announcement:', err);
       throw err;
     }
+  };
+
+  const updateAnnouncementDate = async (id: string, date: string | null) => {
+    const response = await fetch(`/api/announcements/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date })
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Gagal memperbarui tanggal pengumuman');
+    await fetchClassData();
   };
 
   const removeAnnouncement = async (id: string) => {
@@ -546,6 +559,7 @@ export const ClassProvider = ({ children }: { children: ReactNode }) => {
       addGalleryItem,
       removeGalleryItem,
       addAnnouncement,
+      updateAnnouncementDate,
       removeAnnouncement,
       addAgenda,
       removeAgenda,

@@ -21,6 +21,14 @@ const LandingPage = ({
   onLogout: () => void;
 }) => {
   const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, isLoading, loadError } = useClassData();
+  // One visibility rule for the gallery (Momen Kelas) section and every
+  // navigation entry that leads to it, mirroring the grade-trend and
+  // leaderboard cards: they render while data is still loading (so the
+  // section keeps its skeleton and the menu does not flicker) or once at
+  // least one real gallery item exists. Once data has arrived and the
+  // gallery is empty, neither the section nor its nav entries render, so
+  // no link can point at a #galeri anchor that is not on the page.
+  const showGallery = isLoading || galleryItems.length > 0;
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
@@ -139,7 +147,7 @@ const LandingPage = ({
             <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600 dark:text-slate-300">
               <a href="#" className="text-slate-900 dark:text-white hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">Beranda</a>
               <a href="#statistik" className="hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">Statistik</a>
-              <a href="#galeri" className="hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">Galeri</a>
+              {showGallery && <a href="#galeri" className="hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">Galeri</a>}
               <a href="#agenda" className="hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">Agenda</a>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
@@ -366,7 +374,14 @@ const LandingPage = ({
                 )}
                 </div>
 
-                {/* 5. Galeri Momen Kelas */}
+                {/* 5. Galeri Momen Kelas. Like the analytics cards, this
+                    section is only rendered once real gallery items exist
+                    (or while loading, with its skeleton): while the class
+                    has no documented moments it is hidden entirely instead
+                    of showing a permanent "no moments yet" panel, and the
+                    Galeri nav entries follow the same showGallery rule so
+                    they never link to a section that is not on the page. */}
+                {showGallery && (
                 <div id="galeri" className={`bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 overflow-hidden shadow-sm dark:shadow-none transition-colors ${tabClass('galeri')}`}>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2 transition-colors">
@@ -376,9 +391,10 @@ const LandingPage = ({
                     {galleryItems.length > 3 && <button onClick={() => setShowAllGallery(true)} className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline">Lihat Semua</button>}
                   </div>
                   <div className="grid grid-cols-3 gap-4">
-                    {isLoading ? <><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /></> : galleryItems.length === 0 ? <p className="col-span-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada momen kelas yang ditambahkan.</p> : galleryItems.slice(0, 3).map((item) => <button key={item.id} onClick={() => setShowAllGallery(true)} className="aspect-square overflow-hidden rounded-xl border border-slate-300 bg-slate-200 text-left dark:border-slate-800 dark:bg-[#0A1118]"><img src={item.imageUrl} className="h-full w-full object-cover opacity-90 transition-all hover:scale-110 hover:opacity-100" alt={item.title} onError={(event) => { event.currentTarget.style.display = 'none'; }} /></button>)}
+                    {isLoading ? <><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /><SkeletonBar className="aspect-square w-full" /></> : galleryItems.slice(0, 3).map((item) => <button key={item.id} onClick={() => setShowAllGallery(true)} className="aspect-square overflow-hidden rounded-xl border border-slate-300 bg-slate-200 text-left dark:border-slate-800 dark:bg-[#0A1118]"><img src={item.imageUrl} className="h-full w-full object-cover opacity-90 transition-all hover:scale-110 hover:opacity-100" alt={item.title} onError={(event) => { event.currentTarget.style.display = 'none'; }} /></button>)}
                   </div>
                 </div>
+                )}
 
               </div>
 
@@ -509,10 +525,12 @@ const LandingPage = ({
               <TrendingUp className="h-5 w-5" />
               <span className="text-[10px] font-medium">Statistik</span>
             </button>
+            {showGallery && (
             <button onClick={() => setActiveMobileTab('galeri')} className={`flex flex-col items-center gap-1 transition-colors ${activeMobileTab === 'galeri' ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400'}`}>
               <ImageIcon className="h-5 w-5" />
               <span className="text-[10px] font-medium">Galeri</span>
             </button>
+            )}
             <button onClick={() => setActiveMobileTab('jadwal')} className={`flex flex-col items-center gap-1 transition-colors ${activeMobileTab === 'jadwal' ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400'}`}>
               <Clock className="h-5 w-5" />
               <span className="text-[10px] font-medium">Jadwal</span>

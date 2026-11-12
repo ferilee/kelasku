@@ -269,7 +269,12 @@ const LandingPage = ({
               <div className={`lg:col-span-2 space-y-8 ${activeMobileTab === 'statistik' || activeMobileTab === 'galeri' ? 'block' : 'hidden md:block'}`}>
                 
                 <div className={`space-y-8 ${tabClass('statistik')}`}>
-                {/* 2. Grafik Tren (Analytics Chart) */}
+                {/* 2. Grafik Tren (Analytics Chart). The card is only rendered
+                    once at least one month of real grade data exists: an
+                    all-empty chart is hidden entirely instead of showing a
+                    permanent "no grades yet" panel. While loading it stays
+                    visible with its loading text. */}
+                {(isLoading || gradeTrend.some((data) => data.average !== null)) && (
                 <div className="bg-slate-50 dark:bg-[#121C28] p-8 rounded-2xl border border-slate-200 dark:border-slate-700/50 shadow-sm dark:shadow-none transition-colors">
                   <div className="flex justify-between items-center mb-8">
                     <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2 transition-colors">
@@ -295,8 +300,8 @@ const LandingPage = ({
                     ))}
                   </div>
                   {isLoading && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Memuat tren nilai…</p>}
-                  {!isLoading && !gradeTrend.some((data) => data.average !== null) && <p className="mt-5 text-center text-sm text-slate-500 dark:text-slate-400">Belum ada nilai dalam enam bulan terakhir.</p>}
                 </div>
+                )}
 
                 {/* Leaderboard & 3. Wall of Fame */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

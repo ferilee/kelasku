@@ -230,7 +230,7 @@ const LandingPage = ({
                 ) : (
                 <img
                   src={heroImage}
-                  alt={`Suasana ${selectedClass}`}
+                  alt={heroImage === '/hero-default.svg' ? 'Ilustrasi suasana kelas digital' : `Suasana ${selectedClass}`}
                   className="relative z-10 w-full h-full object-cover rounded-[100px] shadow-2xl dark:shadow-[0_0_60px_rgba(6,182,212,0.4)] border-4 border-white dark:border-[#0A1118] transition-colors"
                   style={{ clipPath: 'circle(50% at 50% 50%)' }}
                 />

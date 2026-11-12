@@ -15,12 +15,20 @@ const SCHOOL_NAME = 'SMKN Pasirian, Lumajang';
 // The homeroom teacher's public WhatsApp number. No API field carries a
 // phone number, so this constant is the single source for every wa.me
 // link on this page — the homeroom teacher card and the "forgot
-// password" help inside the login modal both build their URL from it,
-// so the two can never drift apart. If the number is ever cleared, the
+// password" help inside the login modal both build their URL from it
+// through buildWhatsAppUrl, so the two can never drift apart. Each link
+// pre-fills its own opening message (the "…" parts are blanks the
+// sender completes) so nobody has to compose from an empty chat box:
+// a general greeting on the card, a password-reset request in the
+// modal. If the number is ever cleared, both URLs come out empty, the
 // card simply omits its button and the modal help stays as plain text
 // instead of linking to a broken wa.me address.
 const WALI_KELAS_WHATSAPP_NUMBER = '6285174244128';
-const WALI_KELAS_WHATSAPP_URL = WALI_KELAS_WHATSAPP_NUMBER ? `https://wa.me/${WALI_KELAS_WHATSAPP_NUMBER}` : '';
+const WALI_KELAS_WHATSAPP_MESSAGE = 'Assalamu’alaikum, Pak Feri. Saya … dari kelas …. Saya ingin menyampaikan …';
+const WALI_KELAS_PASSWORD_RESET_MESSAGE = 'Assalamu’alaikum, Pak Feri. Saya … (NISN …) dari kelas …. Saya lupa kata sandi WebKelas dan mohon dibantu untuk mengatur ulang kata sandi saya. Terima kasih.';
+const buildWhatsAppUrl = (message: string) => WALI_KELAS_WHATSAPP_NUMBER ? `https://wa.me/${WALI_KELAS_WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}` : '';
+const WALI_KELAS_WHATSAPP_URL = buildWhatsAppUrl(WALI_KELAS_WHATSAPP_MESSAGE);
+const WALI_KELAS_PASSWORD_RESET_URL = buildWhatsAppUrl(WALI_KELAS_PASSWORD_RESET_MESSAGE);
 
 // Skeleton placeholder shown while real class data is still loading.
 // Real data is rendered only after /api/class-data responds; sample data
@@ -566,7 +574,7 @@ const LandingPage = ({
         </footer>
         
         {/* Mobile Bottom Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0A1118]/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 pb-safe shadow-[0_-5px_15px_rgba(0,0,0,0.05)] dark:shadow-[0_-5px_15px_rgba(0,0,0,0.2)]">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-[#0A1118]/90 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 pb-[env(safe-area-inset-bottom)] shadow-[0_-5px_15px_rgba(0,0,0,0.05)] dark:shadow-[0_-5px_15px_rgba(0,0,0,0.2)]">
           <div className="flex items-center justify-around p-3">
             <button onClick={() => setActiveMobileTab('beranda')} className={`flex flex-col items-center gap-1 transition-colors ${activeMobileTab === 'beranda' ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400'}`}>
               <BookOpen className="h-5 w-5" />
@@ -694,10 +702,10 @@ const LandingPage = ({
                   the same public WhatsApp number as the teacher card. */}
               <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
                 Lupa kata sandi? Hubungi wali kelas
-                {WALI_KELAS_WHATSAPP_URL ? (
+                {WALI_KELAS_PASSWORD_RESET_URL ? (
                   <>
                     {' '}melalui{' '}
-                    <a href={WALI_KELAS_WHATSAPP_URL} target="_blank" rel="noreferrer" className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
+                    <a href={WALI_KELAS_PASSWORD_RESET_URL} target="_blank" rel="noreferrer" className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
                       <MessageCircle className="mr-1 inline h-4 w-4 -mt-0.5" />WhatsApp
                     </a>
                     {' '}untuk dibantu mengatur ulang kata sandi Anda.

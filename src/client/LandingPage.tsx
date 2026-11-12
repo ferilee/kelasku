@@ -6,6 +6,12 @@ import { getJakartaNow, isScheduleOngoing } from './scheduleTime';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 
+// The school's name exists nowhere as data (no API field, no page
+// setting), so the footer states it as a constant. The class name, by
+// contrast, comes from the selected class in ClassContext so the footer
+// follows whichever class is being viewed.
+const SCHOOL_NAME = 'SMKN Pasirian, Lumajang';
+
 // Skeleton placeholder shown while real class data is still loading.
 // Real data is rendered only after /api/class-data responds; sample data
 // is never shown in its place.
@@ -536,7 +542,7 @@ const LandingPage = ({
             <BookOpen className="h-4 w-4 text-slate-400" />
             <span className="font-bold text-slate-500 tracking-widest uppercase">WEBKELAS</span>
           </div>
-          <span>&copy; {new Date().getFullYear()} Kelas Anda. Hak Cipta Dilindungi.</span>
+          <span>&copy; {new Date().getFullYear()} {selectedClass ? `Kelas ${selectedClass} — ` : ''}{SCHOOL_NAME}. Hak Cipta Dilindungi.</span>
         </footer>
         
         {/* Mobile Bottom Navigation */}

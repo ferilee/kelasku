@@ -12,6 +12,16 @@ import { ThemePicker } from './ThemeContext';
 // follows whichever class is being viewed.
 const SCHOOL_NAME = 'SMKN Pasirian, Lumajang';
 
+// The homeroom teacher's public WhatsApp number. No API field carries a
+// phone number, so this constant is the single source for every wa.me
+// link on this page — the homeroom teacher card and the "forgot
+// password" help inside the login modal both build their URL from it,
+// so the two can never drift apart. If the number is ever cleared, the
+// card simply omits its button and the modal help stays as plain text
+// instead of linking to a broken wa.me address.
+const WALI_KELAS_WHATSAPP_NUMBER = '6285174244128';
+const WALI_KELAS_WHATSAPP_URL = WALI_KELAS_WHATSAPP_NUMBER ? `https://wa.me/${WALI_KELAS_WHATSAPP_NUMBER}` : '';
+
 // Skeleton placeholder shown while real class data is still loading.
 // Real data is rendered only after /api/class-data responds; sample data
 // is never shown in its place.
@@ -19,14 +29,19 @@ const SkeletonBar = ({ className = '' }: { className?: string }) => (
   <div aria-hidden="true" className={`animate-pulse rounded-lg bg-slate-200 dark:bg-slate-700/70 ${className}`} />
 );
 
-const LandingPage = ({ 
+const LandingPage = ({
   onLoginSuccess,
   userSession,
-  onLogout
-}: { 
+  onLogout,
+  autoOpenLogin = false
+}: {
   onLoginSuccess: (role: 'admin' | 'teacher' | 'counselor' | 'student') => void;
   userSession: 'admin' | 'teacher' | 'counselor' | 'student' | null;
   onLogout: () => void;
+  // Set when the app was opened on /login, /dashboard or /admin without
+  // a session (see initialRoute.ts): the login modal opens on its own
+  // instead of the visitor landing on a page that ignores the address.
+  autoOpenLogin?: boolean;
 }) => {
   const { announcements, agenda, quote, stats, schedules, achievements, officers, officerDuties, academicLeaderboard, gradeTrend, galleryItems, heroImage, homeroomTeacherPhoto, selectedClass, selectedYear, isLoading, loadError } = useClassData();
   // One visibility rule for the gallery (Momen Kelas) section and every
@@ -38,6 +53,9 @@ const LandingPage = ({
   // no link can point at a #galeri anchor that is not on the page.
   const showGallery = isLoading || galleryItems.length > 0;
   const [showLoginModal, setShowLoginModal] = useState(false);
+  useEffect(() => {
+    if (autoOpenLogin) setShowLoginModal(true);
+  }, [autoOpenLogin]);
   const [activeMobileTab, setActiveMobileTab] = useState('beranda');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -268,7 +286,9 @@ const LandingPage = ({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <a href="https://ferilee.gurumuda.eu.org" target="_blank" rel="noreferrer" aria-label="Kunjungi website Feri Dwi Hermawan" title="Website" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-cyan-200 dark:border-cyan-800 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors"><Globe className="h-5 w-5" /></a>
-                <a href="https://wa.me/6285174244128" target="_blank" rel="noreferrer" className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"><MessageCircle className="h-4 w-4" /> Hubungi Saya</a>
+                {WALI_KELAS_WHATSAPP_URL && (
+                  <a href={WALI_KELAS_WHATSAPP_URL} target="_blank" rel="noreferrer" className="inline-flex flex-1 sm:flex-none items-center justify-center gap-2 rounded-full bg-emerald-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-colors"><MessageCircle className="h-4 w-4" /> Hubungi Saya</a>
+                )}
               </div>
             </div>
             )}
@@ -660,13 +680,32 @@ const LandingPage = ({
                   />
                 </div>
 
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="w-full py-3.5 rounded-xl text-white font-bold transition-all mt-4 flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 shadow-[0_0_15px_rgba(6,182,212,0.3)]"
                 >
                   <Lock className="h-4 w-4" /> Masuk ke Dasbor
                 </button>
               </form>
+
+              {/* There is no self-service password reset; a forgotten
+                  password is resolved by the homeroom teacher, so the
+                  modal must say so and give a working way to reach him —
+                  the same public WhatsApp number as the teacher card. */}
+              <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                Lupa kata sandi? Hubungi wali kelas
+                {WALI_KELAS_WHATSAPP_URL ? (
+                  <>
+                    {' '}melalui{' '}
+                    <a href={WALI_KELAS_WHATSAPP_URL} target="_blank" rel="noreferrer" className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline">
+                      <MessageCircle className="mr-1 inline h-4 w-4 -mt-0.5" />WhatsApp
+                    </a>
+                    {' '}untuk dibantu mengatur ulang kata sandi Anda.
+                  </>
+                ) : (
+                  <> untuk dibantu mengatur ulang kata sandi Anda.</>
+                )}
+              </p>
             </div>
           </div>
         </div>

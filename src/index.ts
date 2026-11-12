@@ -1176,20 +1176,49 @@ app.get('/api/class-data', async (c) => {
     }
     const currentClass = (Number.isInteger(requestedClassId) && allClasses.find((item) => item.id === requestedClassId)) || allClasses[0];
     if (!currentClass) return c.json({ error: 'Belum ada kelas yang tersedia.' }, 404);
-    const allAnnouncements = await db.select().from(announcements);
-    const allAgenda = await db.select().from(agenda);
-    const allStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id)));
+    // Run the independent queries concurrently. This handler previously
+    // awaited ~17 queries one after another (including three separate
+    // pageSettings lookups), so any per-query cost on the host multiplied
+    // by the number of round-trips before the response could be sent.
+    const [
+      allAnnouncements,
+      allAgenda,
+      allStudents,
+      classTeachingAnnouncements,
+      currentQuote,
+      allSchedules,
+      allOfficers,
+      allGalleryItems,
+      pageSettingsRows,
+      dailyAttendance,
+      allGrades,
+    ] = await Promise.all([
+      db.select().from(announcements),
+      db.select().from(agenda),
+      db.select().from(users).where(and(eq(users.role, 'student'), eq(users.classId, currentClass.id))),
+      db.select().from(teachingAnnouncements).where(eq(teachingAnnouncements.classId, currentClass.id)),
+      db.select().from(quotes).limit(1),
+      db.select().from(schedules).where(eq(schedules.classId, currentClass.id)),
+      db.select().from(classOfficers),
+      db.select().from(galleryItems).orderBy(galleryItems.createdAt),
+      db.select().from(pageSettings).where(inArray(pageSettings.key, ['hero_image', 'homeroom_teacher_photo', 'officer_duties'])),
+      db.select().from(attendance).where(eq(attendance.type, 'harian')),
+      db.select().from(grades),
+    ]);
     const classStudentIds = new Set(allStudents.map((student) => student.id));
-    const classTeachingAnnouncements = await db.select().from(teachingAnnouncements).where(eq(teachingAnnouncements.classId, currentClass.id));
+    const classStudentIdList = [...classStudentIds];
     const announcementTeacherIds = [...new Set(classTeachingAnnouncements.map((item) => item.teacherId))];
     const announcementSubjectIds = [...new Set(classTeachingAnnouncements.map((item) => item.subjectId))];
-    const [announcementTeachers, announcementSubjects] = await Promise.all([
+    // Dependent lookups also run concurrently; behavior records and
+    // achievements are filtered by this class's student ids in SQL instead
+    // of loading both full tables and filtering in memory.
+    const [announcementTeachers, announcementSubjects, behaviorRows, allAchievements] = await Promise.all([
       announcementTeacherIds.length ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, announcementTeacherIds)) : Promise.resolve([]),
       announcementSubjectIds.length ? db.select({ id: subjects.id, name: subjects.name }).from(subjects).where(inArray(subjects.id, announcementSubjectIds)) : Promise.resolve([]),
+      classStudentIdList.length ? db.select().from(behaviorRecords).where(inArray(behaviorRecords.studentId, classStudentIdList)) : Promise.resolve([]),
+      classStudentIdList.length ? db.select().from(achievements).where(inArray(achievements.studentId, classStudentIdList)) : Promise.resolve([]),
     ]);
-    const currentQuote = await db.select().from(quotes).limit(1);
-    const allSchedules = await db.select().from(schedules).where(eq(schedules.classId, currentClass.id));
-    let allBehavior = (await db.select().from(behaviorRecords)).filter((record) => classStudentIds.has(record.studentId));
+    let allBehavior = behaviorRows;
     if (authenticatedUser?.roles.includes('teacher') && !canManageClass(authenticatedUser)) {
       const assignmentsForTeacher = await db.select({ subjectId: teachingAssignments.subjectId }).from(teachingAssignments).where(and(eq(teachingAssignments.teacherId, authenticatedUser.id), eq(teachingAssignments.classId, currentClass.id)));
       const allowedSubjectIds = assignmentsForTeacher.map((item) => item.subjectId);
@@ -1197,14 +1226,9 @@ app.get('/api/class-data', async (c) => {
       const allowedNames = new Set(allowedSubjects.map((item) => item.name));
       allBehavior = allBehavior.filter((record) => record.subject && allowedNames.has(record.subject));
     }
-    const allAchievements = (await db.select().from(achievements)).filter((record) => classStudentIds.has(record.studentId));
-    const allOfficers = await db.select().from(classOfficers);
-    const allGalleryItems = await db.select().from(galleryItems).orderBy(galleryItems.createdAt);
-    const heroImageSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'hero_image')).limit(1);
-    const homeroomPhotoSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'homeroom_teacher_photo')).limit(1);
-    const officerDutiesSetting = await db.select().from(pageSettings).where(eq(pageSettings.key, 'officer_duties')).limit(1);
-    const dailyAttendance = await db.select().from(attendance).where(eq(attendance.type, 'harian'));
-    const allGrades = await db.select().from(grades);
+    const heroImageSetting = pageSettingsRows.find((row) => row.key === 'hero_image');
+    const homeroomPhotoSetting = pageSettingsRows.find((row) => row.key === 'homeroom_teacher_photo');
+    const officerDutiesSetting = pageSettingsRows.find((row) => row.key === 'officer_duties');
 
     const quoteVal = currentQuote[0] || {
       text: "Pendidikan adalah senjata paling mematikan di dunia, karena dengan pendidikan, Anda dapat mengubah dunia.",
@@ -1309,9 +1333,9 @@ app.get('/api/class-data', async (c) => {
       academicLeaderboard,
       galleryItems: allGalleryItems.map((item) => ({ id: item.id.toString(), title: item.title, imageUrl: item.imageUrl, description: item.description || '' })),
       gradeTrend,
-      heroImage: heroImageSetting[0]?.value || '/hero-default.svg',
-      homeroomTeacherPhoto: homeroomPhotoSetting[0]?.value || '/wali-kelas-placeholder.svg',
-      officerDuties: parseOfficerDuties(officerDutiesSetting[0]?.value),
+      heroImage: heroImageSetting?.value || '/hero-default.svg',
+      homeroomTeacherPhoto: homeroomPhotoSetting?.value || '/wali-kelas-placeholder.svg',
+      officerDuties: parseOfficerDuties(officerDutiesSetting?.value),
       classId: currentClass.id.toString(),
       className: currentClass.name,
       academicYear: currentClass.academicYear,
@@ -3429,6 +3453,14 @@ app.delete('/api/achievements/:id', async (c) => {
   }
 });
 
+// Vite emits content-hashed file names under /assets/, so a new deploy
+// produces new URLs and these files can be cached aggressively. Without
+// this they were served with only a short default max-age, so repeat
+// visits re-downloaded the ~678 KB JS bundle instead of reusing it.
+app.use('/assets/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'public, max-age=31536000, immutable');
+});
 app.use('/*', serveStatic({ root: './dist' }));
 app.get('*', async (c) => c.html(await Bun.file('./dist/index.html').text()));
 

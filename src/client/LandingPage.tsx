@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpen, Users, Clock, Award, Star, CalendarDays, Megaphone, TrendingUp, Medal, Quote, ImageIcon, Book, X, Lock, Globe, MessageCircle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { useClassData } from './ClassContext';
 import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDate';
+import { getJakartaNow, isScheduleOngoing } from './scheduleTime';
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 
@@ -65,7 +66,18 @@ const LandingPage = ({
   const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
   const monthShortNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
-  const todayName = dayNames[new Date().getDay()];
+  // "Now" for the Jadwal Hari Ini card is tracked as state and refreshed
+  // every 30 seconds, in Asia/Jakarta explicitly (see scheduleTime.ts), so
+  // the ongoing-lesson marker moves with the clock — and the listed day
+  // rolls over at midnight — without a page reload. Previously the day came
+  // from the visitor's device timezone and the marker was simply the first
+  // entry of the day, whatever the time.
+  const [jakartaNow, setJakartaNow] = useState(() => getJakartaNow());
+  useEffect(() => {
+    const timer = setInterval(() => setJakartaNow(getJakartaNow()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const todayName = jakartaNow.dayName;
   const todaySchedules = schedules.filter((schedule) => schedule.day === todayName);
   const parseAgendaDate = (value: string) => {
     const [dayValue, monthValue] = value.trim().split(/\s+/);
@@ -420,18 +432,24 @@ const LandingPage = ({
                   <p className="text-xs font-semibold text-cyan-700 dark:text-cyan-300 mb-6 relative z-10 uppercase tracking-widest transition-colors">{todayName}</p>
                   
                   <div className="space-y-4 relative z-10">
-                    {isLoading ? <div className="space-y-4"><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /></div> : todaySchedules.length ? todaySchedules.map((sched, idx) => (
-                      <div key={sched.id} className={`flex gap-4 items-start ${idx === 0 ? 'bg-white/60 dark:bg-cyan-950/50 p-3 -mx-3 rounded-xl border border-white dark:border-cyan-800/50 shadow-sm dark:shadow-none transition-colors' : 'px-0 transition-colors'}`}>
-                        <div className={`w-12 font-mono text-xs pt-0.5 ${idx === 0 ? 'text-cyan-700 dark:text-cyan-300 font-bold' : 'text-slate-500'}`}>{sched.timeStart}</div>
+                    {isLoading ? <div className="space-y-4"><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /><SkeletonBar className="h-10 w-full" /></div> : todaySchedules.length ? todaySchedules.map((sched) => {
+                      // The highlight + pulsing dot mark the lesson running at
+                      // the current Jakarta time (its own timeStart–timeEnd
+                      // window); outside lesson hours nothing is marked.
+                      const isOngoing = isScheduleOngoing(sched, jakartaNow.minutesSinceMidnight);
+                      return (
+                      <div key={sched.id} className={`flex gap-4 items-start ${isOngoing ? 'bg-white/60 dark:bg-cyan-950/50 p-3 -mx-3 rounded-xl border border-white dark:border-cyan-800/50 shadow-sm dark:shadow-none transition-colors' : 'px-0 transition-colors'}`}>
+                        <div className={`w-12 font-mono text-xs pt-0.5 ${isOngoing ? 'text-cyan-700 dark:text-cyan-300 font-bold' : 'text-slate-500'}`}>{sched.timeStart}</div>
                         <div className="flex-1">
-                          <div className={`text-sm font-semibold transition-colors ${idx === 0 ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>{sched.subject}</div>
-                          {sched.teacherName && <div className={`text-xs mt-0.5 transition-colors ${idx === 0 ? 'text-cyan-700 dark:text-cyan-200' : 'text-slate-500'}`}>{sched.teacherName}</div>}
+                          <div className={`text-sm font-semibold transition-colors ${isOngoing ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>{sched.subject}</div>
+                          {sched.teacherName && <div className={`text-xs mt-0.5 transition-colors ${isOngoing ? 'text-cyan-700 dark:text-cyan-200' : 'text-slate-500'}`}>{sched.teacherName}</div>}
                         </div>
-                        {idx === 0 && (
+                        {isOngoing && (
                            <div className="h-2 w-2 rounded-full bg-cyan-500 dark:bg-cyan-400 animate-pulse mt-1.5"></div>
                         )}
                       </div>
-                    )) : <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada jadwal untuk hari ini.</p>}
+                      );
+                    }) : <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada jadwal untuk hari ini.</p>}
                   </div>
                 </div>
 

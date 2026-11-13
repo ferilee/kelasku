@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { db } from './server/db';
-import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers, studentLearningInterventionEvaluations, studentLoginEvents } from './server/db/schema';
-import { eq, and, like, isNull, inArray, lt, ne } from 'drizzle-orm';
+import { announcements, teachingAnnouncements, agenda, quotes, users, attendance, grades, subjects, classOfficers, assignments, assignmentClasses, submissions, schedules, attendanceReminderExceptions, scheduleChangeRequests, teachingJournals, behaviorRecords, achievements, pageSettings, galleryItems, classes, teachingAssignments, userRoles, studentCases, caseUpdates, studentActivitySessions, studentActivityLogs, studentLearningProfiles, studentLearningObservations, studentLearningCheckpoints, studentLearningInterventions, studentLearningInterventionMembers, studentLearningInterventionEvaluations, studentLoginEvents, ruasLinkAttempts } from './server/db/schema';
+import { eq, and, like, isNull, isNotNull, inArray, lt, ne, desc } from 'drizzle-orm';
 import { deleteObject, getStorageErrorCode, isRustFsReference, MAX_ASSIGNMENT_FILE_SIZE, MAX_SUBMISSION_FILE_SIZE, readObject, storageErrorResponse, uploadPdf } from './server/storage';
 
 const app = new Hono();
@@ -198,6 +198,102 @@ async function fetchRuasProfileName(token: string): Promise<string | null> {
     return name && name.trim() ? name.trim() : null;
   } catch {
     return null;
+  }
+}
+
+// --- Automatic first-sign-in linking --------------------------------------
+// A student whose RUAS credentials RUAS itself has just verified should not
+// be locked out merely because the homeroom teacher has not typed their
+// RUAS username into WebKelas yet. When no student row carries the typed
+// username, the account is linked automatically — but only on a UNIQUE
+// match, so a wrong link is never guessed:
+//   (a) name match: the RUAS profile display name, normalized, equals
+//       exactly one unlinked student's normalized name; or, failing that,
+//   (b) pattern match: the typed username equals the expected
+//       `namadepan_jurusan` username of exactly one unlinked student.
+// Anything else stays unlinked, the attempt is recorded in
+// ruas_link_attempts, and the watchlist offers the teacher a one-click
+// link. Every automatic link is recorded on its login event (linkMethod)
+// so the watchlist can show — and the teacher can audit — what was linked.
+function normalizePersonName(value: string | null | undefined): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const GRADE_LEVEL_TOKENS = new Set(['x', 'xi', 'xii']);
+
+// Majors are learned from the class names this school actually uses (e.g.
+// "X TKJ A" contributes "tkj"): alphabetic tokens of length >= 2 that are
+// not grade-level tokens.
+function knownMajorTokens(classNames: Array<string | null | undefined>): Set<string> {
+  const majors = new Set<string>();
+  for (const className of classNames) {
+    for (const token of (className || '').toLowerCase().split(/\s+/)) {
+      const letters = token.replace(/[^a-z]/g, '');
+      if (letters.length >= 2 && !GRADE_LEVEL_TOKENS.has(letters)) majors.add(letters);
+    }
+  }
+  return majors;
+}
+
+// Derives the expected RUAS username for a student from the established
+// `namadepan_jurusan` pattern. The major comes from the student's own class
+// name: a token recognized as a major, or — failing recognition — the
+// class name's second token when it is purely alphabetic.
+function deriveExpectedRuasUsername(studentName: string, className: string | null | undefined, knownMajors: Set<string>): string | null {
+  const firstName = normalizePersonName(studentName).split(' ')[0] || '';
+  if (!firstName) return null;
+  const rawTokens = (className || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const letterTokens = rawTokens.map((token) => token.replace(/[^a-z]/g, '')).filter(Boolean);
+  let major = letterTokens.find((token) => knownMajors.has(token)) || null;
+  if (!major) {
+    const second = rawTokens[1] ? rawTokens[1].replace(/[^a-z]/g, '') : '';
+    if (second && !GRADE_LEVEL_TOKENS.has(second)) major = second;
+  }
+  if (!major) return null;
+  return `${firstName}_${major}`;
+}
+
+type RuasAutoLink = { student: any; method: 'auto-name' | 'auto-pattern' };
+
+async function tryAutoLinkRuasStudent(ruasUsername: string, displayName: string | null): Promise<RuasAutoLink | null> {
+  const activeStudents = await db.select().from(users).where(and(eq(users.role, 'student'), eq(users.status, 'Aktif')));
+  const pool = activeStudents.filter((student) => !student.ruasUsername || !student.ruasUsername.trim());
+  if (!pool.length) return null;
+  const link = async (candidate: (typeof pool)[number], method: RuasAutoLink['method']): Promise<RuasAutoLink> => {
+    await db.update(users).set({ ruasUsername }).where(eq(users.id, candidate.id));
+    return { student: { ...candidate, ruasUsername }, method };
+  };
+
+  const normalizedDisplayName = normalizePersonName(displayName);
+  if (normalizedDisplayName) {
+    const nameMatches = pool.filter((student) => normalizePersonName(student.name) === normalizedDisplayName);
+    if (nameMatches.length === 1) return link(nameMatches[0], 'auto-name');
+  }
+
+  const classRows = await db.select({ id: classes.id, name: classes.name }).from(classes);
+  const classNameById = new Map(classRows.map((item) => [item.id, item.name]));
+  const knownMajors = knownMajorTokens(classRows.map((item) => item.name));
+  const typed = ruasUsername.toLowerCase();
+  const patternMatches = pool.filter((student) => deriveExpectedRuasUsername(
+    student.name,
+    student.classId ? classNameById.get(student.classId) || null : null,
+    knownMajors,
+  ) === typed);
+  if (patternMatches.length === 1) return link(patternMatches[0], 'auto-pattern');
+  return null;
+}
+
+// Records a verified-but-unlinked RUAS sign-in for the watchlist. Only the
+// username and display name are kept — never the password.
+async function recordRuasLinkAttempt(ruasUsername: string, displayName: string | null): Promise<void> {
+  try {
+    await db.insert(ruasLinkAttempts).values({ ruasUsername, displayName: displayName || null });
+  } catch (error) {
+    console.error('Gagal mencatat percobaan tautan RUAS:', error);
   }
 }
 
@@ -857,6 +953,16 @@ app.post('/api/auth/login', async (c) => {
     )).limit(1);
     const mappedStudent = mappedRows[0] || null;
     if (!mappedStudent) {
+      // RUAS has verified these credentials, so before refusing, try to
+      // link the account to its student row automatically (unique name or
+      // username-pattern match only — see tryAutoLinkRuasStudent).
+      const ruasDisplayName = await fetchRuasProfileName(ruasResult.token);
+      const autoLinked = await tryAutoLinkRuasStudent(identifier, ruasDisplayName);
+      if (autoLinked) {
+        await db.insert(studentLoginEvents).values({ userId: autoLinked.student.id, pathway: 'ruas', linkMethod: autoLinked.method });
+        const sessionUser = await issueSession(c, autoLinked.student);
+        return c.json({ user: sessionUser, loginPathway: 'ruas' });
+      }
       // Transition kindness: before refusing, give the same typed
       // identifier one chance through the legacy local path while the
       // window is open. The usual case here is a student whose NIS row
@@ -866,6 +972,9 @@ app.post('/api/auth/login', async (c) => {
         const sessionUser = await issueSession(c, localAccount);
         return c.json({ user: sessionUser, loginPathway: 'local-fallback' });
       }
+      // Verified at RUAS but not linkable: record the attempt so the
+      // homeroom teacher can link it with one click from the watchlist.
+      await recordRuasLinkAttempt(identifier, ruasDisplayName);
       return c.json({ error: 'Akun RUAS Anda belum terhubung ke data siswa WebKelas. Sampaikan ke wali kelas Anda agar username RUAS Anda dicatat, lalu coba masuk lagi.' }, 403);
     }
     await fetchRuasProfileName(ruasResult.token);
@@ -1853,8 +1962,10 @@ app.delete('/api/agenda/:id', async (c) => {
 });
 
 // Transition watchlist for the RUAS student sign-in: which active students
-// are not linked to a RUAS account yet, and which ones still sign in through
-// the legacy local-password fallback. Read-only; homeroom/admin only.
+// are not linked to a RUAS account yet, which ones still sign in through
+// the legacy local-password fallback, which verified RUAS accounts are
+// waiting for a one-click link, and which students were linked
+// automatically. Read-only; homeroom/admin only.
 app.get('/api/students/ruas-watchlist', async (c) => {
   try {
     const authenticatedUser = getAuthenticatedUser(c);
@@ -1873,6 +1984,8 @@ app.get('/api/students/ruas-watchlist', async (c) => {
       fallbackActive: studentFallbackWindowOpen(),
       unmapped: [] as any[],
       localFallbackUsers: [] as any[],
+      attempts: [] as any[],
+      autoLinked: [] as any[],
     };
     const conditions = [eq(users.role, 'student'), eq(users.status, 'Aktif')];
     if (classFilter) {
@@ -1906,7 +2019,65 @@ app.get('/api/students/ruas-watchlist', async (c) => {
       .filter((student) => !!student.lastLocalLoginAt)
       .map((student) => ({ ...baseShape(student), lastLocalLoginAt: student.lastLocalLoginAt }))
       .sort((a, b) => String(b.lastLocalLoginAt).localeCompare(String(a.lastLocalLoginAt)));
-    return c.json({ ...emptyWatchlist, unmapped, localFallbackUsers });
+
+    // Verified-but-unlinked RUAS sign-ins, grouped per username so the
+    // teacher links each account once. Attempts are not class-scoped (a
+    // failed link attempt carries no class), so they are listed for every
+    // managing teacher; a username drops off as soon as it is linked to
+    // any student at all.
+    const linkedUsernames = new Set(
+      (await db.select({ ruasUsername: users.ruasUsername }).from(users).where(eq(users.role, 'student')))
+        .map((row) => (row.ruasUsername || '').trim())
+        .filter(Boolean),
+    );
+    const attemptRows = await db.select().from(ruasLinkAttempts).orderBy(desc(ruasLinkAttempts.id));
+    const attemptByUsername = new Map<string, { ruasUsername: string; displayName: string | null; attemptCount: number; lastAttemptAt: string }>();
+    for (const attempt of attemptRows) {
+      if (linkedUsernames.has(attempt.ruasUsername)) continue;
+      const at = attempt.createdAt instanceof Date ? attempt.createdAt.toISOString() : String(attempt.createdAt);
+      const existing = attemptByUsername.get(attempt.ruasUsername);
+      if (!existing) {
+        attemptByUsername.set(attempt.ruasUsername, {
+          ruasUsername: attempt.ruasUsername,
+          displayName: attempt.displayName || null,
+          attemptCount: 1,
+          lastAttemptAt: at,
+        });
+      } else {
+        existing.attemptCount += 1;
+        if (!existing.displayName && attempt.displayName) existing.displayName = attempt.displayName;
+      }
+    }
+    const attempts = [...attemptByUsername.values()].sort((a, b) => b.lastAttemptAt.localeCompare(a.lastAttemptAt));
+
+    // Students whose RUAS account linked itself on their first sign-in,
+    // newest link first, so the teacher can audit the automatic matches.
+    let autoLinked: any[] = [];
+    const scopedStudentIds = students.map((student) => student.id);
+    if (scopedStudentIds.length) {
+      const linkEvents = await db.select().from(studentLoginEvents)
+        .where(and(inArray(studentLoginEvents.userId, scopedStudentIds), isNotNull(studentLoginEvents.linkMethod)))
+        .orderBy(desc(studentLoginEvents.id));
+      const latestLinkByStudent = new Map<number, (typeof linkEvents)[number]>();
+      for (const event of linkEvents) {
+        if (!latestLinkByStudent.has(event.userId)) latestLinkByStudent.set(event.userId, event);
+      }
+      const studentById = new Map(students.map((student) => [student.id, student]));
+      autoLinked = [...latestLinkByStudent.values()]
+        .map((event) => {
+          const student = studentById.get(event.userId);
+          if (!student) return null;
+          return {
+            ...baseShape(student),
+            ruasUsername: student.ruasUsername,
+            linkMethod: event.linkMethod,
+            linkedAt: event.createdAt instanceof Date ? event.createdAt.toISOString() : String(event.createdAt),
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .sort((a, b) => String(b.linkedAt).localeCompare(String(a.linkedAt)));
+    }
+    return c.json({ ...emptyWatchlist, unmapped, localFallbackUsers, attempts, autoLinked });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

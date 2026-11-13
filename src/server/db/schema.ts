@@ -24,10 +24,27 @@ export const users = sqliteTable('users', {
 
 // One row per successful student sign-in, recording only which pathway was
 // used ('ruas' or 'local-fallback'). Passwords are never recorded anywhere.
+// linkMethod is set only on the first RUAS sign-in that linked the account
+// automatically: 'auto-name' (unique display-name match) or 'auto-pattern'
+// (unique nama_jurusan username-pattern match). Ordinary mapped sign-ins
+// and wali-entered links leave it null.
 export const studentLoginEvents = sqliteTable('student_login_events', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id),
   pathway: text('pathway', { enum: ['ruas', 'local-fallback'] }).notNull(),
+  linkMethod: text('link_method'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+// One row per RUAS sign-in whose credentials RUAS verified but that could
+// not be linked to any local student row (no match, or an ambiguous one).
+// Only the verified username and the RUAS display name are kept — never a
+// password — so the homeroom teacher can link the account with one click
+// from the watchlist instead of retyping usernames.
+export const ruasLinkAttempts = sqliteTable('ruas_link_attempts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ruasUsername: text('ruas_username').notNull(),
+  displayName: text('display_name'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 

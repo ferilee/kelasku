@@ -1924,12 +1924,16 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   // yet linked to a RUAS account and students who still sign in through
   // the legacy local-password fallback.
   type RuasWatchlistEntry = { id: string; name: string; nisn: string; className: string | null };
+  type RuasLinkAttempt = { ruasUsername: string; displayName: string | null; attemptCount: number; lastAttemptAt: string };
+  type RuasAutoLinkedEntry = RuasWatchlistEntry & { ruasUsername: string | null; linkMethod: 'auto-name' | 'auto-pattern'; linkedAt: string };
   type RuasWatchlist = {
     ruasLoginEnabled: boolean;
     fallbackUntil: string | null;
     fallbackActive: boolean;
     unmapped: RuasWatchlistEntry[];
     localFallbackUsers: Array<RuasWatchlistEntry & { lastLocalLoginAt: string }>;
+    attempts: RuasLinkAttempt[];
+    autoLinked: RuasAutoLinkedEntry[];
   };
   const [ruasWatchlist, setRuasWatchlist] = useState<RuasWatchlist | null>(null);
   const fetchRuasWatchlist = useCallback(async () => {
@@ -1947,6 +1951,37 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useEffect(() => {
     if (activeTab === 'students' && studentView === 'roster' && workspaceMode === 'homeroom' && canManageStudents) fetchRuasWatchlist();
   }, [activeTab, studentView, workspaceMode, canManageStudents, fetchRuasWatchlist]);
+
+  // One-click linking for verified-but-unlinked RUAS accounts: the teacher
+  // only picks which student the account belongs to; the username itself
+  // comes from the recorded attempt, so nothing is retyped. Saving goes
+  // through the ordinary student update endpoint.
+  const [ruasLinkSelections, setRuasLinkSelections] = useState<Record<string, string>>({});
+  const [ruasLinkSaving, setRuasLinkSaving] = useState<string | null>(null);
+  const [ruasLinkError, setRuasLinkError] = useState<string | null>(null);
+  const handleLinkRuasAttempt = async (attempt: RuasLinkAttempt) => {
+    const selectedId = ruasLinkSelections[attempt.ruasUsername] || '';
+    const source = classData.students.find((item) => item.id === selectedId);
+    if (!source) {
+      setRuasLinkError('Pilih dulu siswa yang akan dihubungkan dengan akun RUAS ini.');
+      return;
+    }
+    setRuasLinkSaving(attempt.ruasUsername);
+    setRuasLinkError(null);
+    try {
+      await classData.updateStudent({ ...source, ruasUsername: attempt.ruasUsername });
+      setRuasLinkSelections((current) => {
+        const next = { ...current };
+        delete next[attempt.ruasUsername];
+        return next;
+      });
+      await fetchRuasWatchlist();
+    } catch (error: any) {
+      setRuasLinkError(error?.message || 'Gagal menghubungkan akun RUAS. Coba lagi.');
+    } finally {
+      setRuasLinkSaving(null);
+    }
+  };
 
   useEffect(() => {
     if (!learningSummarySource) {
@@ -3048,9 +3083,11 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   </div>
                   {!ruasWatchlist.ruasLoginEnabled ? (
                     <p className="mt-4 rounded-xl border border-dashed border-cyan-200 bg-white/70 p-4 text-sm text-slate-500 dark:border-cyan-900/50 dark:bg-slate-800/60 dark:text-slate-400">Fitur login RUAS sedang dimatikan dari server, jadi seluruh siswa masih masuk dengan cara lama dan daftar di bawah belum berlaku.</p>
-                  ) : ruasWatchlist.unmapped.length === 0 && ruasWatchlist.localFallbackUsers.length === 0 ? (
-                    <p className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/70 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Semua siswa aktif di kelas ini sudah terhubung ke akun RUAS dan tidak ada yang masih memakai jalur lama.</p>
                   ) : (
+                    <>
+                    {ruasWatchlist.unmapped.length === 0 && ruasWatchlist.localFallbackUsers.length === 0 && ruasWatchlist.attempts.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/70 p-4 text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Semua siswa aktif di kelas ini sudah terhubung ke akun RUAS dan tidak ada yang masih memakai jalur lama.</p>
+                    ) : (
                     <div className="mt-4 grid gap-4 lg:grid-cols-2">
                       <div className="rounded-xl border border-cyan-100 bg-white p-4 dark:border-cyan-900/50 dark:bg-slate-800">
                         <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Belum terhubung ke RUAS ({ruasWatchlist.unmapped.length})</h4>
@@ -3088,6 +3125,61 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                         )}
                       </div>
                     </div>
+                    )}
+                    {ruasWatchlist.attempts.length > 0 && (
+                      <div className="mt-4 rounded-xl border border-rose-100 bg-white p-4 dark:border-rose-900/50 dark:bg-slate-800">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Percobaan masuk belum terhubung ({ruasWatchlist.attempts.length})</h4>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-400">Akun RUAS berikut sudah terbukti benar di RUAS, tetapi belum cocok dengan data siswa mana pun sehingga belum tertaut otomatis. Pilih siswa yang benar, lalu klik Hubungkan — username tidak perlu diketik.</p>
+                        {ruasLinkError && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{ruasLinkError}</p>}
+                        <ul className="mt-3 space-y-2">
+                          {ruasWatchlist.attempts.map((attempt) => (
+                            <li key={attempt.ruasUsername} className="flex flex-col gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/50 sm:flex-row sm:items-center">
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{attempt.ruasUsername}</span>
+                                <span className="block text-[11px] text-slate-400">{attempt.displayName ? `Nama di RUAS: ${attempt.displayName} · ` : ''}{attempt.attemptCount}× percobaan · terakhir {new Date(attempt.lastAttemptAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </span>
+                              <select
+                                aria-label={`Pilih siswa untuk akun ${attempt.ruasUsername}`}
+                                value={ruasLinkSelections[attempt.ruasUsername] || ''}
+                                onChange={(event) => setRuasLinkSelections((current) => ({ ...current, [attempt.ruasUsername]: event.target.value }))}
+                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 sm:max-w-56"
+                              >
+                                <option value="">Pilih siswa…</option>
+                                {ruasWatchlist.unmapped.map((entry) => (
+                                  <option key={entry.id} value={entry.id}>{entry.name}{entry.className ? ` · ${entry.className}` : ''}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={!ruasLinkSelections[attempt.ruasUsername] || ruasLinkSaving === attempt.ruasUsername}
+                                onClick={() => handleLinkRuasAttempt(attempt)}
+                                className="shrink-0 rounded-lg bg-cyan-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {ruasLinkSaving === attempt.ruasUsername ? 'Menghubungkan…' : 'Hubungkan'}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {ruasWatchlist.autoLinked.length > 0 && (
+                      <div className="mt-4 rounded-xl border border-emerald-100 bg-white p-4 dark:border-emerald-900/50 dark:bg-slate-800">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">Terhubung otomatis ({ruasWatchlist.autoLinked.length})</h4>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-400">Siswa berikut tertaut sendiri saat pertama kali masuk dengan akun RUAS-nya. Periksa sekilas; bila ada yang keliru, betulkan lewat tombol Ubah pada daftar siswa.</p>
+                        <ul className="mt-3 space-y-2">
+                          {ruasWatchlist.autoLinked.map((entry) => (
+                            <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/50">
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{entry.name}</span>
+                                <span className="block text-[11px] text-slate-400">{entry.ruasUsername} · {new Date(entry.linkedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </span>
+                              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${entry.linkMethod === 'auto-name' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300'}`}>{entry.linkMethod === 'auto-name' ? 'Kecocokan nama' : 'Pola username'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    </>
                   )}
                 </section>
               )}

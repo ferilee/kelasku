@@ -5,6 +5,7 @@ import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDat
 import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 import { useModalAccessibility } from './useModalAccessibility';
+import { UTILITY_STEP, KNOWN_TABS, deriveWizardPosition, findWizardStep, findWizardSub, readWizardUrlNav, wizardStepsForMode, type WizardStep, type WizardSub, type WizardNavPatch } from './wizardSteps';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
   positif: {
@@ -265,10 +266,12 @@ const formatActivityDuration = (seconds: number) => {
 
 const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   useModalAccessibility();
-  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'workspace');
+  const [activeTab, setActiveTab] = useState(() => readWizardUrlNav()?.nav.tab || new URLSearchParams(window.location.search).get('tab') || 'workspace');
   const classData = useClassData();
   const { notify, confirm } = useNotifications();
   const [workspaceMode, setWorkspaceMode] = useState<'homeroom' | 'teaching'>(() => {
+    const wizardMode = readWizardUrlNav()?.mode;
+    if (wizardMode) return wizardMode;
     const savedMode = window.localStorage.getItem(`webkelas-workspace-mode-${userRole}`);
     if (savedMode === 'homeroom' || savedMode === 'teaching') return savedMode;
     return userRole === 'teacher' ? 'teaching' : 'homeroom';
@@ -713,7 +716,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [assignmentClassId, setAssignmentClassId] = useState('');
   const [assignmentSubjectId, setAssignmentSubjectId] = useState('');
   type SettingsPanel = 'overview' | 'teaching' | 'landing' | 'gallery' | 'officers' | 'profile';
-  const [settingsView, setSettingsView] = useState<SettingsPanel>('overview');
+  const [settingsView, setSettingsView] = useState<SettingsPanel>(() => readWizardUrlNav()?.nav.settingsView ?? 'overview');
 
   const openSettingsSection = (panel: Exclude<SettingsPanel, 'overview'>) => {
     setSettingsView(panel);
@@ -762,6 +765,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [learningSummarySource, setLearningSummarySource] = useState<StudentLearningSummary | null>(null);
   const [learningSummaryFilter, setLearningSummaryFilter] = useState<LearningSummaryFilter>('all');
   const [studentView, setStudentView] = useState<'roster' | 'progress' | 'followup'>(() => {
+    const wizardView = readWizardUrlNav()?.nav.studentView;
+    if (wizardView) return wizardView;
     const requestedView = new URLSearchParams(window.location.search).get('studentView');
     return requestedView === 'progress' || requestedView === 'followup' ? requestedView : 'roster';
   });
@@ -786,6 +791,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [teachingAttendanceReport, setTeachingAttendanceReport] = useState<any[]>([]);
   const [mobileDashboardPanel, setMobileDashboardPanel] = useState<'schedule' | 'agenda'>('schedule');
   const [workspaceView, setWorkspaceView] = useState<'overview' | 'schedule' | 'journal' | 'reminders'>(() => {
+    const wizardView = readWizardUrlNav()?.nav.workspaceView;
+    if (wizardView) return wizardView;
     const requestedView = new URLSearchParams(window.location.search).get('view');
     return requestedView === 'schedule' || requestedView === 'journal' || requestedView === 'reminders' ? requestedView : 'overview';
   });
@@ -797,8 +804,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   });
   const [reportData, setReportData] = useState<any[]>([]);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
-  const [reportCategory, setReportCategory] = useState<'attendance' | 'grades' | 'behavior'>('attendance');
-  const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior' | 'attendance'>('grades');
+  const [reportCategory, setReportCategory] = useState<'attendance' | 'grades' | 'behavior'>(() => readWizardUrlNav()?.nav.reportCategory ?? 'attendance');
+  const [teachingReportCategory, setTeachingReportCategory] = useState<'grades' | 'behavior' | 'attendance'>(() => readWizardUrlNav()?.nav.teachingReportCategory ?? 'grades');
   const [teachingReportPeriod, setTeachingReportPeriod] = useState('Semester Ganjil');
   const [dashboardSummary, setDashboardSummary] = useState<any[]>([]);
   const [classInsights, setClassInsights] = useState<any | null>(null);
@@ -810,7 +817,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const [monitoringPriorityFilter, setMonitoringPriorityFilter] = useState<'all' | CasePriority>('all');
   const [monitoringSearch, setMonitoringSearch] = useState('');
   const [isLoadingMonitoring, setIsLoadingMonitoring] = useState(false);
-  const [monitoringSubTab, setMonitoringSubTab] = useState<'cases' | 'activity'>(userRole === 'teacher' ? 'activity' : 'cases');
+  const [monitoringSubTab, setMonitoringSubTab] = useState<'cases' | 'activity'>(() => readWizardUrlNav()?.nav.monitoringSubTab ?? (userRole === 'teacher' ? 'activity' : 'cases'));
   const [activityFrom, setActivityFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [activityTo, setActivityTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [activityActionFilter, setActivityActionFilter] = useState<'all' | ActivityAction>('all');
@@ -1182,7 +1189,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   }, [gradesList, selectedSubject]);
 
   // Academic Sub-tabs States
-  const [academicSubTab, setAcademicSubTab] = useState<'grades' | 'schedule'>('grades');
+  const [academicSubTab, setAcademicSubTab] = useState<'grades' | 'schedule'>(() => readWizardUrlNav()?.nav.academicSubTab ?? 'grades');
   const [showAddScheduleModal, setShowAddScheduleModal] = useState(false);
   const [newScheduleDay, setNewScheduleDay] = useState('Senin');
   const [newScheduleSubject, setNewScheduleSubject] = useState('');
@@ -1196,7 +1203,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   }, [activeTab, academicSubTab, fetchTeachingSetup, userRole]);
 
   // Behavior & Achievements States
-  const [behaviorSubTab, setBehaviorSubTab] = useState<'sikap' | 'prestasi'>('sikap');
+  const [behaviorSubTab, setBehaviorSubTab] = useState<'sikap' | 'prestasi'>(() => readWizardUrlNav()?.nav.behaviorSubTab ?? 'sikap');
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<string | null>(null);
   
   const [showAddBehaviorModal, setShowAddBehaviorModal] = useState(false);
@@ -2212,45 +2219,195 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const scheduleSubjects = [...new Set(scheduleAssignments.map((item) => item.subjectName))];
   const scheduleTeachers = scheduleAssignments.filter((item) => item.subjectName === newScheduleSubject);
   const totalHeaderReminders = attendanceReminders.length + learningInterventionReminders.length;
+
+  // --- Shell Wizard Hibrida (Tahap 1) -------------------------------------
+  // State lama tetap menjadi adapter internal; posisi wizard diturunkan
+  // darinya dan klik langkah/subpanel menetapkan kombinasi state yang sama
+  // dengan pemetaan rancangan. Indikator langkah hanya navigasi
+  // (aktif/terkunjungi) — status kelengkapan data adalah Tahap 2.
+  const wizardNavState = { tab: activeTab, workspaceView, studentView, settingsView, academicSubTab, behaviorSubTab, monitoringSubTab, reportCategory, teachingReportCategory };
+  // Petunjuk posisi eksplisit: beberapa subpanel berbagi permukaan state
+  // yang sama dengan subpanel langkah lain (mis. Informasi untuk Siswa dan
+  // Ringkasan Kelas sama-sama di tab dashboard; Pantauan RUAS di roster).
+  // Klik chip mencatat tujuannya, dan selama state masih cocok dengan
+  // target subpanel itu, posisi wizard mengikuti petunjuk — bukan turunan
+  // pemilik utama permukaan. Ini juga membuat URL kanonik step/sub untuk
+  // subpanel jangkar stabil dibaca ulang.
+  const [wizardHint, setWizardHint] = useState<{ stepId: string; subId: string; target: WizardNavPatch } | null>(() => {
+    const parsed = readWizardUrlNav();
+    if (!parsed?.stepId || !parsed?.subId) return null;
+    const step = findWizardStep(workspaceMode, parsed.stepId);
+    const sub = findWizardSub(step, parsed.subId);
+    return sub ? { stepId: parsed.stepId, subId: parsed.subId, target: sub.target } : null;
+  });
+  const derivedWizardPosition = deriveWizardPosition(workspaceMode, wizardNavState);
+  const wizardPosition = (() => {
+    if (!wizardHint) return derivedWizardPosition;
+    const hintSub = findWizardSub(findWizardStep(workspaceMode, wizardHint.stepId), wizardHint.subId);
+    if (!hintSub) return derivedWizardPosition;
+    const stillMatches = Object.entries(wizardHint.target).every(([key, value]) => (wizardNavState as unknown as Record<string, unknown>)[key] === value);
+    if (!stillMatches) return derivedWizardPosition;
+    return { area: wizardHint.stepId === UTILITY_STEP.id ? 'utility' as const : 'wizard' as const, stepId: wizardHint.stepId, subId: wizardHint.subId };
+  })();
+  const isWizardSubVisible = useCallback((sub: WizardSub) => {
+    switch (sub.gate) {
+      case 'admin': return userRole === 'admin';
+      case 'staff': return canViewLearningProfiles;
+      case 'staffNotTeacher': return canViewLearningProfiles && userRole !== 'teacher';
+      case 'manageStudents': return canManageStudents;
+      case 'teachingOnly': return workspaceMode === 'teaching';
+      default: return true;
+    }
+  }, [userRole, canViewLearningProfiles, canManageStudents, workspaceMode]);
+  const visibleWizardSteps = wizardStepsForMode(workspaceMode)
+    .map((step) => ({ ...step, subs: step.subs.filter(isWizardSubVisible) }))
+    .filter((step) => step.subs.length > 0);
+  const visibleUtilityStep: WizardStep = { ...UTILITY_STEP, subs: UTILITY_STEP.subs.filter(isWizardSubVisible) };
+  const showUtilityStep = userRole === 'admin' && visibleUtilityStep.subs.length > 0;
+  const activeWizardStep = wizardPosition.area === 'utility' ? visibleUtilityStep : visibleWizardSteps.find((step) => step.id === wizardPosition.stepId) ?? visibleWizardSteps[0];
+  const activeWizardSub = findWizardSub(activeWizardStep, wizardPosition.subId);
+  const activeWizardStepIndex = wizardPosition.area === 'utility' ? -1 : visibleWizardSteps.findIndex((step) => step.id === activeWizardStep?.id);
+  const [visitedWizardSteps, setVisitedWizardSteps] = useState<ReadonlySet<string>>(() => new Set([wizardPosition.stepId]));
+  useEffect(() => {
+    setVisitedWizardSteps((previous) => {
+      if (previous.has(wizardPosition.stepId)) return previous;
+      const next = new Set(previous);
+      next.add(wizardPosition.stepId);
+      return next;
+    });
+  }, [wizardPosition.stepId]);
+  // Parameter kanonik wizard (step/sub/utility) ditulis berdampingan dengan
+  // alias lama oleh efek terpisah ini, karena sebagian substate sumbernya
+  // dideklarasikan sesudah efek penulis URL lama di atas.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (wizardPosition.area === 'utility') {
+      params.set('utility', 'sistem');
+      params.delete('step');
+    } else {
+      params.delete('utility');
+      params.set('step', wizardPosition.stepId);
+    }
+    if (wizardPosition.subId) params.set('sub', wizardPosition.subId);
+    else params.delete('sub');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [wizardPosition.area, wizardPosition.stepId, wizardPosition.subId]);
+  const [legacyTabNotice, setLegacyTabNotice] = useState(false);
+  useEffect(() => {
+    if (!(KNOWN_TABS as readonly string[]).includes(activeTab)) {
+      setActiveTab('workspace');
+      setLegacyTabNotice(true);
+    }
+  }, [activeTab]);
+  const [setupGuideOpen, setSetupGuideOpen] = useState(true);
+  const applyWizardNav = (patch: WizardNavPatch) => {
+    if (patch.workspaceView !== undefined) setWorkspaceView(patch.workspaceView);
+    if (patch.studentView !== undefined) setStudentView(patch.studentView);
+    if (patch.settingsView !== undefined) setSettingsView(patch.settingsView);
+    if (patch.academicSubTab !== undefined) setAcademicSubTab(patch.academicSubTab);
+    if (patch.behaviorSubTab !== undefined) setBehaviorSubTab(patch.behaviorSubTab);
+    if (patch.monitoringSubTab !== undefined) setMonitoringSubTab(patch.monitoringSubTab);
+    if (patch.reportCategory !== undefined) setReportCategory(patch.reportCategory);
+    if (patch.teachingReportCategory !== undefined) setTeachingReportCategory(patch.teachingReportCategory);
+    if (patch.tab !== undefined) setActiveTab(patch.tab);
+  };
+  const goToWizardSub = (step: WizardStep, sub: WizardSub) => {
+    setWizardHint({ stepId: step.id, subId: sub.id, target: sub.target });
+    applyWizardNav(sub.target);
+    if (sub.anchor) {
+      window.setTimeout(() => {
+        document.getElementById(sub.anchor!)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 400);
+    }
+  };
+  const goToWizardStep = (step: WizardStep) => {
+    const target = step.subs.find(isWizardSubVisible) ?? step.subs[0];
+    if (target) goToWizardSub(step, target);
+  };
+  const goToWizardTarget = (stepId: string, subId?: string) => {
+    const step = stepId === UTILITY_STEP.id ? visibleUtilityStep : visibleWizardSteps.find((item) => item.id === stepId) ?? findWizardStep(workspaceMode, stepId);
+    if (!step) return;
+    const sub = findWizardSub(step, subId) ?? step.subs.find(isWizardSubVisible) ?? step.subs[0];
+    if (sub) goToWizardSub(step, sub);
+  };
+  // Lima item Panduan Penyiapan Kelas (§5.2 rancangan). Pada Tahap 1 daftar
+  // ini murni jalan pintas ke panel pemiliknya; status per item dari data
+  // diisi mesin Tahap 2.
+  const setupGuideItems: { label: string; stepId: string; subId: string }[] = [
+    { label: 'Kelas mempunyai siswa aktif', stepId: 'siswa', subId: 'daftar' },
+    { label: 'Semua siswa aktif terhubung ke RUAS', stepId: 'siswa', subId: 'pantauan-ruas' },
+    { label: 'Tidak ada percobaan RUAS yang menunggu dihubungkan', stepId: 'siswa', subId: 'pantauan-ruas' },
+    { label: 'Profil kelas terisi: nama kelas dan tahun ajaran', stepId: 'publik', subId: 'profil' },
+    { label: 'Minimal satu jadwal pelajaran tersimpan', stepId: 'publik', subId: 'jadwal' },
+  ];
+  const mobileShortcutItems = workspaceMode === 'teaching' ? [
+    { key: 'ringkasan', label: 'Ringkasan', icon: LayoutDashboard, isActive: wizardPosition.stepId === 'konteks', action: () => goToWizardTarget('konteks', 'beranda') },
+    { key: 'siswa', label: 'Siswa', icon: Users, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'siswa', action: () => goToWizardTarget('kelas', 'siswa') },
+    { key: 'presensi', label: 'Presensi Mapel', icon: CheckSquare, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'presensi-mapel', action: () => goToWizardTarget('kelas', 'presensi-mapel') },
+    { key: 'akademik', label: 'Akademik', icon: BookOpen, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'simak', action: () => goToWizardTarget('kelas', 'simak') },
+  ] : [
+    { key: 'ringkasan', label: 'Ringkasan', icon: LayoutDashboard, isActive: wizardPosition.stepId === 'ringkasan', action: () => goToWizardTarget('ringkasan', 'beranda') },
+    { key: 'siswa', label: 'Siswa', icon: Users, isActive: wizardPosition.stepId === 'siswa', action: () => goToWizardTarget('siswa', 'daftar') },
+    { key: 'presensi', label: 'Presensi', icon: CheckSquare, isActive: wizardPosition.stepId === 'perkembangan', action: () => goToWizardTarget('perkembangan', userRole === 'admin' ? 'presensi' : 'perkembangan') },
+    { key: 'nilai', label: 'Nilai', icon: Award, isActive: wizardPosition.stepId === 'nilai', action: () => goToWizardTarget('nilai', 'rekap-rapor') },
+  ];
   const todayTeachingSchedules = (workspace.teachingSchedule || []).filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
   const nextTeachingSchedule = todayTeachingSchedules[0] || (workspace.teachingSchedule || []).slice().sort((first, second) => first.timeStart.localeCompare(second.timeStart))[0];
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
-      {/* Sidebar */}
+      {/* Sidebar — Stepper Wizard Hibrida (Tahap 1: navigasi bebas) */}
       <aside className="hidden md:flex w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col shrink-0">
         <div className="p-6 border-b border-slate-200 dark:border-slate-700">
           <h1 className="text-2xl font-black bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-2">
             <BookOpen className="h-8 w-8 text-blue-600" />
             WebKelas
           </h1>
+          <p className="mt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">{workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}</p>
+          <p className="mt-0.5 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">{activeContext}</p>
+          {canSwitchWorkspaceMode && <div className="mt-3 flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900">
+            <button type="button" onClick={() => changeWorkspaceMode('homeroom')} className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-bold transition ${workspaceMode === 'homeroom' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Perwalian</button>
+            <button type="button" onClick={() => changeWorkspaceMode('teaching')} className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-bold transition ${workspaceMode === 'teaching' ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Pengajar</button>
+          </div>}
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          {[
-            { id: 'workspace', label: 'Beranda', icon: LayoutDashboard },
-            { id: 'dashboard', label: 'Ringkasan Kelas', icon: LayoutDashboard },
-            { id: 'students', label: 'Siswa', icon: Users },
-            ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }, { id: 'reports', label: 'Laporan', icon: FileText }] : []),
-            ...((userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
-            { id: 'academic', label: 'Akademik & Tugas', icon: BookOpen },
-            ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
-            ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
-            ...(workspaceMode === 'teaching' ? [{ id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : []),
-            ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan Halaman', icon: Settings }] : []),
-          ].map((item) => (
+        <nav className="flex-1 overflow-y-auto p-4" aria-label={workspaceMode === 'teaching' ? 'Langkah Mode Pengajar' : 'Langkah Mode Perwalian'}>
+          <ol className="space-y-1.5">
+            {visibleWizardSteps.map((step, index) => {
+              const isActive = wizardPosition.area === 'wizard' && wizardPosition.stepId === step.id;
+              const isVisited = visitedWizardSteps.has(step.id);
+              return (
+                <li key={step.id}>
+                  <button
+                    type="button"
+                    onClick={() => goToWizardStep(step)}
+                    aria-current={isActive ? 'step' : undefined}
+                    className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 ${isActive ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60'}`}
+                  >
+                    <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${isActive ? 'bg-blue-600 text-white' : isVisited ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200' : 'border border-slate-300 text-slate-400 dark:border-slate-600'}`}>{index + 1}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold">{step.label}</span>
+                      <span className="block truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{step.description}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          {showUtilityStep && <>
+            <p className="mt-5 px-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Utilitas</p>
             <button
-              key={item.id}
-              onClick={() => { if (item.id === 'settings') setSettingsView('overview'); setActiveTab(item.id); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                activeTab === item.id 
-                ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-semibold shadow-sm' 
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
+              type="button"
+              onClick={() => goToWizardStep(visibleUtilityStep)}
+              aria-current={wizardPosition.area === 'utility' ? 'step' : undefined}
+              className={`mt-1.5 w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 ${wizardPosition.area === 'utility' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60'}`}
             >
-              <item.icon className="h-5 w-5" />
-              {item.label}
+              <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${wizardPosition.area === 'utility' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}><Settings className="h-3.5 w-3.5" /></span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold">Pengaturan Sistem</span>
+                <span className="block truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{visibleUtilityStep.description}</span>
+              </span>
             </button>
-          ))}
+          </>}
         </nav>
       </aside>
 
@@ -2260,7 +2417,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         <header className="relative z-30 h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <div className="min-w-0 mr-2">
             <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate">
-              {activeTab === 'workspace' ? (workspaceMode === 'teaching' ? 'Beranda Pengajar' : 'Beranda Perwalian') : activeTab === 'dashboard' ? `Ringkasan (${classData.selectedClass})` : activeTab === 'monitoring' ? 'Pemantauan Siswa' : activeTab === 'settings' ? 'Pengaturan Halaman' : activeTab === 'reports' ? 'Laporan Kelas' : activeTab === 'teaching-reports' ? 'Laporan Mengajar' : activeTab === 'teaching-attendance' ? 'Presensi Pembelajaran' : 'Manajemen Kelas'}
+              {wizardPosition.area === 'utility' ? 'Pengaturan Sistem' : activeWizardSub?.label || activeWizardStep?.label || 'Manajemen Kelas'}
             </h2>
             <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{activeTab === 'workspace' ? `Mode ${workspaceMode === 'teaching' ? 'Pengajar' : 'Perwalian'} · ${activeContext}` : `Konteks kerja: ${activeContext}`}</p>
           </div>
@@ -2299,6 +2456,53 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
         {/* Content Scrollable Area */}
         <div className="min-w-0 flex-1 overflow-auto p-4 pb-[calc(10rem+env(safe-area-inset-bottom))] md:p-8 md:pb-8">
+          {legacyTabNotice && <div className="mx-auto mb-5 flex max-w-6xl items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900 shadow-sm dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-100" role="status"><LayoutDashboard className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-300" /><div className="min-w-0 flex-1"><p className="font-bold">Tautan lama diarahkan ke Ringkasan Kelas.</p><p className="mt-1 text-sm text-blue-800/80 dark:text-blue-200/80">Alamat yang Anda buka tidak lagi dipakai; Anda sekarang berada di langkah pertama wizard.</p></div><button type="button" onClick={() => setLegacyTabNotice(false)} className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900/40">Tutup</button></div>}
+
+          {/* Bilah panduan wizard — Tahap 1: konteks langkah + jalan pintas subpanel.
+              Baris "Pekerjaan Berikutnya" dan status Panduan Penyiapan adalah
+              tempat struktur yang diisi mesin berbasis data pada Tahap 2. */}
+          <div className="mx-auto mb-5 max-w-6xl">
+            <div className="md:hidden mb-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{wizardPosition.area === 'utility' ? 'Utilitas' : `Langkah ${Math.max(activeWizardStepIndex, 0) + 1} dari ${visibleWizardSteps.length}`}</p>
+                <p className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">{activeWizardStep?.label}</p>
+                {wizardPosition.area === 'wizard' && <div className="mt-2 flex gap-1">{visibleWizardSteps.map((step) => <span key={step.id} className={`h-1 flex-1 rounded-full ${step.id === wizardPosition.stepId ? 'bg-blue-500' : visitedWizardSteps.has(step.id) ? 'bg-slate-300 dark:bg-slate-600' : 'bg-slate-200 dark:bg-slate-700'}`} />)}</div>}
+              </div>
+              <button type="button" onClick={() => setShowMobileMoreMenu(true)} className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">Semua langkah</button>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">{wizardPosition.area === 'utility' ? 'Utilitas Pengaturan Sistem' : `Langkah ${activeWizardStepIndex + 1} dari ${visibleWizardSteps.length} · ${workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}`}</p>
+              <h3 className="mt-1 text-base font-black text-slate-800 dark:text-slate-100">{activeWizardStep?.label}</h3>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeWizardStep?.description}</p>
+              {activeWizardStep && activeWizardStep.subs.length > 1 && <div role="tablist" aria-label={`Subpanel ${activeWizardStep.label}`} className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                {activeWizardStep.subs.map((sub) => {
+                  const isActiveSub = wizardPosition.subId === sub.id;
+                  return <button key={sub.id} type="button" role="tab" aria-selected={isActiveSub} onClick={() => goToWizardSub(activeWizardStep, sub)} className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition ${isActiveSub ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300 dark:hover:bg-slate-700'}`}>{sub.label}</button>;
+                })}
+              </div>}
+            </div>
+            {workspaceMode === 'homeroom' && wizardPosition.area === 'wizard' && wizardPosition.stepId === 'ringkasan' && (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Panduan Penyiapan Kelas</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lima hal penyiapan dasar kelas perwalian. Status kelengkapan otomatis dari data menyusul pada tahap berikutnya; untuk sekarang gunakan daftar ini sebagai jalan pintas ke panel pemiliknya.</p>
+                  </div>
+                  <button type="button" onClick={() => setSetupGuideOpen((open) => !open)} aria-expanded={setupGuideOpen} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700">{setupGuideOpen ? 'Lipat' : 'Tampilkan'}</button>
+                </div>
+                {setupGuideOpen && <>
+                  <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {setupGuideItems.map((item) => <li key={item.label}><button type="button" onClick={() => goToWizardTarget(item.stepId, item.subId)} className="flex w-full items-center justify-between gap-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:text-blue-700 dark:text-slate-200 dark:hover:text-blue-300"><span>{item.label}</span><span className="shrink-0 text-xs font-bold text-blue-600 dark:text-blue-400">Buka →</span></button></li>)}
+                  </ul>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-700">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Pekerjaan Berikutnya</span>
+                    {totalHeaderReminders > 0 ? <button type="button" onClick={() => setShowAttendanceReminders(true)} className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-200 dark:bg-amber-950/40 dark:text-amber-300">{totalHeaderReminders} pengingat perlu dilihat</button> : <span className="text-xs text-slate-500 dark:text-slate-400">Tidak ada pengingat yang tertunda saat ini.</span>}
+                    <button type="button" onClick={() => goToWizardTarget('ringkasan', 'pengingat')} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300">Buka Pusat Pengingat</button>
+                  </div>
+                </>}
+              </div>
+            )}
+          </div>
           {totalHeaderReminders > 0 && activeTab !== 'workspace' && <div className="mx-auto mb-5 flex max-w-6xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100" role="status"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold">Ada {totalHeaderReminders} pengingat yang perlu diperhatikan.</p><p className="mt-1 text-sm text-amber-800/80 dark:text-amber-200/80">Termasuk presensi mapel dan rencana intervensi yang jatuh tempo.</p></div><button type="button" onClick={() => setShowAttendanceReminders(true)} className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700">Lihat</button></div>}
           {workspaceMode === 'teaching' && (activeTab !== 'workspace' || workspaceView === 'schedule') && workspace?.teachingSchedule?.length > 0 && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-slate-800 dark:text-slate-100">Perlu mengubah jadwal?</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ajukan perubahan kepada admin atau wali kelas untuk disetujui.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select value={selectedScheduleForRequest?.id || ''} onChange={(event) => { const schedule = workspace.teachingSchedule.find((item) => item.id === event.target.value); if (schedule) setSelectedScheduleForRequest(schedule); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih jadwal</option>{workspace.teachingSchedule.map((item) => <option key={item.id} value={item.id}>{item.day} · {item.timeStart} · {item.subject} · {item.className}</option>)}</select><button type="button" disabled={!selectedScheduleForRequest} onClick={() => selectedScheduleForRequest && openScheduleRequest(selectedScheduleForRequest)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">Ajukan perubahan</button></div></div>{scheduleChangeRequests.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{scheduleChangeRequests.slice(0, 3).map((request) => <span key={request.id} className={`rounded-full px-3 py-1 text-[11px] font-bold ${request.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : request.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>{request.subject} · {request.status === 'pending' ? 'Menunggu persetujuan' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span>)}</div>}</section>}
           {userRole === 'admin' && activeTab === 'settings' && settingsView === 'teaching' && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex items-center justify-between gap-3"><div><p className="font-bold text-slate-800 dark:text-slate-100">Pengajuan Perubahan Jadwal</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tinjau usulan perubahan dari guru pengajar sebelum jadwal aktif diperbarui.</p></div><span className="rounded-full bg-amber-200 px-2.5 py-1 text-xs font-black text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{scheduleChangeRequests.filter((request) => request.status === 'pending').length} menunggu</span></div>{scheduleChangeRequests.filter((request) => request.status === 'pending').length ? <div className="mt-4 space-y-3">{scheduleChangeRequests.filter((request) => request.status === 'pending').map((request) => <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{request.teacherName} · {request.subject} · {request.className}</p><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{request.current?.day} {request.current?.timeStart}–{request.current?.timeEnd} → <b>{request.requested.day} {request.requested.timeStart}–{request.requested.timeEnd}</b></p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Alasan: {request.reason}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'rejected')} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/30">Tolak</button><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Setujui</button></div></div></div>)}</div> : <p className="mt-4 text-center text-sm text-amber-800/70 dark:text-amber-200/70">Belum ada pengajuan yang menunggu.</p>}</section>}
@@ -2429,7 +2633,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {activeTab === 'dashboard' && (
             <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {workspaceMode === 'teaching' && activeTeachingSubject && (
-                <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 sm:p-6">
+                <section id="panel-informasi-siswa" className="scroll-mt-6 rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 sm:p-6">
                   <div className="mb-4 flex items-start justify-between gap-4"><div><h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100"><Megaphone className="h-5 w-5 text-cyan-500" /> Informasi untuk Siswa</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Informasi akan berjalan di Dashboard Siswa kelas {classData.selectedClass} untuk mata pelajaran {activeTeachingSubject}.</p></div><span className="rounded-full bg-cyan-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">Mode Mengajar</span></div>
                   <form onSubmit={handleAddTeachingAnnouncement} className="grid gap-3 md:grid-cols-[140px_1fr_auto] md:items-end">
                     <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Jenis<select value={teachingAnnouncementType} onChange={(event) => setTeachingAnnouncementType(event.target.value as 'PENTING' | 'INFO' | 'SELAMAT')} className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="INFO">INFO</option><option value="PENTING">PENTING</option><option value="SELAMAT">SELAMAT</option></select></label>
@@ -3069,7 +3273,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               {studentView === 'progress' && canViewLearningProfiles && <section className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Ringkasan Kebutuhan</p><h3 className="mt-1 font-bold text-slate-800 dark:text-slate-100">Kebutuhan belajar</h3><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Pilih kelompok untuk menyaring matriks dan menentukan prioritas pembelajaran.</p></div><select value={learningSummaryFilter} onChange={(event) => setLearningSummaryFilter(event.target.value as LearningSummaryFilter)} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none dark:border-amber-800 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua siswa</option><option value="needs-support">Perlu dukungan</option><option value="developing">Sedang berkembang</option><option value="independent">Cukup mandiri</option><option value="no-data">Belum ada data</option></select></div>{learningSummarySource && <div className="mt-4 grid gap-2 sm:grid-cols-4"><button type="button" onClick={() => setLearningSummaryFilter('needs-support')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'needs-support' ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/30' : 'border-rose-100 bg-white hover:border-rose-300 dark:border-rose-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-rose-700 dark:text-rose-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'needs-support').length}</p><p className="text-xs font-bold text-rose-700 dark:text-rose-300">Perlu dukungan</p></button><button type="button" onClick={() => setLearningSummaryFilter('developing')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'developing' ? 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30' : 'border-amber-100 bg-white hover:border-amber-300 dark:border-amber-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-amber-700 dark:text-amber-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'developing').length}</p><p className="text-xs font-bold text-amber-700 dark:text-amber-300">Sedang berkembang</p></button><button type="button" onClick={() => setLearningSummaryFilter('independent')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'independent' ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30' : 'border-emerald-100 bg-white hover:border-emerald-300 dark:border-emerald-900/50 dark:bg-slate-800'}`}><p className="text-2xl font-black text-emerald-700 dark:text-emerald-300">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'independent').length}</p><p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">Cukup mandiri</p></button><button type="button" onClick={() => setLearningSummaryFilter('no-data')} className={`rounded-xl border p-3 text-left transition ${learningSummaryFilter === 'no-data' ? 'border-slate-300 bg-slate-100 dark:border-slate-600 dark:bg-slate-700' : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800'}`}><p className="text-2xl font-black text-slate-700 dark:text-slate-200">{learningSummarySource.students.filter((student) => learningSummaryStatus(student) === 'no-data').length}</p><p className="text-xs font-bold text-slate-700 dark:text-slate-200">Belum ada data</p></button></div>}{learningSummarySource && learningSummaryRecommendations.length > 0 && <div className="mt-4 grid gap-3 md:grid-cols-2">{learningSummaryRecommendations.slice(0, 2).map((recommendation) => <article key={recommendation.key} className="rounded-xl border border-amber-100 bg-white p-3 dark:border-amber-900/40 dark:bg-slate-800"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-700 dark:text-slate-200">Prioritas: {recommendation.label}</p><span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">{recommendation.count} siswa</span></div><p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{recommendation.suggestion}</p></article>)}</div>}</section>}
               {studentView === 'progress' && canViewLearningProfiles && <section className="rounded-2xl border border-cyan-100 bg-white p-5 shadow-sm dark:border-cyan-900/50 dark:bg-slate-800"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">Peta Perkembangan Kelas</p><h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Ringkasan Profil Belajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Lihat kebutuhan dukungan seluruh siswa berdasarkan profil topik terakhir yang tercatat.</p></div><div className="flex flex-col gap-2 sm:flex-row"><input value={learningSummarySubject} onChange={(event) => setLearningSummarySubject(event.target.value)} placeholder="Mata pelajaran" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><input value={learningSummaryTopic} onChange={(event) => setLearningSummaryTopic(event.target.value)} placeholder="Topik (opsional)" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button type="button" onClick={fetchLearningSummary} className="rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white hover:bg-cyan-700">Tampilkan</button></div></div>{isLoadingLearningSummary ? <p className="py-8 text-center text-sm text-slate-400">Memuat ringkasan perkembangan…</p> : learningSummary && <><div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400"><span className="font-bold text-slate-700 dark:text-slate-200">{learningSummary.class.name}</span><span>·</span><span>{learningSummary.subject || 'Semua mata pelajaran'}</span>{learningSummary.topic && <><span>·</span><span>{learningSummary.topic}</span></>}<span className="ml-auto">{learningSummary.students.filter((student) => student.profile).length}/{learningSummary.students.length} siswa memiliki profil</span></div><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"><tr><th className="px-3 py-3">Siswa</th><th className="px-3 py-3">Konsep</th><th className="px-3 py-3">Penalaran</th><th className="px-3 py-3">Literasi</th><th className="px-3 py-3">Mandiri</th><th className="px-3 py-3">Checkpoint</th><th className="px-3 py-3"></th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-700">{learningSummary.students.map((student) => { const profile = student.profile; const checkpoint = student.checkpoint; return <tr key={student.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30"><td className="px-3 py-3"><p className="font-bold text-slate-700 dark:text-slate-200">{student.name}</p><p className="text-[10px] text-slate-400">{student.identifier}</p></td>{[profile?.conceptLevel, profile?.reasoningLevel, profile?.literacyLevel, profile?.independenceLevel].map((level, index) => <td key={index} className="px-3 py-3"><span className={`inline-flex min-w-8 justify-center rounded-full px-2 py-1 font-black ${learningLevelTone(level)}`}>{level ? `${level}/4` : '—'}</span></td>)}<td className="px-3 py-3">{checkpoint ? <div><span className="font-bold text-cyan-700 dark:text-cyan-300">{Math.round((checkpoint.recallLevel + checkpoint.reasoningLevel + checkpoint.transferLevel) / 3 * 10) / 10}/4</span><p className="mt-0.5 text-[10px] text-slate-400">{checkpoint.date}</p></div> : <span className="text-slate-400">—</span>}</td><td className="px-3 py-3 text-right"><button type="button" onClick={() => { const source = classData.students.find((item) => item.id === student.id); if (source) loadLearningProfile(source); }} className="rounded-lg px-2.5 py-1.5 font-bold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950/30">Profil</button></td></tr>; })}</tbody></table></div><div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-500 dark:text-slate-400"><span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">1 · Perlu dukungan</span><span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">2 · Berkembang</span><span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">3 · Cukup mandiri</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">4 · Sangat baik</span></div></>}</section>}
               {studentView === 'roster' && <>{workspaceMode === 'homeroom' && canManageStudents && ruasWatchlist && (
-                <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-5 shadow-sm dark:border-cyan-900/50 dark:bg-cyan-950/20">
+                <section id="pantauan-login-ruas" className="scroll-mt-6 rounded-2xl border border-cyan-200 bg-cyan-50/50 p-5 shadow-sm dark:border-cyan-900/50 dark:bg-cyan-950/20">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-300">Masa Peralihan Login</p>
@@ -4689,29 +4893,24 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {activeTab !== 'workspace' && activeTab !== 'dashboard' && activeTab !== 'settings' && activeTab !== 'students' && activeTab !== 'attendance' && activeTab !== 'reports' && activeTab !== 'monitoring' && activeTab !== 'teaching-reports' && activeTab !== 'teaching-attendance' && activeTab !== 'academic' && activeTab !== 'behavior' && (
             <div className="flex items-center justify-center h-full text-slate-500 animate-in fade-in">
               <div className="text-center">
-                <Settings className="h-12 w-12 mx-auto mb-4 text-slate-300 animate-spin-slow" />
-                <h3 className="text-xl font-semibold text-slate-700">Modul sedang dalam pengembangan</h3>
-                <p className="text-slate-400 mt-2">Halaman {activeTab} akan segera tersedia.</p>
+                <LayoutDashboard className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-200">Tautan lama diarahkan ke Ringkasan Kelas</h3>
+                <p className="text-slate-400 mt-2">Halaman “{activeTab}” tidak dikenal, jadi Anda dipindahkan ke langkah pertama wizard.</p>
               </div>
             </div>
           )}
         </div>
       </main>
 
-      {/* Bottom Navigation for Mobile */}
+      {/* Bottom Navigation for Mobile — jalan pintas langkah wizard */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 items-center px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-lg">
-        {[
-          { id: 'dashboard', label: 'Ringkasan', icon: LayoutDashboard },
-          { id: 'students', label: 'Siswa', icon: Users },
-          ...(userRole === 'admin' ? [{ id: 'attendance', label: 'Presensi', icon: CheckSquare }] : workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }] : []),
-          { id: 'academic', label: 'Akademik', icon: BookOpen },
-        ].map((item) => (
+        {mobileShortcutItems.map((item) => (
           <button
-            key={item.id}
-            onClick={() => { if (item.id === 'settings') setSettingsView('overview'); setActiveTab(item.id); }}
+            key={item.key}
+            onClick={item.action}
             className={`min-h-11 flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-all duration-200 ${
-              activeTab === item.id 
-              ? 'text-blue-600 dark:text-blue-400 font-medium' 
+              item.isActive
+              ? 'text-blue-600 dark:text-blue-400 font-medium'
               : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
@@ -4726,14 +4925,35 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
       {showMobileMoreMenu && (
         <div className="md:hidden fixed inset-0 z-50 flex items-end bg-slate-900/40" onClick={() => setShowMobileMoreMenu(false)}>
-          <div className="w-full bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
-            <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">Menu Lainnya</h3>
-            <div className="grid grid-cols-3 gap-3">{[
-              ...((userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor') ? [{ id: 'monitoring', label: 'Pemantauan Siswa', icon: ShieldAlert }] : []),
-              ...(workspaceMode === 'teaching' ? [{ id: 'teaching-attendance', label: 'Presensi Mapel', icon: CheckSquare }, { id: 'teaching-reports', label: 'Laporan Mengajar', icon: FileText }] : userRole === 'admin' ? [{ id: 'reports', label: 'Laporan', icon: FileText }] : []),
-              ...((userRole === 'admin' || workspaceMode === 'teaching') ? [{ id: 'behavior', label: workspaceMode === 'teaching' ? 'Sikap & Karakter' : 'Sikap & Prestasi', icon: Award }] : []),
-              ...(userRole === 'admin' ? [{ id: 'settings', label: 'Pengaturan', icon: Settings }] : []),
-            ].map((item) => <button key={item.id} onClick={() => { setActiveTab(item.id); setShowMobileMoreMenu(false); }} className="min-h-24 flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200"><item.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" /><span className="text-xs font-semibold text-center">{item.label}</span></button>)}</div>
+          <div className="w-full max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
+            <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-1">Semua Langkah</h3>
+            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{workspaceMode === 'teaching' ? 'Shell Pengajar' : 'Wizard Perwalian'} — semua langkah dapat dibuka langsung kapan pun.</p>
+            <ol className="space-y-2">
+              {visibleWizardSteps.map((step, index) => {
+                const isActive = wizardPosition.area === 'wizard' && wizardPosition.stepId === step.id;
+                return (
+                  <li key={step.id}>
+                    <button type="button" onClick={() => { goToWizardStep(step); setShowMobileMoreMenu(false); }} aria-current={isActive ? 'step' : undefined} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition ${isActive ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/60'}`}>
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${isActive ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200'}`}>{index + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold">{step.label}</span>
+                        <span className="block truncate text-[11px] text-slate-400">{step.subs.map((sub) => sub.label).join(' · ')}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+            {showUtilityStep && <>
+              <p className="mt-5 text-[10px] font-black uppercase tracking-widest text-slate-400">Utilitas</p>
+              <button type="button" onClick={() => { goToWizardStep(visibleUtilityStep); setShowMobileMoreMenu(false); }} aria-current={wizardPosition.area === 'utility' ? 'step' : undefined} className={`mt-1.5 w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition ${wizardPosition.area === 'utility' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-700/60'}`}>
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${wizardPosition.area === 'utility' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}><Settings className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold">Pengaturan Sistem</span>
+                  <span className="block truncate text-[11px] text-slate-400">Kelas &amp; Guru</span>
+                </span>
+              </button>
+            </>}
           </div>
         </div>
       )}

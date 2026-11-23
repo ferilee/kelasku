@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Calendar, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, ChevronRight, ExternalLink } from 'lucide-react';
+import { BookOpen, Calendar, CalendarX, CheckSquare, Bell, FileText, User, X, Clock, CalendarDays, Award, ThumbsUp, ThumbsDown, ClipboardCheck, Key, ChevronRight, ExternalLink } from 'lucide-react';
 import { useClassData, BehaviorRecord, Achievement } from './ClassContext';
 
 import { ThemePicker } from './ThemeContext';
@@ -311,8 +311,8 @@ const StudentDashboard = () => {
                   <p className="mt-4 truncate text-base font-black text-slate-800 dark:text-slate-100">{nextSchedule?.subject || 'Tidak ada jadwal'}</p><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{nextSchedule ? `${nextSchedule.timeStart}–${nextSchedule.timeEnd}` : `Jadwal ${todayName}`}</p>
                 </button>
                 <div className="rounded-3xl border border-blue-100/70 bg-white p-5 shadow-lg shadow-blue-100/60 dark:border-slate-700 dark:bg-slate-800 dark:shadow-none">
-                  <div className="flex items-center justify-between"><span className="grid h-11 w-11 place-items-center rounded-full bg-[#E4F8EE] text-[#34C77B] dark:bg-emerald-950/50"><ClipboardCheck className="h-5 w-5" /></span><span className="rounded-full bg-[#E4F8EE] px-2.5 py-1 text-[11px] font-extrabold text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-300">Bulan ini</span></div>
-                  <p className="mt-4 text-3xl font-black text-slate-800 dark:text-slate-100">{attendanceSummary?.monthly.Hadir ?? 0} <span className="text-sm font-extrabold text-slate-400">hari</span></p><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Presensi hadir</p>
+                  <div className="flex items-center justify-between"><span className="grid h-11 w-11 place-items-center rounded-full bg-[#FFE3EE] text-[#E14E8C] dark:bg-rose-950/50"><CalendarX className="h-5 w-5" /></span><span className="rounded-full bg-[#FFE3EE] px-2.5 py-1 text-[11px] font-extrabold text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">Bulan ini</span></div>
+                  <p className="mt-4 text-3xl font-black text-slate-800 dark:text-slate-100">{(attendanceSummary?.monthly.Sakit ?? 0) + (attendanceSummary?.monthly.Izin ?? 0) + (attendanceSummary?.monthly.Alfa ?? 0)} <span className="text-sm font-extrabold text-slate-400">hari</span></p><p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Ketidakhadiran</p><p className="mt-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">Alpa {attendanceSummary?.monthly.Alfa ?? 0} · Sakit {attendanceSummary?.monthly.Sakit ?? 0} · Izin {attendanceSummary?.monthly.Izin ?? 0}</p>
                 </div>
               </section>
 
@@ -628,13 +628,14 @@ const StudentDashboard = () => {
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-blue-100 bg-white/95 px-1 py-2 shadow-lg backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/95 md:hidden">
         {[
           { id: 'dashboard', label: 'Beranda', icon: User },
-          { id: 'assignments', label: 'Tugas', icon: FileText },
           { id: 'materials', label: 'Materi', icon: BookOpen },
+          { id: 'assignments', label: 'Tugas', icon: FileText },
+          { id: 'behavior', label: 'Sikap & Prestasi', icon: Award },
         ].map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id)}
-            className={`flex flex-col items-center gap-1 rounded-full px-6 py-1.5 transition-all duration-200 ${
+            className={`flex flex-col items-center gap-1 rounded-full px-4 py-1.5 transition-all duration-200 ${
               activeTab === item.id
               ? 'bg-[#DCEBFD] font-extrabold text-[#1668C4] dark:bg-blue-950/70 dark:text-blue-300' 
               : 'font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'

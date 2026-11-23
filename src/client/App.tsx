@@ -4,7 +4,7 @@ import StudentDashboard from './StudentDashboard';
 import LandingPage from './LandingPage';
 import LoginPage from './LoginPage';
 import NotFoundPage from './NotFoundPage';
-import { classifyInitialPath } from './initialRoute';
+import { classifyInitialPath, shouldRestoreStudentPage } from './initialRoute';
 import { ClassProvider, useClassData } from './ClassContext';
 import { NotificationProvider } from './NotificationCenter';
 import { ThemeProvider } from './ThemeContext';
@@ -26,11 +26,20 @@ const AppContent = () => {
     fetch('/api/auth/me').then(async (response) => response.ok ? response.json() : null).then((result) => {
       if (result?.user?.role) {
         setUserSession(result.user.role);
-        if (result.user.role === 'student') classData.selectClass('').catch(() => undefined);
+        if (result.user.role === 'student') {
+          // A student with a live session goes straight to their own
+          // page, including on '/' — the class home page is one
+          // deliberate Home-switch click away, not the default stop.
+          // Staff sessions keep the previous behaviour: they only
+          // auto-enter from '/login', '/dashboard' or '/admin' (the
+          // effect below), never from '/'.
+          if (shouldRestoreStudentPage(result.user.role, initialPathKind)) setRole('student');
+          classData.selectClass('').catch(() => undefined);
+        }
       }
       setSessionChecked(true);
     }).catch(() => setSessionChecked(true));
-  }, [classData.selectClass]);
+  }, [classData.selectClass, initialPathKind]);
 
   const handleLoginSuccess = (newRole: 'admin' | 'teacher' | 'counselor' | 'student') => {
     setUserSession(newRole);

@@ -18,6 +18,18 @@
 
 export type InitialPathKind = 'home' | 'login' | 'dashboard' | 'not-found';
 
+export type AuthenticatedRole = 'admin' | 'teacher' | 'counselor' | 'student';
+
+// A restored student session opens the student's own page directly on
+// every real entry path ('/', '/login', '/dashboard', '/admin'): the
+// student was already signed in, so landing on the public class page
+// first would only add a redundant "Kembali ke Dashboard" click. An
+// unknown path keeps the branded 404 instead. This is only the initial
+// restore decision — once inside, the student can still open the class
+// home page deliberately with the Home switch and come back.
+export const shouldRestoreStudentPage = (role: AuthenticatedRole | null, pathKind: InitialPathKind): boolean =>
+  role === 'student' && pathKind !== 'not-found';
+
 export const classifyInitialPath = (pathname: string): InitialPathKind => {
   const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   switch (normalized) {

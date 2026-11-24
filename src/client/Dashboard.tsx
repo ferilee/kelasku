@@ -7,6 +7,7 @@ import { ThemePicker } from './ThemeContext';
 import { useModalAccessibility } from './useModalAccessibility';
 import { UTILITY_STEP, KNOWN_TABS, deriveWizardPosition, findWizardStep, findWizardSub, readWizardUrlNav, wizardStepsForMode, type WizardStep, type WizardSub, type WizardNavPatch } from './wizardSteps';
 import { DEFAULT_TEACHING_LOCATION, laporanCategoryParam, resolveTeachingLocationFromSearch, type KelasSayaSection, type TeachingJadwalView, type TeachingLaporanCategory, type TeachingLocation, type TeachingView } from './teachingNav';
+import { formatJakartaDateLong, getJakartaDateValue, getJakartaNow, jakartaGreeting } from './scheduleTime';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
   positif: {
@@ -425,7 +426,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   const resetJournalForm = () => {
     const firstClass = journalClassOptions[0];
     const firstSubject = subjectOptionsForClass(firstClass?.id || '')[0];
-    setJournalForm({ classId: firstClass?.id || '', subject: firstSubject?.name || '', scheduleId: '', date: localDateValue(), timeStart: '', timeEnd: '', materialCovered: '', classroomEvents: '', nextPlan: '' });
+    setJournalForm({ classId: firstClass?.id || '', subject: firstSubject?.name || '', scheduleId: '', date: getJakartaDateValue(), timeStart: '', timeEnd: '', materialCovered: '', classroomEvents: '', nextPlan: '' });
   };
 
   const openNewJournal = (schedule?: TeacherWorkspace['teachingSchedule'][number]) => {
@@ -433,7 +434,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     const firstSubject = subjectOptionsForClass(firstClass?.id || '')[0];
     setEditingJournalId(null);
     setJournalForm({
-      classId: schedule?.classId || firstClass?.id || '', subject: schedule?.subject || firstSubject?.name || '', scheduleId: schedule?.id || '', date: localDateValue(),
+      classId: schedule?.classId || firstClass?.id || '', subject: schedule?.subject || firstSubject?.name || '', scheduleId: schedule?.id || '', date: getJakartaDateValue(),
       timeStart: schedule?.timeStart || '', timeEnd: schedule?.timeEnd || '', materialCovered: '', classroomEvents: '', nextPlan: '',
     });
     setShowJournalModal(true);
@@ -502,6 +503,18 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setPresensiReturnView(teachingView);
     setActiveTab('teaching-attendance');
     setShowAttendanceReminders(false);
+  };
+
+  // Aksi Isi Presensi per sesi di Hari Ini: pola yang sama dengan
+  // openAttendanceReminder, tetapi konteksnya sesi hari ini (tanggal sesi =
+  // hari ini menurut Asia/Jakarta) dan kembali ke Hari Ini.
+  const openSessionAttendance = async (schedule: TeacherWorkspace['teachingSchedule'][number]) => {
+    await classData.selectClass(schedule.classId);
+    setWorkspaceMode('teaching');
+    setActiveTeachingSubject(schedule.subject);
+    setTeachingAttendanceDate(getJakartaDateValue());
+    setPresensiReturnView('hari-ini');
+    setActiveTab('teaching-attendance');
   };
 
   const handleSkipAttendanceReminder = async (event: React.FormEvent) => {
@@ -2485,10 +2498,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     { key: 'presensi', label: 'Presensi', icon: CheckSquare, isActive: wizardPosition.stepId === 'perkembangan', action: () => goToWizardTarget('perkembangan', userRole === 'admin' ? 'presensi' : 'perkembangan') },
     { key: 'nilai', label: 'Nilai', icon: Award, isActive: wizardPosition.stepId === 'nilai', action: () => goToWizardTarget('nilai', 'rekap-rapor') },
   ];
-  const todayTeachingSchedules = (workspace.teachingSchedule || []).filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
-  // "Sesi berikutnya" versi lama (mengurutkan seluruh jadwal hanya menurut
-  // jam) sengaja dihapus: pratinjau hari mengajar berikutnya pada Hari Ini
-  // dihitung dari pola mingguan, bukan dari logika itu (rancangan Bagian 2.4).
+  // Daftar sesi hari ini versi lama (currentTeachingDay, tanggal lokal
+  // perangkat) dan "sesi berikutnya" lama (urut jam saja) sengaja dihapus:
+  // Hari Ini memakai definisi Asia/Jakarta dan perhitungan pola mingguan
+  // (lihat blok Hari Ini di bawah; rancangan Bagian 2.4 dan 7).
 
   // Panel Jurnal Mengajar (dipindah dari Beranda ke Laporan kategori Jurnal)
   // dan Panel Pusat Pengingat (dipakai Beranda Perwalian + Hari Ini) diangkat
@@ -2549,31 +2562,97 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       ))}
     </div>
   );
-  // Halaman Hari Ini — Tahap 1: susunan sederhana (kepala ringkas + daftar
-  // sesi hari ini tanpa chip + bagian Pengingat + pintasan). Aksi per sesi,
-  // strip pengingat, dan keadaan kosong menyusul pada Tahap 2; chip status
-  // pada Tahap 3.
+  // --- Hari Ini (Tahap 2: berfungsi penuh) --------------------------------
+  // "Hari ini" memakai satu definisi yang selaras server: Asia/Jakarta
+  // (scheduleTime.ts), bukan tanggal lokal perangkat.
+  const jakartaDayName = getJakartaNow().dayName;
+  const hariIniSessions = (workspace.teachingSchedule || []).filter((item) => item.day === jakartaDayName).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
+  // Hari mengajar berikutnya dihitung dari pola mingguan (memindai mulai
+  // besok, membungkus ke minggu berikutnya) — bukan logika "sesi
+  // berikutnya" lama yang hanya mengurutkan menurut jam (rancangan 2.4).
+  const nextTeachingDay = (() => {
+    if (hariIniSessions.length) return null;
+    const weekDayNames = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+    const todayIndex = weekDayNames.indexOf(jakartaDayName);
+    for (let offset = 1; offset <= 7; offset++) {
+      const dayName = weekDayNames[(todayIndex + offset) % 7];
+      if (!TEACHING_DAY_NAMES.includes(dayName)) continue;
+      const sessions = (workspace.teachingSchedule || []).filter((item) => item.day === dayName).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
+      if (sessions.length) return { day: dayName, sessions };
+    }
+    return null;
+  })();
+  // Strip pengingat (rancangan 2.5): presensi terlewat paling lama dulu,
+  // lalu intervensi (terlewat didahulukan); maksimal 3 butir; status
+  // permintaan ubah jadwal tidak masuk strip. Strip hilang bila kosong.
+  const reminderStripItems = (() => {
+    const items: { key: string; title: string; detail: string; action: () => void }[] = [];
+    [...attendanceReminders].sort((first, second) => first.date.localeCompare(second.date)).forEach((reminder) => {
+      items.push({ key: `att-${reminder.id}`, title: `${reminder.subject} · ${reminder.className}`, detail: `Presensi ${reminder.day}, ${reminder.date} · ${reminder.recordedCount}/${reminder.studentCount} siswa`, action: () => openAttendanceReminder(reminder) });
+    });
+    [...learningInterventionReminders].sort((first, second) => Number(second.overdue) - Number(first.overdue)).forEach((reminder) => {
+      items.push({ key: `int-${reminder.id}`, title: reminder.title, detail: `${reminder.subject} · Rencana ${reminder.scheduledDate}`, action: async () => { await classData.selectClass(reminder.classId); setLearningSummarySubject(reminder.subject); setLearningSummaryTopic(reminder.topic); setTeachingView('kelas-saya'); setKelasSection('tindak-lanjut'); setStudentView('followup'); setActiveTab('students'); } });
+    });
+    return items.slice(0, 3);
+  })();
   const hariIniPanel = (
     <div className="space-y-6">
       <div>
-        <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Mode Pengajar · Hari Ini</p>
-        <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{currentTeachingDay() ? `Mengajar hari ini · ${currentTeachingDay()}` : 'Akhir pekan'}</h3>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{todayTeachingSchedules.length} sesi terjadwal hari ini.</p>
+        <h3 className="text-xl font-black text-slate-800 dark:text-slate-100">{jakartaGreeting()}, {workspace.user.name || 'Guru'} — {formatJakartaDateLong()}</h3>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{hariIniSessions.length ? `${hariIniSessions.length} sesi mengajar hari ini.` : 'Tidak ada sesi terjadwal untuk hari ini.'}</p>
       </div>
-      {todayTeachingSchedules.length ? (
+      {reminderStripItems.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/20" aria-label="Pengingat mendesak">
+          <p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Perlu perhatian</p>
+          {reminderStripItems.map((item) => (
+            <button key={item.key} type="button" onClick={item.action} className="flex w-full items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-left shadow-sm transition hover:ring-2 hover:ring-amber-200 dark:bg-slate-800 dark:hover:ring-amber-800">
+              <span className="min-w-0"><b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.title}</b><span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.detail}</span></span>
+              <span className="shrink-0 text-xs font-bold text-amber-700 dark:text-amber-300">Tindak lanjuti →</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {hariIniSessions.length ? (
         <div className="space-y-3">
-          {todayTeachingSchedules.map((item) => (
-            <article key={item.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-              <span className="w-24 shrink-0 text-sm font-black text-blue-600 dark:text-blue-300">{item.timeStart}–{item.timeEnd}</span>
-              <span className="min-w-0">
-                <b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.subject}</b>
-                <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className}</span>
-              </span>
+          {hariIniSessions.map((item) => (
+            <article key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-center gap-4">
+                  <span className="w-24 shrink-0 text-sm font-black text-blue-600 dark:text-blue-300">{item.timeStart}–{item.timeEnd}</span>
+                  <span className="min-w-0">
+                    <b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.subject}</b>
+                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className}</span>
+                  </span>
+                </div>
+                <a href={SIMAK_URL} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-300">Materi &amp; nilai di SIMAK ↗</a>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openSessionAttendance(item)} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-cyan-700"><CheckSquare className="h-4 w-4" aria-hidden="true" /> Isi Presensi</button>
+                <button type="button" onClick={() => openNewJournal(item)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"><FileText className="h-4 w-4" aria-hidden="true" /> Tulis Jurnal</button>
+              </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 dark:border-slate-700">Tidak ada sesi terjadwal untuk hari ini.</div>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center dark:border-slate-700">
+            <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Tidak ada sesi terjadwal untuk hari ini.</p>
+            {nextTeachingDay ? <p className="mt-1 text-xs text-slate-400">Mengajar berikutnya menurut jadwal mingguan: <b className="text-slate-600 dark:text-slate-200">{nextTeachingDay.day}</b> · {nextTeachingDay.sessions.length} sesi.</p> : <p className="mt-1 text-xs text-slate-400">Jadwal mingguan Anda belum menampilkan sesi apa pun.</p>}
+          </div>
+          {nextTeachingDay && (
+            <div className="space-y-3">
+              {nextTeachingDay.sessions.map((item) => (
+                <article key={item.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 opacity-80 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                  <span className="w-24 shrink-0 text-sm font-black text-slate-400">{item.timeStart}–{item.timeEnd}</span>
+                  <span className="min-w-0">
+                    <b className="block truncate text-sm text-slate-700 dark:text-slate-200">{item.subject}</b>
+                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className} · {nextTeachingDay.day}</span>
+                  </span>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       <div id="pengingat" className="scroll-mt-6">{remindersPanel}</div>
       <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
@@ -2612,7 +2691,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => { setPresensiReturnView('kelas-saya'); setTeachingAttendanceDate(localDateValue()); setActiveTab('teaching-attendance'); }} className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 px-4 py-2.5 text-xs font-bold text-cyan-700 transition hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-950/30"><CheckSquare className="h-4 w-4" aria-hidden="true" /> Isi Presensi Mapel</button>
+            <button type="button" onClick={() => { setPresensiReturnView('kelas-saya'); setTeachingAttendanceDate(getJakartaDateValue()); setActiveTab('teaching-attendance'); }} className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 px-4 py-2.5 text-xs font-bold text-cyan-700 transition hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-950/30"><CheckSquare className="h-4 w-4" aria-hidden="true" /> Isi Presensi Mapel</button>
             <a href={SIMAK_URL} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 ${simakHighlight ? 'ring-4 ring-blue-300 dark:ring-blue-700' : ''}`}>Buka SIMAK <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>
           </div>
         </div>

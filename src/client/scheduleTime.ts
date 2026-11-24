@@ -38,6 +38,43 @@ export function getJakartaNow(now: Date = new Date()): JakartaNow {
   };
 }
 
+const datePartsFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: JAKARTA_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+const longDateFormatter = new Intl.DateTimeFormat('id-ID', {
+  timeZone: JAKARTA_TIME_ZONE,
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+/** "YYYY-MM-DD" for today in Asia/Jakarta — the one "today" definition the
+ *  teaching workspace uses, aligned with the server's jakartaDateString(). */
+export function getJakartaDateValue(now: Date = new Date()): string {
+  const parts = datePartsFormatter.formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/** e.g. "Selasa, 24 November 2026" in Asia/Jakarta. */
+export function formatJakartaDateLong(now: Date = new Date()): string {
+  return longDateFormatter.format(now);
+}
+
+/** Indonesian greeting for the Jakarta hour of `now`. */
+export function jakartaGreeting(now: Date = new Date()): string {
+  const { minutesSinceMidnight } = getJakartaNow(now);
+  if (minutesSinceMidnight < 11 * 60) return 'Selamat pagi';
+  if (minutesSinceMidnight < 15 * 60) return 'Selamat siang';
+  if (minutesSinceMidnight < 19 * 60) return 'Selamat sore';
+  return 'Selamat malam';
+}
+
 /** "08:25" -> 505; returns null for anything that is not an HH:MM clock time. */
 export function parseTimeToMinutes(value: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());

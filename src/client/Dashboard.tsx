@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { BookOpen, Users, Calendar, ExternalLink, CheckSquare, Settings, LayoutDashboard, Plus, Trash2, Save, Megaphone, Upload, Edit2, Key, X, Download, Ban, FileText, Printer, FileSpreadsheet, Search, Clock, CalendarDays, Award, Menu, ImageIcon, Thermometer, ShieldAlert, AlertTriangle, MessageSquare, Activity, RefreshCw, Bell } from 'lucide-react';
 import { useClassData, Student } from './ClassContext';
 import { formatAnnouncementDate, isAnnouncementExpired } from './announcementDate';
@@ -6,6 +6,7 @@ import { useNotifications } from './NotificationCenter';
 import { ThemePicker } from './ThemeContext';
 import { useModalAccessibility } from './useModalAccessibility';
 import { UTILITY_STEP, KNOWN_TABS, deriveWizardPosition, findWizardStep, findWizardSub, readWizardUrlNav, wizardStepsForMode, type WizardStep, type WizardSub, type WizardNavPatch } from './wizardSteps';
+import { DEFAULT_TEACHING_LOCATION, laporanCategoryParam, resolveTeachingLocationFromSearch, type KelasSayaSection, type TeachingJadwalView, type TeachingLaporanCategory, type TeachingLocation, type TeachingView } from './teachingNav';
 
 const BEHAVIOR_DESCRIPTION_EXAMPLES: Record<'positif' | 'negatif', Record<string, string[]>> = {
   positif: {
@@ -277,6 +278,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     return userRole === 'teacher' ? 'teaching' : 'homeroom';
   });
   const [activeTeachingSubject, setActiveTeachingSubject] = useState<string | null>(() => new URLSearchParams(window.location.search).get('subject'));
+  // --- Navigasi datar Mode Pengajar ("Hari Ini") ---------------------------
+  // Lokasi awal diselesaikan dari URL (skema kanonis ?view=, alias wizard
+  // step/sub Mode Pengajar, atau alias warisan ?tab=) oleh parser aditif di
+  // teachingNav.ts. State tab lama tetap menjadi adapter render di bawah;
+  // lokasi pengajar ini yang menentukan rumah setiap panel pada Mode
+  // Pengajar. Mode Perwalian tidak membaca state ini sama sekali.
+  const [initialTeachingLocation] = useState<TeachingLocation | null>(() => (typeof window === 'undefined' ? null : resolveTeachingLocationFromSearch(window.location.search)));
+  const [teachingView, setTeachingView] = useState<TeachingView>(() => initialTeachingLocation?.view ?? 'hari-ini');
+  const [jadwalView, setJadwalView] = useState<TeachingJadwalView>(() => initialTeachingLocation?.jadwalView ?? 'saya');
+  const [laporanCategory, setLaporanCategory] = useState<TeachingLaporanCategory>(() => initialTeachingLocation?.laporanCategory ?? 'jurnal');
+  const [kelasSection, setKelasSection] = useState<KelasSayaSection>(() => initialTeachingLocation?.kelasSection ?? 'ringkasan');
+  const [presensiReturnView, setPresensiReturnView] = useState<TeachingView>('hari-ini');
+  const [simakHighlight, setSimakHighlight] = useState<boolean>(() => initialTeachingLocation?.simakHighlight ?? false);
   const canManageStudents = userRole === 'admin';
   const canViewLearningProfiles = userRole === 'admin' || userRole === 'teacher' || userRole === 'counselor';
   const [workspace, setWorkspace] = useState<TeacherWorkspace>(EMPTY_TEACHER_WORKSPACE);
@@ -470,7 +484,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setActiveTeachingSubject(subjectName);
     setBehaviorSubTab('sikap');
     setSelectedSubject(subjectName);
-    setActiveTab('academic');
+    // Rumah baru konteks kelas+mapel adalah Kelas Saya (kepala konteks);
+    // tab academic pada Mode Pengajar kini hanya memuat Jadwal tampilan kelas.
+    setTeachingView('kelas-saya');
+    setKelasSection('ringkasan');
+    setSimakHighlight(false);
+    setActiveTab('dashboard');
   };
 
   const openAttendanceReminder = async (reminder: AttendanceReminder) => {
@@ -478,6 +497,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setWorkspaceMode('teaching');
     setActiveTeachingSubject(reminder.subject);
     setTeachingAttendanceDate(reminder.date);
+    // Panel presensi adalah layar kerja di atas tujuan asal; tombol kembali
+    // pada panel mengembalikan guru ke tujuan yang sedang ia buka.
+    setPresensiReturnView(teachingView);
     setActiveTab('teaching-attendance');
     setShowAttendanceReminders(false);
   };
@@ -850,12 +872,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
     if (activeTeachingSubject) params.set('subject', activeTeachingSubject);
     else params.delete('subject');
-    if (activeTab === 'workspace' && workspaceView !== 'overview') params.set('view', workspaceView);
-    else params.delete('view');
+    // Pada Mode Pengajar parameter `view` adalah skema kanonis baru
+    // (?view=hari-ini|jadwal|kelas-saya|laporan) dan ditulis oleh efek penulis
+    // URL wizard/pengajar di bawah; efek ini tidak menimpanya.
+    if (workspaceMode !== 'teaching') {
+      if (activeTab === 'workspace' && workspaceView !== 'overview') params.set('view', workspaceView);
+      else params.delete('view');
+    }
     if (activeTab === 'students' && studentView !== 'roster') params.set('studentView', studentView);
     else params.delete('studentView');
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-  }, [activeTab, classData.classId, classData.isLoading, activeTeachingSubject, workspaceView, studentView]);
+  }, [activeTab, classData.classId, classData.isLoading, activeTeachingSubject, workspaceView, studentView, workspaceMode]);
 
   useEffect(() => {
     const fetchDashboardSummary = async () => {
@@ -2212,6 +2239,13 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     setWorkspaceView('overview');
     setActiveTeachingSubject(null);
     setActiveTab('workspace');
+    if (mode === 'teaching') {
+      // Mode Pengajar selalu mendarat di Hari Ini saat mode diganti manual.
+      setTeachingView('hari-ini');
+      setJadwalView('saya');
+      setKelasSection('ringkasan');
+      setSimakHighlight(false);
+    }
     const targetClass = mode === 'homeroom' ? workspace.homeroomClasses[0]?.id : workspace.subjectGroups[0]?.classes[0]?.classId;
     if (targetClass) await classData.selectClass(targetClass);
   };
@@ -2285,6 +2319,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
   // dideklarasikan sesudah efek penulis URL lama di atas.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // Mode Pengajar menulis skema kanonis baru ?view=... (Keputusan K11);
+    // step/sub tidak lagi ditulis untuk mode ini, tetapi tetap dibaca
+    // sebagai alias. Tab settings adalah utilitas sistem dan tetap memakai
+    // penulisan utility lama. Mode Perwalian menulis step/sub seperti
+    // sebelumnya, tanpa perubahan apa pun.
+    if (workspaceMode === 'teaching' && activeTab !== 'settings') {
+      params.delete('step');
+      params.delete('sub');
+      params.delete('utility');
+      params.set('view', teachingView);
+      if (teachingView === 'jadwal') params.set('tampilan', jadwalView);
+      else params.delete('tampilan');
+      if (teachingView === 'laporan') params.set('kategori', laporanCategoryParam(laporanCategory));
+      else params.delete('kategori');
+      if (teachingView === 'kelas-saya') params.set('bagian', kelasSection);
+      else params.delete('bagian');
+      window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+      return;
+    }
     if (wizardPosition.area === 'utility') {
       params.set('utility', 'sistem');
       params.delete('step');
@@ -2295,7 +2348,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     if (wizardPosition.subId) params.set('sub', wizardPosition.subId);
     else params.delete('sub');
     window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-  }, [wizardPosition.area, wizardPosition.stepId, wizardPosition.subId]);
+  }, [workspaceMode, activeTab, teachingView, jadwalView, laporanCategory, kelasSection, wizardPosition.area, wizardPosition.stepId, wizardPosition.subId]);
   const [legacyTabNotice, setLegacyTabNotice] = useState(false);
   useEffect(() => {
     if (!(KNOWN_TABS as readonly string[]).includes(activeTab)) {
@@ -2334,6 +2387,69 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     const sub = findWizardSub(step, subId) ?? step.subs.find(isWizardSubVisible) ?? step.subs[0];
     if (sub) goToWizardSub(step, sub);
   };
+  // --- Navigasi datar Mode Pengajar ---------------------------------------
+  // Menerapkan satu lokasi pengajar ke state lokasi + state tab lama yang
+  // menjadi adapter render panel. Panelnya sendiri tidak berubah; yang
+  // berubah hanya rumah tempat panel itu dirender.
+  const scrollToSectionLater = (elementId: string) => {
+    window.setTimeout(() => {
+      document.getElementById(elementId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
+  };
+  const applyTeachingLocation = (location: TeachingLocation) => {
+    setTeachingView(location.view);
+    setJadwalView(location.jadwalView);
+    setLaporanCategory(location.laporanCategory);
+    setKelasSection(location.kelasSection);
+    setSimakHighlight(location.simakHighlight);
+    if (location.laporanCategory !== 'jurnal') setTeachingReportCategory(location.laporanCategory);
+    if (location.view === 'hari-ini') {
+      setActiveTab('workspace');
+      setWorkspaceView('overview');
+    } else if (location.view === 'jadwal') {
+      if (location.jadwalView === 'kelas') {
+        setActiveTab('academic');
+        setAcademicSubTab('schedule');
+      } else {
+        setActiveTab('workspace');
+        setWorkspaceView('schedule');
+      }
+    } else if (location.view === 'kelas-saya') {
+      switch (location.kelasSection) {
+        case 'siswa': setStudentView('roster'); setActiveTab('students'); break;
+        case 'perkembangan': setStudentView('progress'); setActiveTab('students'); break;
+        case 'tindak-lanjut': setStudentView('followup'); setActiveTab('students'); break;
+        case 'aktivitas': setMonitoringSubTab('activity'); setActiveTab('monitoring'); break;
+        case 'sikap': setBehaviorSubTab('sikap'); setActiveTab('behavior'); break;
+        default: setActiveTab('dashboard'); break;
+      }
+    } else if (location.view === 'laporan') {
+      setActiveTab('teaching-reports');
+    }
+    if (location.presensiOpen) {
+      setPresensiReturnView(location.view);
+      setActiveTab('teaching-attendance');
+    }
+    if (location.pengingatAnchor) scrollToSectionLater('pengingat');
+    else if (location.view === 'kelas-saya' && location.kelasSection === 'informasi') scrollToSectionLater('panel-informasi-siswa');
+  };
+  const currentTeachingLocation = (): TeachingLocation => ({
+    view: teachingView, jadwalView, laporanCategory, kelasSection,
+    presensiOpen: activeTab === 'teaching-attendance', pengingatAnchor: false, simakHighlight,
+  });
+  const goToTeaching = (patch: Partial<TeachingLocation>) => {
+    applyTeachingLocation({ ...DEFAULT_TEACHING_LOCATION, ...currentTeachingLocation(), presensiOpen: false, pengingatAnchor: false, simakHighlight: false, ...patch });
+  };
+  // Samakan state tab lama dengan lokasi pengajar yang diselesaikan dari
+  // URL saat aplikasi dibuka (sekali saja; sesudah itu navigasi guru yang
+  // memegang kendali). Mode Perwalian tidak disentuh.
+  const teachingInitApplied = useRef(false);
+  useEffect(() => {
+    if (teachingInitApplied.current) return;
+    teachingInitApplied.current = true;
+    if (workspaceMode === 'teaching' && initialTeachingLocation) applyTeachingLocation(initialTeachingLocation);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Lima item Panduan Penyiapan Kelas (§5.2 rancangan). Pada Tahap 1 daftar
   // ini murni jalan pintas ke panel pemiliknya; status per item dari data
   // diisi mesin Tahap 2.
@@ -2344,6 +2460,20 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     { label: 'Profil kelas terisi: nama kelas dan tahun ajaran', stepId: 'publik', subId: 'profil' },
     { label: 'Minimal satu jadwal pelajaran tersimpan', stepId: 'publik', subId: 'jadwal' },
   ];
+  // Gerbang tampilan gabungan untuk subpohon JSX lama. Bentuk gabungan
+  // (bukan alias perbandingan tunggal atas workspaceMode) dipakai agar
+  // TypeScript tidak mempersempit tipe workspaceMode di dalam subpohon —
+  // JSX lama di dalamnya masih membandingkan mode secara sah.
+  const showWorkspaceIntroVisible = showWorkspaceIntro && workspaceMode !== 'teaching';
+  const showModeSwitchCard = canSwitchWorkspaceMode && workspaceMode === 'homeroom';
+  const isHomeroomShell = workspaceMode !== 'teaching' && visibleWizardSteps.length > 0;
+  const showJadwalSegmented = workspaceMode === 'teaching' && teachingView === 'jadwal';
+  const teachingHeaderTitle = activeTab === 'settings' ? 'Pengaturan Sistem'
+    : activeTab === 'teaching-attendance' ? 'Presensi Mapel'
+    : teachingView === 'hari-ini' ? 'Hari Ini'
+    : teachingView === 'jadwal' ? 'Jadwal'
+    : teachingView === 'kelas-saya' ? 'Kelas Saya'
+    : 'Laporan';
   const mobileShortcutItems = workspaceMode === 'teaching' ? [
     { key: 'ringkasan', label: 'Ringkasan', icon: LayoutDashboard, isActive: wizardPosition.stepId === 'konteks', action: () => goToWizardTarget('konteks', 'beranda') },
     { key: 'siswa', label: 'Siswa', icon: Users, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'siswa', action: () => goToWizardTarget('kelas', 'siswa') },
@@ -2356,7 +2486,163 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     { key: 'nilai', label: 'Nilai', icon: Award, isActive: wizardPosition.stepId === 'nilai', action: () => goToWizardTarget('nilai', 'rekap-rapor') },
   ];
   const todayTeachingSchedules = (workspace.teachingSchedule || []).filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart));
-  const nextTeachingSchedule = todayTeachingSchedules[0] || (workspace.teachingSchedule || []).slice().sort((first, second) => first.timeStart.localeCompare(second.timeStart))[0];
+  // "Sesi berikutnya" versi lama (mengurutkan seluruh jadwal hanya menurut
+  // jam) sengaja dihapus: pratinjau hari mengajar berikutnya pada Hari Ini
+  // dihitung dari pola mingguan, bukan dari logika itu (rancangan Bagian 2.4).
+
+  // Panel Jurnal Mengajar (dipindah dari Beranda ke Laporan kategori Jurnal)
+  // dan Panel Pusat Pengingat (dipakai Beranda Perwalian + Hari Ini) diangkat
+  // menjadi konstanta agar bisa dirender dari rumah barunya tanpa mengubah isi.
+  const teachingJournalPanel = (
+              <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm dark:border-emerald-900/50 dark:bg-slate-800">
+                <div className="flex flex-col gap-4 border-b border-emerald-100 pb-4 dark:border-emerald-900/50 sm:flex-row sm:items-start sm:justify-between">
+                  <div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Dokumentasi Pembelajaran</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jurnal Mengajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Catat materi, kejadian kelas, dan rencana pertemuan berikutnya.</p></div>
+                  <div className="flex flex-wrap gap-2"><button type="button" onClick={handlePrintTeachingJournalsPDF} disabled={!teachingJournals.length} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><Printer className="h-4 w-4" /> Ekspor PDF</button><button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> Buat jurnal</button></div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <select aria-label="Filter kelas jurnal" value={journalClassFilter} onChange={(event) => setJournalClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                  <select aria-label="Filter mata pelajaran jurnal" value={journalSubjectFilter} onChange={(event) => setJournalSubjectFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua mata pelajaran</option>{journalFilterSubjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select>
+                  <input aria-label="Tanggal mulai jurnal" type="date" value={journalFrom} onChange={(event) => setJournalFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+                  <input aria-label="Tanggal akhir jurnal" type="date" value={journalTo} onChange={(event) => setJournalTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+                </div>
+                {isLoadingJournals ? <p className="py-8 text-center text-sm text-slate-400">Memuat jurnal mengajar…</p> : teachingJournals.length ? <div className="mt-4 space-y-3">{teachingJournals.map((journal) => <article key={journal.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{journal.day}</span><span className="text-xs text-slate-400">{new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}{journal.timeStart && journal.timeEnd ? ` · ${journal.timeStart}–${journal.timeEnd}` : ''}</span></div><h4 className="mt-2 font-bold text-slate-800 dark:text-slate-100">{journal.className} · {journal.subject}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{journal.materialCovered}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => openEditJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 dark:hover:bg-slate-700" title="Edit jurnal"><Edit2 className="h-4 w-4" /></button><button type="button" onClick={() => handleDeleteJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" title="Hapus jurnal"><Trash2 className="h-4 w-4" /></button></div></div>{(journal.classroomEvents || journal.nextPlan) && <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-700 sm:grid-cols-2"><div><p className="font-bold text-slate-400">Kejadian di kelas</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.classroomEvents || 'Tidak ada kejadian khusus.'}</p></div><div><p className="font-bold text-slate-400">Rencana berikutnya</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.nextPlan || 'Belum ditentukan.'}</p></div></div>}</article>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700"><FileText className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Belum ada jurnal mengajar.</p><p className="mt-1 text-xs text-slate-400">Buat jurnal setelah selesai mengajar untuk menyimpan progres pembelajaran.</p></div>}
+              </section>
+  );
+  const remindersPanel = (
+              <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Pusat Pengingat</p>
+                    <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Hal yang perlu diperhatikan</h3>
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selesaikan presensi dan tindak lanjut dari satu tempat.</p>
+                  </div>
+                  <span className="w-fit rounded-full bg-amber-200 px-3 py-1.5 text-xs font-black text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{totalHeaderReminders} pengingat aktif</span>
+                </div>
+                {attendanceReminders.length > 0 && <div className="mt-4 space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">Presensi belum lengkap</p>
+                  {attendanceReminders.map((reminder) => <article key={reminder.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{reminder.subject} · {reminder.className}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reminder.day}, {reminder.date} · {reminder.timeStart}–{reminder.timeEnd} · {reminder.recordedCount}/{reminder.studentCount} siswa</p></div>
+                    <button type="button" onClick={() => openAttendanceReminder(reminder)} className="w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 sm:w-auto">Isi presensi</button>
+                  </article>)}
+                </div>}
+                {learningInterventionReminders.length > 0 && <div className="mt-4 space-y-2 border-t border-amber-200 pt-4 dark:border-amber-900/50">
+                  <p className="text-xs font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">Tindak lanjut belajar</p>
+                  {learningInterventionReminders.map((reminder) => <article key={reminder.id} className="flex flex-col gap-3 rounded-xl border border-violet-200 bg-white p-4 dark:border-violet-900/50 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{reminder.title}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reminder.subject} · {reminder.topic} · Rencana {reminder.scheduledDate}</p></div>
+                    <button type="button" onClick={() => { setLearningSummarySubject(reminder.subject); setLearningSummaryTopic(reminder.topic); setStudentView('followup'); setActiveTab('students'); if (workspaceMode === 'teaching') { setTeachingView('kelas-saya'); setKelasSection('tindak-lanjut'); } }} className="w-full rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 sm:w-auto">Buka tindak lanjut</button>
+                  </article>)}
+                </div>}
+                {workspaceMode === 'teaching' && scheduleChangeRequests.length > 0 && <div className="mt-4 space-y-2 border-t border-amber-200 pt-4 dark:border-amber-900/50">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">Pengajuan perubahan jadwal</p>
+                  {scheduleChangeRequests.slice(0, 3).map((request) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-800"><span className="font-semibold text-slate-700 dark:text-slate-200">{request.subject} · {request.className}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{request.status === 'pending' ? 'Menunggu' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span></div>)}
+                </div>}
+                {!attendanceReminders.length && !learningInterventionReminders.length && !(workspaceMode === 'teaching' && scheduleChangeRequests.length) && <div className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 p-6 text-center text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Tidak ada pengingat yang perlu ditindaklanjuti.</div>}
+              </section>
+  );
+  // Kontrol segmen tujuan Jadwal: dua tampilan yang memang berbeda konteks
+  // (jadwal pribadi guru lintas kelas vs jadwal+kalender kelas terpilih),
+  // bertetangga dalam satu tujuan tanpa digabung isinya (Keputusan K7).
+  const jadwalSegmentedControl = (
+    <div className="flex w-fit rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60" role="tablist" aria-label="Tampilan Jadwal">
+      {([['saya', 'Jadwal Saya'], ['kelas', 'Jadwal & Kalender Kelas']] as const).map(([key, label]) => (
+        <button key={key} type="button" role="tab" aria-selected={jadwalView === key} onClick={() => goToTeaching({ view: 'jadwal', jadwalView: key })} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${jadwalView === key ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}>{label}</button>
+      ))}
+    </div>
+  );
+  // Halaman Hari Ini — Tahap 1: susunan sederhana (kepala ringkas + daftar
+  // sesi hari ini tanpa chip + bagian Pengingat + pintasan). Aksi per sesi,
+  // strip pengingat, dan keadaan kosong menyusul pada Tahap 2; chip status
+  // pada Tahap 3.
+  const hariIniPanel = (
+    <div className="space-y-6">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Mode Pengajar · Hari Ini</p>
+        <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{currentTeachingDay() ? `Mengajar hari ini · ${currentTeachingDay()}` : 'Akhir pekan'}</h3>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{todayTeachingSchedules.length} sesi terjadwal hari ini.</p>
+      </div>
+      {todayTeachingSchedules.length ? (
+        <div className="space-y-3">
+          {todayTeachingSchedules.map((item) => (
+            <article key={item.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <span className="w-24 shrink-0 text-sm font-black text-blue-600 dark:text-blue-300">{item.timeStart}–{item.timeEnd}</span>
+              <span className="min-w-0">
+                <b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.subject}</b>
+                <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className}</span>
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 dark:border-slate-700">Tidak ada sesi terjadwal untuk hari ini.</div>
+      )}
+      <div id="pengingat" className="scroll-mt-6">{remindersPanel}</div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-700">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Pintasan</span>
+        <button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700/60 dark:text-slate-300">Tulis jurnal tanpa sesi</button>
+        <button type="button" onClick={() => goToTeaching({ view: 'jadwal' })} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300">Lihat Jadwal</button>
+        <button type="button" onClick={() => goToTeaching({ view: 'kelas-saya' })} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300">Buka Kelas Saya</button>
+        <button type="button" onClick={() => goToTeaching({ view: 'laporan' })} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-300">Buka Laporan</button>
+      </div>
+    </div>
+  );
+  // Kepala konteks Kelas Saya: pemilih konteks mapel→kelas (pola kartu
+  // "Kelas Mengajar" yang dipindah dari Beranda), chip konteks aktif, tombol
+  // Buka SIMAK dan Isi Presensi Mapel, lalu chip jangkar antar-bagian
+  // (Keputusan K5). Bagian-bagiannya sendiri tetap panel lama di bawahnya.
+  const kelasSayaSections: { id: KelasSayaSection; label: string; staffOnly?: boolean }[] = [
+    { id: 'ringkasan', label: 'Ringkasan' },
+    { id: 'informasi', label: 'Informasi untuk Siswa' },
+    { id: 'siswa', label: 'Siswa' },
+    { id: 'perkembangan', label: 'Perkembangan', staffOnly: true },
+    { id: 'tindak-lanjut', label: 'Tindak Lanjut', staffOnly: true },
+    { id: 'aktivitas', label: 'Aktivitas', staffOnly: true },
+    { id: 'sikap', label: 'Sikap' },
+  ];
+  const activeContextStudentCount = workspace.subjectGroups.find((group) => group.subjectName === activeTeachingSubject)?.classes.find((item) => item.classId === classData.classId)?.studentCount ?? classData.students.length;
+  const kelasSayaHeader = workspaceMode === 'teaching' && teachingView === 'kelas-saya' && ['dashboard', 'students', 'monitoring', 'behavior'].includes(activeTab) ? (
+    <section className="mx-auto mb-5 max-w-6xl space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Pengajar · Kelas Saya</p>
+            <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">{classData.selectedClass || 'Kelas belum dipilih'}</h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">Mapel: {activeTeachingSubject || 'Belum dipilih'}</span>
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200">{activeContextStudentCount} siswa</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => { setPresensiReturnView('kelas-saya'); setTeachingAttendanceDate(localDateValue()); setActiveTab('teaching-attendance'); }} className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 px-4 py-2.5 text-xs font-bold text-cyan-700 transition hover:bg-cyan-50 dark:border-cyan-800 dark:text-cyan-300 dark:hover:bg-cyan-950/30"><CheckSquare className="h-4 w-4" aria-hidden="true" /> Isi Presensi Mapel</button>
+            <a href={SIMAK_URL} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 ${simakHighlight ? 'ring-4 ring-blue-300 dark:ring-blue-700' : ''}`}>Buka SIMAK <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>
+          </div>
+        </div>
+        {workspace.subjectGroups.length > 0 && <div className="mt-4 space-y-4 border-t border-slate-100 pt-4 dark:border-slate-700">
+          {workspace.subjectGroups.map((group) => (
+            <div key={group.subjectId}>
+              <div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {group.classes.map((item) => {
+                  const isContextActive = item.classId === classData.classId && group.subjectName === activeTeachingSubject;
+                  return (
+                    <button key={item.assignmentId} type="button" onClick={() => openTeachingClass(item.classId, group.subjectName)} aria-current={isContextActive ? 'true' : undefined} className={`rounded-xl border p-4 text-left transition hover:shadow-sm ${isContextActive ? 'border-violet-400 bg-violet-50 ring-2 ring-violet-200 dark:border-violet-600 dark:bg-violet-950/30 dark:ring-violet-800' : 'border-slate-200 hover:border-violet-300 dark:border-slate-700 dark:hover:border-violet-700'}`}>
+                      <div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p>
+                      <span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">{isContextActive ? 'Konteks aktif' : 'Jadikan konteks →'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Bagian Kelas Saya">
+        {kelasSayaSections.filter((section) => !section.staffOnly || canViewLearningProfiles).map((section) => (
+          <button key={section.id} type="button" role="tab" aria-selected={kelasSection === section.id} onClick={() => goToTeaching({ view: 'kelas-saya', kelasSection: section.id })} className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition ${kelasSection === section.id ? 'bg-violet-600 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-700'}`}>{section.label}</button>
+        ))}
+      </div>
+    </section>
+  ) : null;
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans">
@@ -2374,7 +2660,38 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
             <button type="button" onClick={() => changeWorkspaceMode('teaching')} className={`flex-1 rounded-lg px-2 py-1.5 text-[11px] font-bold transition ${workspaceMode === 'teaching' ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Pengajar</button>
           </div>}
         </div>
-        <nav className="flex-1 overflow-y-auto p-4" aria-label={workspaceMode === 'teaching' ? 'Langkah Mode Pengajar' : 'Langkah Mode Perwalian'}>
+        <nav className="flex-1 overflow-y-auto p-4" aria-label={workspaceMode === 'teaching' ? 'Navigasi Mode Pengajar' : 'Langkah Mode Perwalian'}>
+          {workspaceMode === 'teaching' ? (<>
+            <div className="space-y-1.5">
+              {([
+                ['hari-ini', 'Hari Ini', 'Sesi, status, dan pekerjaan hari ini', LayoutDashboard],
+                ['jadwal', 'Jadwal', 'Jadwal mengajar dan jadwal kelas', CalendarDays],
+                ['kelas-saya', 'Kelas Saya', 'Siswa dan pendampingan per kelas', Users],
+                ['laporan', 'Laporan', 'Jurnal, nilai proses, dan rekap', FileText],
+              ] as const).map(([view, label, description, Icon]) => {
+                const isActive = activeTab !== 'settings' && (activeTab === 'teaching-attendance' ? presensiReturnView === view : teachingView === view);
+                return (
+                  <button key={view} type="button" onClick={() => goToTeaching({ view })} aria-current={isActive ? 'page' : undefined} className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 ${isActive ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60'}`}>
+                    <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${isActive ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}><Icon className="h-3.5 w-3.5" /></span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold">{label}</span>
+                      <span className="block truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {showUtilityStep && <>
+              <p className="mt-5 px-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Utilitas</p>
+              <button type="button" onClick={() => goToWizardStep(visibleUtilityStep)} aria-current={wizardPosition.area === 'utility' ? 'step' : undefined} className={`mt-1.5 w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-200 ${wizardPosition.area === 'utility' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60'}`}>
+                <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${wizardPosition.area === 'utility' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300'}`}><Settings className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold">Pengaturan Sistem</span>
+                  <span className="block truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{visibleUtilityStep.description}</span>
+                </span>
+              </button>
+            </>}
+          </>) : (<>
           <ol className="space-y-1.5">
             {visibleWizardSteps.map((step, index) => {
               const isActive = wizardPosition.area === 'wizard' && wizardPosition.stepId === step.id;
@@ -2412,6 +2729,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </span>
             </button>
           </>}
+          </>)}
         </nav>
       </aside>
 
@@ -2421,7 +2739,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         <header className="relative z-30 h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 md:px-8">
           <div className="min-w-0 mr-2">
             <h2 className="text-base sm:text-xl font-semibold text-slate-800 dark:text-slate-100 truncate">
-              {wizardPosition.area === 'utility' ? 'Pengaturan Sistem' : activeWizardSub?.label || activeWizardStep?.label || 'Manajemen Kelas'}
+              {workspaceMode === 'teaching' ? teachingHeaderTitle : wizardPosition.area === 'utility' ? 'Pengaturan Sistem' : activeWizardSub?.label || activeWizardStep?.label || 'Manajemen Kelas'}
             </h2>
             <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400 dark:text-slate-500">{activeTab === 'workspace' ? `Mode ${workspaceMode === 'teaching' ? 'Pengajar' : 'Perwalian'} · ${activeContext}` : `Konteks kerja: ${activeContext}`}</p>
           </div>
@@ -2442,9 +2760,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               {showAttendanceReminders && <div className="absolute right-0 top-12 w-[min(23rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
                 <div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Pengingat</h3><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Presensi dan tindak lanjut pembelajaran yang perlu diperhatikan.</p></div><button type="button" onClick={() => setShowAttendanceReminders(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700" aria-label="Tutup pengingat"><X className="h-4 w-4" /></button></div>
                 {attendanceReminders.length ? <div className="mt-3 max-h-[min(26rem,60vh)] space-y-2 overflow-y-auto">{attendanceReminders.map((reminder) => <div key={reminder.id} className="rounded-xl border border-amber-100 bg-amber-50/70 p-3 dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold text-sm text-slate-800 dark:text-slate-100">{reminder.subject}</p><p className="text-xs text-slate-600 dark:text-slate-300">{reminder.className} · {reminder.day}, {reminder.date}</p><p className="text-xs text-slate-500 dark:text-slate-400">{reminder.timeStart}–{reminder.timeEnd} · {reminder.recordedCount}/{reminder.studentCount} siswa</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => openAttendanceReminder(reminder)} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-violet-700">Isi Presensi</button><button type="button" onClick={() => { setSelectedReminder(reminder); setReminderReason(''); setShowAttendanceReminders(false); }} className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/50">Tidak ada pertemuan</button></div></div></div></div>)}</div> : <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-center text-xs font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Semua presensi mapel sudah lengkap.</p>}
-                {learningInterventionReminders.length > 0 && <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-slate-700">{learningInterventionReminders.map((reminder) => <div key={reminder.id} className="rounded-xl border border-violet-100 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/20"><div className="flex items-start gap-2"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" /><div className="min-w-0 flex-1"><p className="font-bold text-sm text-slate-800 dark:text-slate-100">{reminder.title}</p><p className="text-xs text-slate-600 dark:text-slate-300">{reminder.subject} · {reminder.topic}</p><p className="text-xs text-slate-500 dark:text-slate-400">Rencana: {reminder.scheduledDate} · {reminder.message}</p><button type="button" onClick={() => { setLearningSummarySubject(reminder.subject); setLearningSummaryTopic(reminder.topic); setStudentView('followup'); setActiveTab('students'); setShowAttendanceReminders(false); }} className="mt-2 rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-violet-700">Buka tindak lanjut</button></div></div></div>)}</div>}
+                {learningInterventionReminders.length > 0 && <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-slate-700">{learningInterventionReminders.map((reminder) => <div key={reminder.id} className="rounded-xl border border-violet-100 bg-violet-50/70 p-3 dark:border-violet-900/50 dark:bg-violet-950/20"><div className="flex items-start gap-2"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" /><div className="min-w-0 flex-1"><p className="font-bold text-sm text-slate-800 dark:text-slate-100">{reminder.title}</p><p className="text-xs text-slate-600 dark:text-slate-300">{reminder.subject} · {reminder.topic}</p><p className="text-xs text-slate-500 dark:text-slate-400">Rencana: {reminder.scheduledDate} · {reminder.message}</p><button type="button" onClick={() => { setLearningSummarySubject(reminder.subject); setLearningSummaryTopic(reminder.topic); setStudentView('followup'); setActiveTab('students'); if (workspaceMode === 'teaching') { setTeachingView('kelas-saya'); setKelasSection('tindak-lanjut'); } setShowAttendanceReminders(false); }} className="mt-2 rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-violet-700">Buka tindak lanjut</button></div></div></div>)}</div>}
               </div>}
             </div>}
+            {/* Utilitas Sistem untuk admin pada Mode Pengajar mobile (Keputusan K9):
+                bilah bawah tetap tepat empat tombol, utilitas dijangkau dari kepala. */}
+            {workspaceMode === 'teaching' && showUtilityStep && <button type="button" onClick={() => goToWizardStep(visibleUtilityStep)} className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-full transition-colors md:hidden" title="Pengaturan Sistem" aria-label="Pengaturan Sistem"><Settings className="h-5 w-5" /></button>}
             {/* Dark Mode Toggle */}
             <ThemePicker />
             {workspaceMode === 'teaching' && <button onClick={() => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); setShowPasswordModal(true); }} className="p-2 text-slate-500 dark:text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30 rounded-full transition-colors" title="Ubah password"><Key className="h-5 w-5" /></button>}
@@ -2465,6 +2786,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {/* Bilah panduan wizard — Tahap 1: konteks langkah + jalan pintas subpanel.
               Baris "Pekerjaan Berikutnya" dan status Panduan Penyiapan adalah
               tempat struktur yang diisi mesin berbasis data pada Tahap 2. */}
+          {isHomeroomShell && <>
           <div className="mx-auto mb-5 max-w-6xl">
             <div className="md:hidden mb-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
               <div className="min-w-0 flex-1">
@@ -2475,7 +2797,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               <button type="button" onClick={() => setShowMobileMoreMenu(true)} className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">Semua langkah</button>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-              <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">{wizardPosition.area === 'utility' ? 'Utilitas Pengaturan Sistem' : `Langkah ${activeWizardStepIndex + 1} dari ${visibleWizardSteps.length} · ${workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}`}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">{wizardPosition.area === 'utility' ? 'Utilitas Pengaturan Sistem' : `Langkah ${activeWizardStepIndex + 1} dari ${visibleWizardSteps.length} · Mode Perwalian`}</p>
               <h3 className="mt-1 text-base font-black text-slate-800 dark:text-slate-100">{activeWizardStep?.label}</h3>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{activeWizardStep?.description}</p>
               {activeWizardStep && activeWizardStep.subs.length > 1 && (() => {
@@ -2526,25 +2848,27 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
               </div>
             )}
           </div>
+          </>}
           {totalHeaderReminders > 0 && activeTab !== 'workspace' && <div className="mx-auto mb-5 flex max-w-6xl items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100" role="status"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" /><div className="min-w-0 flex-1"><p className="font-bold">Ada {totalHeaderReminders} pengingat yang perlu diperhatikan.</p><p className="mt-1 text-sm text-amber-800/80 dark:text-amber-200/80">Termasuk presensi mapel dan rencana intervensi yang jatuh tempo.</p></div><button type="button" onClick={() => setShowAttendanceReminders(true)} className="shrink-0 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700">Lihat</button></div>}
-          {workspaceMode === 'teaching' && ((activeTab === 'workspace' && (workspaceView === 'overview' || workspaceView === 'schedule')) || (activeTab === 'academic' && academicSubTab === 'schedule')) && workspace?.teachingSchedule?.length > 0 && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-slate-800 dark:text-slate-100">Perlu mengubah jadwal?</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ajukan perubahan kepada admin atau wali kelas untuk disetujui.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select value={selectedScheduleForRequest?.id || ''} onChange={(event) => { const schedule = workspace.teachingSchedule.find((item) => item.id === event.target.value); if (schedule) setSelectedScheduleForRequest(schedule); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih jadwal</option>{workspace.teachingSchedule.map((item) => <option key={item.id} value={item.id}>{item.day} · {item.timeStart} · {item.subject} · {item.className}</option>)}</select><button type="button" disabled={!selectedScheduleForRequest} onClick={() => selectedScheduleForRequest && openScheduleRequest(selectedScheduleForRequest)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">Ajukan perubahan</button></div></div>{scheduleChangeRequests.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{scheduleChangeRequests.slice(0, 3).map((request) => <span key={request.id} className={`rounded-full px-3 py-1 text-[11px] font-bold ${request.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : request.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>{request.subject} · {request.status === 'pending' ? 'Menunggu persetujuan' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span>)}</div>}</section>}
+          {workspaceMode === 'teaching' && teachingView === 'jadwal' && workspace?.teachingSchedule?.length > 0 && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-slate-800 dark:text-slate-100">Perlu mengubah jadwal?</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Ajukan perubahan kepada admin atau wali kelas untuk disetujui.</p></div><div className="flex flex-col gap-2 sm:flex-row"><select value={selectedScheduleForRequest?.id || ''} onChange={(event) => { const schedule = workspace.teachingSchedule.find((item) => item.id === event.target.value); if (schedule) setSelectedScheduleForRequest(schedule); }} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="">Pilih jadwal</option>{workspace.teachingSchedule.map((item) => <option key={item.id} value={item.id}>{item.day} · {item.timeStart} · {item.subject} · {item.className}</option>)}</select><button type="button" disabled={!selectedScheduleForRequest} onClick={() => selectedScheduleForRequest && openScheduleRequest(selectedScheduleForRequest)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">Ajukan perubahan</button></div></div>{scheduleChangeRequests.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{scheduleChangeRequests.slice(0, 3).map((request) => <span key={request.id} className={`rounded-full px-3 py-1 text-[11px] font-bold ${request.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : request.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>{request.subject} · {request.status === 'pending' ? 'Menunggu persetujuan' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span>)}</div>}</section>}
           {userRole === 'admin' && activeTab === 'settings' && settingsView === 'teaching' && <section className="mx-auto mb-5 max-w-6xl rounded-2xl border border-amber-200 bg-amber-50/60 p-4 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"><div className="flex items-center justify-between gap-3"><div><p className="font-bold text-slate-800 dark:text-slate-100">Pengajuan Perubahan Jadwal</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tinjau usulan perubahan dari guru pengajar sebelum jadwal aktif diperbarui.</p></div><span className="rounded-full bg-amber-200 px-2.5 py-1 text-xs font-black text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{scheduleChangeRequests.filter((request) => request.status === 'pending').length} menunggu</span></div>{scheduleChangeRequests.filter((request) => request.status === 'pending').length ? <div className="mt-4 space-y-3">{scheduleChangeRequests.filter((request) => request.status === 'pending').map((request) => <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{request.teacherName} · {request.subject} · {request.className}</p><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{request.current?.day} {request.current?.timeStart}–{request.current?.timeEnd} → <b>{request.requested.day} {request.requested.timeStart}–{request.requested.timeEnd}</b></p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Alasan: {request.reason}</p></div><div className="flex shrink-0 gap-2"><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'rejected')} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/30">Tolak</button><button type="button" onClick={() => handleReviewScheduleRequest(request.id, 'approved')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Setujui</button></div></div></div>)}</div> : <p className="mt-4 text-center text-sm text-amber-800/70 dark:text-amber-200/70">Belum ada pengajuan yang menunggu.</p>}</section>}
+          {kelasSayaHeader}
           {activeTab === 'workspace' && (
             <div className="mx-auto max-w-6xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {showWorkspaceIntro && <div className={`rounded-2xl border p-6 text-white shadow-lg ${workspaceMode === 'teaching' ? 'border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-700 dark:border-blue-900' : 'border-emerald-100 bg-gradient-to-br from-emerald-600 to-teal-700 dark:border-emerald-900'}`}><p className={`text-sm font-semibold ${workspaceMode === 'teaching' ? 'text-blue-100' : 'text-emerald-100'}`}>{workspaceMode === 'teaching' ? 'RUANG KERJA GURU PENGAJAR' : 'RUANG KERJA WALI KELAS'}</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className={`mt-2 max-w-2xl text-sm ${workspaceMode === 'teaching' ? 'text-blue-100' : 'text-emerald-100'}`}>{workspaceMode === 'teaching' ? 'Kelola jadwal, presensi mapel, materi, tugas, dan jurnal pembelajaran dari satu ruang kerja.' : 'Pantau kondisi kelas, kehadiran, perkembangan siswa, dan tindak lanjut perwalian dari satu ruang kerja.'}</p></div>}
-              {canSwitchWorkspaceMode && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Mode kerja</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Pilih fokus pekerjaan untuk beranda dan menu Anda.</p></div><div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900"><button type="button" onClick={() => changeWorkspaceMode('homeroom')} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${workspaceMode === 'homeroom' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Mode Perwalian</button><button type="button" onClick={() => changeWorkspaceMode('teaching')} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${workspaceMode === 'teaching' ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Mode Pengajar</button></div></div>}
-              {showWorkspaceIntro && <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              {showWorkspaceIntroVisible && <div className="rounded-2xl border p-6 text-white shadow-lg border-emerald-100 bg-gradient-to-br from-emerald-600 to-teal-700 dark:border-emerald-900"><p className="text-sm font-semibold text-emerald-100">RUANG KERJA WALI KELAS</p><h3 className="mt-1 text-2xl font-black">Selamat datang, {workspace?.user.name || 'Guru'}.</h3><p className="mt-2 max-w-2xl text-sm text-emerald-100">Pantau kondisi kelas, kehadiran, perkembangan siswa, dan tindak lanjut perwalian dari satu ruang kerja.</p></div>}
+              {showModeSwitchCard && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Mode kerja</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Pilih fokus pekerjaan untuk beranda dan menu Anda.</p></div><div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-900"><button type="button" onClick={() => changeWorkspaceMode('homeroom')} className="rounded-lg px-3 py-2 text-xs font-bold transition bg-white text-emerald-700 shadow-sm dark:bg-slate-800 dark:text-emerald-300">Mode Perwalian</button><button type="button" onClick={() => changeWorkspaceMode('teaching')} className="rounded-lg px-3 py-2 text-xs font-bold transition text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Mode Pengajar</button></div></div>}
+              {showWorkspaceIntroVisible && <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Fokus beranda</p>
                     <h3 className="mt-1 text-lg font-black text-slate-800 dark:text-slate-100">Pilih pekerjaan utama</h3>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Tampilkan satu kebutuhan utama agar Beranda tetap ringkas dan mudah digunakan.</p>
                   </div>
-                  <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}</span>
+                  <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">Mode Perwalian</span>
                 </div>
                 <div role="tablist" aria-label="Fokus Beranda" className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {([
-                    ['overview', workspaceMode === 'teaching' ? 'Beranda' : 'Ringkasan', 'Kelas dan aksi utama', LayoutDashboard],
+                    ['overview', 'Ringkasan', 'Kelas dan aksi utama', LayoutDashboard],
                     ['schedule', 'Jadwal Mengajar', 'Agenda Senin–Jumat', CalendarDays],
                     ['journal', 'Jurnal Mengajar', 'Catatan pembelajaran', BookOpen],
                     ['reminders', 'Pengingat', totalHeaderReminders ? `${totalHeaderReminders} perlu dilihat` : 'Tidak ada yang tertunda', Bell],
@@ -2556,56 +2880,18 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   ))}
                 </div>
               </div>}
+              {workspaceMode === 'teaching' && teachingView === 'jadwal' && jadwalSegmentedControl}
               {workspaceMode === 'teaching' && workspaceView === 'schedule' && <section className="rounded-2xl border border-violet-100 bg-white p-6 shadow-sm dark:border-violet-900/50 dark:bg-slate-800"><div className="mb-5 flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Informasi Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jadwal Mengajar Saya</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Jadwal Senin–Jumat untuk kelas dan mata pelajaran yang Anda ampu.</p></div><Calendar className="h-6 w-6 shrink-0 text-violet-500" /></div>{workspace?.teachingSchedule?.length ? <><div className="mb-5 rounded-xl border border-violet-100 bg-violet-50/70 p-4 dark:border-violet-900/50 dark:bg-violet-950/20"><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300">Jadwal hari ini</p>{(() => { const todaySchedules = workspace.teachingSchedule.filter((item) => item.day === currentTeachingDay()).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return todaySchedules.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{todaySchedules.map((item) => <button key={item.id} type="button" onClick={() => openTeachingClass(item.classId, item.subject)} className="flex items-center gap-3 rounded-xl bg-white p-3 text-left shadow-sm transition hover:ring-2 hover:ring-violet-200 dark:bg-slate-800 dark:hover:ring-violet-800"><span className="w-12 shrink-0 text-xs font-black text-violet-600 dark:text-violet-300">{item.timeStart}</span><span className="min-w-0 flex-1"><b className="block truncate text-sm text-slate-800 dark:text-slate-100">{item.subject}</b><span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.className} · {item.timeEnd}</span></span></button>)}</div> : <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Tidak ada jadwal mengajar hari ini.</p>; })()}</div><div className="grid grid-cols-2 gap-3 md:grid-cols-5">{TEACHING_DAY_NAMES.map((day) => { const daySchedules = workspace.teachingSchedule.filter((item) => item.day === day).sort((first, second) => first.timeStart.localeCompare(second.timeStart)); return <div key={day} className={`min-w-0 rounded-xl border p-3 ${day === currentTeachingDay() ? 'border-violet-300 bg-violet-50/50 dark:border-violet-700 dark:bg-violet-950/20' : 'border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-900/30'}`}><p className="text-xs font-black text-slate-700 dark:text-slate-200">{day}</p>{daySchedules.length ? <div className="mt-3 space-y-2">{daySchedules.map((item) => <button key={item.id} type="button" onClick={() => openTeachingClass(item.classId, item.subject)} className="min-w-0 w-full rounded-lg bg-white p-2 text-left shadow-sm hover:ring-2 hover:ring-violet-200 dark:bg-slate-800 dark:hover:ring-violet-800"><span className="block text-[11px] font-bold text-violet-600 dark:text-violet-300">{item.timeStart}–{item.timeEnd}</span><span className="mt-0.5 block truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{item.subject}</span><span className="block truncate text-[11px] text-slate-400">{item.className}</span></button>)}</div> : <p className="mt-3 text-[11px] text-slate-400">Kosong</p>}</div>; })}</div></> : <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada jadwal mengajar yang terhubung dengan akun Anda.</div>}</section>}
               {workspaceMode === 'homeroom' && workspaceView === 'schedule' && <section className="rounded-2xl border border-violet-100 bg-violet-50/50 p-6 shadow-sm dark:border-violet-900/50 dark:bg-violet-950/20">
                 <p className="text-xs font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300">Jadwal</p>
                 <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Jadwal mengajar tersedia di Mode Pengajar</h3>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Ganti Mode kerja ke Pengajar untuk melihat jadwal Senin–Jumat dan membuka kelas yang Anda ampu.</p>
               </section>}
-              {workspaceMode === 'teaching' && workspaceView === 'journal' && <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm dark:border-emerald-900/50 dark:bg-slate-800">
-                <div className="flex flex-col gap-4 border-b border-emerald-100 pb-4 dark:border-emerald-900/50 sm:flex-row sm:items-start sm:justify-between">
-                  <div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Dokumentasi Pembelajaran</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jurnal Mengajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Catat materi, kejadian kelas, dan rencana pertemuan berikutnya.</p></div>
-                  <div className="flex flex-wrap gap-2"><button type="button" onClick={handlePrintTeachingJournalsPDF} disabled={!teachingJournals.length} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><Printer className="h-4 w-4" /> Ekspor PDF</button><button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> Buat jurnal</button></div>
-                </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <select aria-label="Filter kelas jurnal" value={journalClassFilter} onChange={(event) => setJournalClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-                  <select aria-label="Filter mata pelajaran jurnal" value={journalSubjectFilter} onChange={(event) => setJournalSubjectFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua mata pelajaran</option>{journalFilterSubjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select>
-                  <input aria-label="Tanggal mulai jurnal" type="date" value={journalFrom} onChange={(event) => setJournalFrom(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
-                  <input aria-label="Tanggal akhir jurnal" type="date" value={journalTo} onChange={(event) => setJournalTo(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
-                </div>
-                {isLoadingJournals ? <p className="py-8 text-center text-sm text-slate-400">Memuat jurnal mengajar…</p> : teachingJournals.length ? <div className="mt-4 space-y-3">{teachingJournals.map((journal) => <article key={journal.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{journal.day}</span><span className="text-xs text-slate-400">{new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}{journal.timeStart && journal.timeEnd ? ` · ${journal.timeStart}–${journal.timeEnd}` : ''}</span></div><h4 className="mt-2 font-bold text-slate-800 dark:text-slate-100">{journal.className} · {journal.subject}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{journal.materialCovered}</p></div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => openEditJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-emerald-600 dark:hover:bg-slate-700" title="Edit jurnal"><Edit2 className="h-4 w-4" /></button><button type="button" onClick={() => handleDeleteJournal(journal)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-slate-700" title="Hapus jurnal"><Trash2 className="h-4 w-4" /></button></div></div>{(journal.classroomEvents || journal.nextPlan) && <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-700 sm:grid-cols-2"><div><p className="font-bold text-slate-400">Kejadian di kelas</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.classroomEvents || 'Tidak ada kejadian khusus.'}</p></div><div><p className="font-bold text-slate-400">Rencana berikutnya</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.nextPlan || 'Belum ditentukan.'}</p></div></div>}</article>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-8 text-center dark:border-slate-700"><FileText className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-2 text-sm font-semibold text-slate-500 dark:text-slate-400">Belum ada jurnal mengajar.</p><p className="mt-1 text-xs text-slate-400">Buat jurnal setelah selesai mengajar untuk menyimpan progres pembelajaran.</p></div>}
-              </section>}
               {workspaceMode === 'homeroom' && workspaceView === 'journal' && <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm dark:border-emerald-900/50 dark:bg-slate-800"><div className="flex flex-col gap-3 border-b border-emerald-100 pb-4 sm:flex-row sm:items-start sm:justify-between dark:border-emerald-900/50"><div><p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Dokumentasi Guru</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Jurnal Mengajar</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Pantau progres materi dan kejadian pembelajaran dari kelas yang dapat Anda akses.</p></div><button type="button" onClick={handlePrintTeachingJournalsPDF} disabled={!teachingJournals.length} className="flex items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><Printer className="h-4 w-4" /> Ekspor PDF</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2"><select aria-label="Filter kelas jurnal" value={journalClassFilter} onChange={(event) => setJournalClassFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua kelas</option>{journalClassOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select aria-label="Filter mata pelajaran jurnal" value={journalSubjectFilter} onChange={(event) => setJournalSubjectFilter(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-900 dark:bg-slate-900 dark:text-slate-100"><option value="all">Semua mata pelajaran</option>{journalFilterSubjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></div>{isLoadingJournals ? <p className="py-8 text-center text-sm text-slate-400">Memuat jurnal mengajar…</p> : teachingJournals.length ? <div className="mt-4 space-y-3">{teachingJournals.map((journal) => <article key={journal.id} className="rounded-xl border border-slate-200 p-4 dark:border-slate-700"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{journal.day}</span><span className="text-xs text-slate-400">{new Date(`${journal.date}T12:00:00`).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</span></div><h4 className="mt-2 font-bold text-slate-800 dark:text-slate-100">{journal.className} · {journal.subject} · {journal.teacherName}</h4><p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{journal.materialCovered}</p>{(journal.classroomEvents || journal.nextPlan) && <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-700 sm:grid-cols-2"><div><p className="font-bold text-slate-400">Kejadian di kelas</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.classroomEvents || 'Tidak ada kejadian khusus.'}</p></div><div><p className="font-bold text-slate-400">Rencana berikutnya</p><p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{journal.nextPlan || 'Belum ditentukan.'}</p></div></div>}</article>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400 dark:border-slate-700">Belum ada jurnal mengajar pada kelas yang dapat diakses.</div>}</section>}
-              {workspaceView === 'reminders' && <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">Pusat Pengingat</p>
-                    <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Hal yang perlu diperhatikan</h3>
-                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selesaikan presensi dan tindak lanjut dari satu tempat.</p>
-                  </div>
-                  <span className="w-fit rounded-full bg-amber-200 px-3 py-1.5 text-xs font-black text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">{totalHeaderReminders} pengingat aktif</span>
-                </div>
-                {attendanceReminders.length > 0 && <div className="mt-4 space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">Presensi belum lengkap</p>
-                  {attendanceReminders.map((reminder) => <article key={reminder.id} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-900/50 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{reminder.subject} · {reminder.className}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reminder.day}, {reminder.date} · {reminder.timeStart}–{reminder.timeEnd} · {reminder.recordedCount}/{reminder.studentCount} siswa</p></div>
-                    <button type="button" onClick={() => openAttendanceReminder(reminder)} className="w-full rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white hover:bg-amber-700 sm:w-auto">Isi presensi</button>
-                  </article>)}
-                </div>}
-                {learningInterventionReminders.length > 0 && <div className="mt-4 space-y-2 border-t border-amber-200 pt-4 dark:border-amber-900/50">
-                  <p className="text-xs font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">Tindak lanjut belajar</p>
-                  {learningInterventionReminders.map((reminder) => <article key={reminder.id} className="flex flex-col gap-3 rounded-xl border border-violet-200 bg-white p-4 dark:border-violet-900/50 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0"><p className="font-bold text-slate-800 dark:text-slate-100">{reminder.title}</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{reminder.subject} · {reminder.topic} · Rencana {reminder.scheduledDate}</p></div>
-                    <button type="button" onClick={() => { setLearningSummarySubject(reminder.subject); setLearningSummaryTopic(reminder.topic); setStudentView('followup'); setActiveTab('students'); }} className="w-full rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 sm:w-auto">Buka tindak lanjut</button>
-                  </article>)}
-                </div>}
-                {workspaceMode === 'teaching' && scheduleChangeRequests.length > 0 && <div className="mt-4 space-y-2 border-t border-amber-200 pt-4 dark:border-amber-900/50">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">Pengajuan perubahan jadwal</p>
-                  {scheduleChangeRequests.slice(0, 3).map((request) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-800"><span className="font-semibold text-slate-700 dark:text-slate-200">{request.subject} · {request.className}</span><span className="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{request.status === 'pending' ? 'Menunggu' : request.status === 'approved' ? 'Disetujui' : 'Ditolak'}</span></div>)}
-                </div>}
-                {!attendanceReminders.length && !learningInterventionReminders.length && !(workspaceMode === 'teaching' && scheduleChangeRequests.length) && <div className="mt-4 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/60 p-6 text-center text-sm font-semibold text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">Tidak ada pengingat yang perlu ditindaklanjuti.</div>}
-              </section>}
-              {workspaceView === 'overview' && (isLoadingWorkspace ? <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 dark:border-slate-700 dark:bg-slate-800">Memuat ruang kerja…</div> : <>
+              {workspaceView === 'reminders' && remindersPanel}
+              {workspaceView === 'overview' && isLoadingWorkspace && <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 dark:border-slate-700 dark:bg-slate-800">Memuat ruang kerja…</div>}
+              {workspaceView === 'overview' && !isLoadingWorkspace && workspaceMode === 'teaching' && hariIniPanel}
+              {workspaceView === 'overview' && !isLoadingWorkspace && isHomeroomShell && <>
                 <section className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -2613,43 +2899,25 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       <h3 className="mt-1 text-xl font-black text-slate-800 dark:text-slate-100">Mulai dari sini</h3>
                       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Akses pekerjaan yang paling sering dilakukan tanpa berpindah-pindah menu.</p>
                     </div>
-                    <span className="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-bold text-blue-700 dark:bg-slate-800 dark:text-blue-300">{workspaceMode === 'teaching' ? 'Mode Pengajar' : 'Mode Perwalian'}</span>
+                    <span className="w-fit rounded-full bg-white px-3 py-1.5 text-xs font-bold text-blue-700 dark:bg-slate-800 dark:text-blue-300">Mode Perwalian</span>
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {workspaceMode === 'teaching' && <button type="button" onClick={() => setWorkspaceView('schedule')} className="rounded-xl border border-violet-200 bg-white p-4 text-left transition hover:border-violet-400 hover:shadow-sm dark:border-violet-900/50 dark:bg-slate-800 dark:hover:border-violet-700">
-                      <Calendar className="h-5 w-5 text-violet-600 dark:text-violet-300" />
-                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Jadwal</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Jadwal Mengajar</p>
-                      <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{nextTeachingSchedule ? 'Berikutnya: ' + nextTeachingSchedule.day + ' · ' + nextTeachingSchedule.timeStart + ' — ' + nextTeachingSchedule.subject + ' · ' + nextTeachingSchedule.className : 'Belum ada jadwal'}</p>
-                    </button>}
-                    {workspaceMode === 'teaching' && <button type="button" onClick={() => setActiveTab('teaching-attendance')} className="rounded-xl border border-cyan-200 bg-white p-4 text-left transition hover:border-cyan-400 hover:shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 dark:hover:border-cyan-700">
-                      <CheckSquare className="h-5 w-5 text-cyan-600 dark:text-cyan-300" />
-                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Sesi kelas</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Isi presensi mapel</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Catat kehadiran siswa hari ini</p>
-                    </button>}
                     <button type="button" onClick={() => openNewJournal()} disabled={!journalClassOptions.length} className="rounded-xl border border-emerald-200 bg-white p-4 text-left transition hover:border-emerald-400 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-900/50 dark:bg-slate-800 dark:hover:border-emerald-700">
                       <FileText className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
                       <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Dokumentasi</p>
                       <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Buat jurnal mengajar</p>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Simpan materi dan kejadian kelas</p>
                     </button>
-                    {workspaceMode === 'teaching' ? <button type="button" onClick={() => { setAcademicSubTab('grades'); setActiveTab('academic'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
-                      <BookOpen className="h-5 w-5 text-blue-600 dark:text-blue-300" />
-                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Pembelajaran</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Jembatan SIMAK</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Materi, LKPD, dan penugasan dikelola di SIMAK</p>
-                    </button> : <button type="button" onClick={() => { setStudentView('roster'); setActiveTab('students'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
+                    <button type="button" onClick={() => { setStudentView('roster'); setActiveTab('students'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
                       <Users className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                       <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Kelas aktif</p>
                       <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Buka daftar siswa</p>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Lihat siswa aktif dan statusnya</p>
-                    </button>}
+                    </button>
                   </div>
                 </section>
                 {workspaceMode === 'homeroom' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Perwalian</h3><p className="text-xs text-slate-500">Akses penuh sebagai wali kelas.</p></div><Users className="h-5 w-5 text-blue-500" /></div>{workspace?.homeroomClasses.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{workspace.homeroomClasses.map((item) => <button key={item.id} onClick={async () => { await classData.selectClass(item.id); setWorkspaceMode('homeroom'); setActiveTeachingSubject(null); setActiveTab('dashboard'); }} className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-left transition hover:border-blue-300 hover:shadow-sm dark:border-blue-900/60 dark:bg-blue-950/20"><p className="font-bold text-slate-800 dark:text-slate-100">{item.name}</p><p className="mt-1 text-xs text-slate-500">{item.academicYear}</p><span className="mt-3 inline-block text-xs font-bold text-blue-600 dark:text-blue-400">Buka Dashboard Kelas →</span></button>)}</div> : <p className="py-4 text-sm text-slate-400">Belum ada kelas perwalian.</p>}</section>}
-                {workspaceMode === 'teaching' && <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-bold text-slate-800 dark:text-slate-100">Kelas Mengajar</h3><p className="text-xs text-slate-500">Pilih kelas untuk membuka konteks kelas dan mata pelajaran terkait.</p></div><BookOpen className="h-5 w-5 text-violet-500" /></div>{workspace?.subjectGroups.length ? <div className="space-y-5">{workspace.subjectGroups.map((group) => <div key={group.subjectId}><div className="mb-2 flex items-center gap-2"><span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">{group.subjectName}</span><span className="text-xs text-slate-400">{group.classes.length} kelas</span></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{group.classes.map((item) => <button key={item.assignmentId} onClick={() => openTeachingClass(item.classId, group.subjectName)} className="rounded-xl border border-slate-200 p-4 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-violet-700"><div className="flex items-start justify-between gap-2"><p className="font-bold text-slate-800 dark:text-slate-100">{item.className}</p><span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{item.academicYear}</span></div><p className="mt-2 text-xs text-slate-500">{item.studentCount} siswa · {item.gradeCount} nilai tercatat</p><span className="mt-3 inline-block text-xs font-bold text-violet-600 dark:text-violet-400">Buka Kelas →</span></button>)}</div></div>)}</div> : <p className="py-5 text-sm text-slate-400">Belum ada penugasan mengajar. Tambahkan melalui Pengaturan Halaman.</p>}</section>}
-              </>)}
+              </>}
             </div>
           )}
 
@@ -3884,6 +4152,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           
           {activeTab === 'teaching-attendance' && (
             <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+              {workspaceMode === 'teaching' && <div className="flex items-center justify-between gap-3">
+                <button type="button" onClick={() => goToTeaching({ view: presensiReturnView })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">← Kembali ke {presensiReturnView === 'hari-ini' ? 'Hari Ini' : presensiReturnView === 'jadwal' ? 'Jadwal' : presensiReturnView === 'kelas-saya' ? 'Kelas Saya' : 'Laporan'}</button>
+                <span className="text-xs font-medium text-slate-400">Panel kerja presensi untuk konteks sesi terpilih</span>
+              </div>}
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between">
                 <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Presensi Mapel</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activeTeachingSubject} · {classData.selectedClass}</p></div>
                 <input type="date" value={teachingAttendanceDate} onChange={(event) => setTeachingAttendanceDate(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
@@ -3911,8 +4183,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
+                  {workspaceMode === 'teaching' && <button type="button" onClick={() => setLaporanCategory('jurnal')} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${laporanCategory === 'jurnal' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}><span className="inline-flex items-center gap-2"><FileText className="h-4 w-4" aria-hidden="true" />Jurnal</span></button>}
                   {([['grades', 'Nilai Proses', Award], ['attendance', 'Rekap Presensi', CheckSquare], ['behavior', 'Laporan Sikap', Activity]] as const).map(([category, label, Icon]) => (
-                    <button type="button" key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}><span className="inline-flex items-center gap-2"><Icon className="h-4 w-4" aria-hidden="true" />{label}</span></button>
+                    <button type="button" key={category} onClick={() => { setTeachingReportCategory(category); setLaporanCategory(category); }} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${(workspaceMode === 'teaching' ? laporanCategory === category : teachingReportCategory === category) ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}><span className="inline-flex items-center gap-2"><Icon className="h-4 w-4" aria-hidden="true" />{label}</span></button>
                   ))}
                 </div>
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">Periode laporan
@@ -3922,7 +4195,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </label>
               </div>
 
-              {teachingReportCategory === 'grades' ? (
+              {workspaceMode === 'teaching' && laporanCategory === 'jurnal' ? (
+                teachingJournalPanel
+              ) : teachingReportCategory === 'grades' ? (
                 <div className="space-y-5">
                   <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-6 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Nilai Proses Dikelola di SIMAK</h3>
@@ -4158,7 +4433,8 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {activeTab === 'academic' && (
             <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               {/* Sub-tabs header */}
-              <div className="flex border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 gap-2">
+              {showJadwalSegmented && jadwalSegmentedControl}
+              {isHomeroomShell && <div className="flex border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 gap-2">
                 <button
                   onClick={() => setAcademicSubTab('grades')}
                   className={`px-6 py-2.5 text-sm font-bold rounded-xl transition-all ${
@@ -4167,7 +4443,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />{workspaceMode === 'teaching' ? 'Jembatan SIMAK' : 'Rekap Nilai Rapor'}</span>
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />Rekap Nilai Rapor</span>
                 </button>
                 <button
                   onClick={() => setAcademicSubTab('schedule')}
@@ -4179,7 +4455,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 >
                   <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />Jadwal & Kalender Kelas</span>
                 </button>
-              </div>
+              </div>}
 
               {academicSubTab === 'grades' && workspaceMode === 'teaching' && (
                 <div className="space-y-6">
@@ -4926,7 +5202,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       </main>
 
       {/* Bottom Navigation for Mobile — jalan pintas langkah wizard */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 items-center px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-lg">
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 grid ${workspaceMode === 'teaching' ? 'grid-cols-4' : 'grid-cols-5'} items-center px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-lg`} aria-label={workspaceMode === 'teaching' ? 'Navigasi Mode Pengajar' : undefined}>
+        {workspaceMode === 'teaching' ? (<>
+          {([
+            ['hari-ini', 'Hari Ini', LayoutDashboard],
+            ['jadwal', 'Jadwal', CalendarDays],
+            ['kelas-saya', 'Kelas Saya', Users],
+            ['laporan', 'Laporan', FileText],
+          ] as const).map(([view, label, Icon]) => {
+            const isActive = activeTab !== 'settings' && (activeTab === 'teaching-attendance' ? presensiReturnView === view : teachingView === view);
+            return (
+              <button key={view} type="button" onClick={() => goToTeaching({ view })} aria-current={isActive ? 'page' : undefined} className={`min-h-11 flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-all duration-200 ${isActive ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                <Icon className="h-4 w-4" />
+                <span className="text-[10px] tracking-tight">{label}</span>
+              </button>
+            );
+          })}
+        </>) : (<>
         {mobileShortcutItems.map((item) => (
           <button
             key={item.key}
@@ -4944,13 +5236,14 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         <button onClick={() => setShowMobileMoreMenu(true)} className={`min-h-11 flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-all ${showMobileMoreMenu ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'}`}>
           <Menu className="h-5 w-5" /><span className="text-[10px] tracking-tight">Lainnya</span>
         </button>
+        </>)}
       </nav>
 
-      {showMobileMoreMenu && (
+      {showMobileMoreMenu && isHomeroomShell && (
         <div className="md:hidden fixed inset-0 z-50 flex items-end bg-slate-900/40" onClick={() => setShowMobileMoreMenu(false)}>
           <div className="w-full max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-800 rounded-t-3xl p-5 pb-8 animate-in slide-in-from-bottom-8" onClick={(event) => event.stopPropagation()}>
             <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-600 mx-auto mb-5" /><h3 className="font-bold text-slate-800 dark:text-slate-100 mb-1">Semua Langkah</h3>
-            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">{workspaceMode === 'teaching' ? 'Shell Pengajar' : 'Wizard Perwalian'} — semua langkah dapat dibuka langsung kapan pun.</p>
+            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">Wizard Perwalian — semua langkah dapat dibuka langsung kapan pun.</p>
             <ol className="space-y-2">
               {visibleWizardSteps.map((step, index) => {
                 const isActive = wizardPosition.area === 'wizard' && wizardPosition.stepId === step.id;

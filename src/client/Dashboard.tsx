@@ -2344,7 +2344,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     { key: 'ringkasan', label: 'Ringkasan', icon: LayoutDashboard, isActive: wizardPosition.stepId === 'konteks', action: () => goToWizardTarget('konteks', 'beranda') },
     { key: 'siswa', label: 'Siswa', icon: Users, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'siswa', action: () => goToWizardTarget('kelas', 'siswa') },
     { key: 'presensi', label: 'Presensi Mapel', icon: CheckSquare, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'presensi-mapel', action: () => goToWizardTarget('kelas', 'presensi-mapel') },
-    { key: 'akademik', label: 'Akademik', icon: BookOpen, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'simak', action: () => goToWizardTarget('kelas', 'simak') },
+    { key: 'akademik', label: 'Jembatan SIMAK', icon: BookOpen, isActive: wizardPosition.stepId === 'kelas' && wizardPosition.subId === 'simak', action: () => goToWizardTarget('kelas', 'simak') },
   ] : [
     { key: 'ringkasan', label: 'Ringkasan', icon: LayoutDashboard, isActive: wizardPosition.stepId === 'ringkasan', action: () => goToWizardTarget('ringkasan', 'beranda') },
     { key: 'siswa', label: 'Siswa', icon: Users, isActive: wizardPosition.stepId === 'siswa', action: () => goToWizardTarget('siswa', 'daftar') },
@@ -2521,7 +2521,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
                 <div role="tablist" aria-label="Fokus Beranda" className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {([
-                    ['overview', 'Ringkasan', 'Kelas dan aksi utama', LayoutDashboard],
+                    ['overview', workspaceMode === 'teaching' ? 'Beranda' : 'Ringkasan', 'Kelas dan aksi utama', LayoutDashboard],
                     ['schedule', 'Jadwal Mengajar', 'Agenda Senin–Jumat', CalendarDays],
                     ['journal', 'Jurnal Mengajar', 'Catatan pembelajaran', BookOpen],
                     ['reminders', 'Pengingat', totalHeaderReminders ? `${totalHeaderReminders} perlu dilihat` : 'Tidak ada yang tertunda', Bell],
@@ -2595,9 +2595,9 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {workspaceMode === 'teaching' && <button type="button" onClick={() => setWorkspaceView('schedule')} className="rounded-xl border border-violet-200 bg-white p-4 text-left transition hover:border-violet-400 hover:shadow-sm dark:border-violet-900/50 dark:bg-slate-800 dark:hover:border-violet-700">
                       <Calendar className="h-5 w-5 text-violet-600 dark:text-violet-300" />
-                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Jadwal berikutnya</p>
-                      <p className="mt-1 truncate text-sm font-bold text-slate-800 dark:text-slate-100">{nextTeachingSchedule ? nextTeachingSchedule.day + ' · ' + nextTeachingSchedule.timeStart : 'Belum ada jadwal'}</p>
-                      <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{nextTeachingSchedule ? nextTeachingSchedule.subject + ' · ' + nextTeachingSchedule.className : 'Buka jadwal untuk melihat detail'}</p>
+                      <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Jadwal</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Jadwal Mengajar</p>
+                      <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{nextTeachingSchedule ? 'Berikutnya: ' + nextTeachingSchedule.day + ' · ' + nextTeachingSchedule.timeStart + ' — ' + nextTeachingSchedule.subject + ' · ' + nextTeachingSchedule.className : 'Belum ada jadwal'}</p>
                     </button>}
                     {workspaceMode === 'teaching' && <button type="button" onClick={() => setActiveTab('teaching-attendance')} className="rounded-xl border border-cyan-200 bg-white p-4 text-left transition hover:border-cyan-400 hover:shadow-sm dark:border-cyan-900/50 dark:bg-slate-800 dark:hover:border-cyan-700">
                       <CheckSquare className="h-5 w-5 text-cyan-600 dark:text-cyan-300" />
@@ -2614,7 +2614,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     {workspaceMode === 'teaching' ? <button type="button" onClick={() => { setAcademicSubTab('grades'); setActiveTab('academic'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
                       <BookOpen className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                       <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Pembelajaran</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Materi & tugas di SIMAK</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100">Jembatan SIMAK</p>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Materi, LKPD, dan penugasan dikelola di SIMAK</p>
                     </button> : <button type="button" onClick={() => { setStudentView('roster'); setActiveTab('students'); }} className="rounded-xl border border-blue-200 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-blue-900/50 dark:bg-slate-800 dark:hover:border-blue-700">
                       <Users className="h-5 w-5 text-blue-600 dark:text-blue-300" />
@@ -3244,7 +3244,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 <div role="tablist" aria-label="Bagian menu siswa" className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {([
                     ['roster', 'Daftar Siswa', 'Data dan status siswa', Users],
-                    ['progress', 'Perkembangan', 'Peta dan ringkasan belajar', Activity],
+                    ['progress', workspaceMode === 'teaching' ? 'Perkembangan Belajar' : 'Perkembangan', 'Peta dan ringkasan belajar', Activity],
                     ['followup', 'Tindak Lanjut', 'Dukungan dan evaluasi', ShieldAlert],
                   ] as const).map(([key, label, description, Icon]) => (
                     <button key={key} type="button" role="tab" aria-selected={studentView === key} onClick={() => setStudentView(key)} className={studentView === key ? 'rounded-xl border border-violet-300 bg-violet-50 px-3 py-2.5 text-left text-violet-700 transition dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300' : 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-slate-600 transition hover:border-violet-200 hover:bg-violet-50/50 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}>
@@ -3862,7 +3862,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
           {activeTab === 'teaching-attendance' && (
             <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between">
-                <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Presensi Pembelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activeTeachingSubject} · {classData.selectedClass}</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">Mode Mengajar</p><h3 className="mt-1 text-xl font-bold text-slate-800 dark:text-slate-100">Presensi Mapel</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activeTeachingSubject} · {classData.selectedClass}</p></div>
                 <input type="date" value={teachingAttendanceDate} onChange={(event) => setTeachingAttendanceDate(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
               </div>
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="block w-0 min-w-full max-w-full h-[60vh] overflow-x-auto overflow-y-scroll overscroll-contain touch-pan-x touch-pan-y [-webkit-overflow-scrolling:touch] md:h-auto md:overflow-visible"><table className="w-full min-w-0 text-left text-sm text-slate-600 dark:text-slate-300 md:min-w-[620px]"><thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-700/95"><tr><th className="px-5 py-4">Nama Siswa</th><th className="px-5 py-4">L/P</th><th className="px-5 py-4 text-center">Status Kehadiran</th></tr></thead><tbody>{classData.students.map((student) => { const status = teachingAttendanceMap[student.id] || 'Hadir'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-xs">{student.gender}</td><td className="px-5 py-3"><div className="flex min-w-max justify-center gap-2">{(['Hadir', 'Sakit', 'Izin', 'Alfa'] as const).map((option) => <button key={option} onClick={() => setTeachingAttendanceMap((current) => ({ ...current, [student.id]: option }))} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${status === option ? option === 'Hadir' ? 'border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : option === 'Sakit' ? 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400' : option === 'Izin' ? 'border-blue-200 bg-blue-100 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400' : 'border-rose-200 bg-rose-100 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-400' : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400'}`}>{option}</button>)}</div></td></tr>; })}</tbody></table></div></div>
@@ -3888,7 +3888,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
 
               <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex rounded-xl bg-slate-100 p-1 dark:bg-slate-700/60">
-                  {([['grades', 'Rekap Nilai', Award], ['attendance', 'Presensi Mapel', CheckSquare], ['behavior', 'Sikap & Karakter', Activity]] as const).map(([category, label, Icon]) => (
+                  {([['grades', 'Nilai Proses', Award], ['attendance', 'Rekap Presensi', CheckSquare], ['behavior', 'Laporan Sikap', Activity]] as const).map(([category, label, Icon]) => (
                     <button type="button" key={category} onClick={() => setTeachingReportCategory(category)} className={`rounded-lg px-4 py-2 text-xs font-bold transition-all sm:text-sm ${teachingReportCategory === category ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800'}`}><span className="inline-flex items-center gap-2"><Icon className="h-4 w-4" aria-hidden="true" />{label}</span></button>
                   ))}
                 </div>
@@ -3904,7 +3904,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                   <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-6 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20">
                     <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Nilai Proses Dikelola di SIMAK</h3>
                     <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                      Rekap nilai tugas, ulangan, dan penilaian proses untuk {activeTeachingSubject || 'mata pelajaran aktif'} — {classData.selectedClass} — tidak lagi dibuat dari buku nilai WebKelas. Nilai proses dikelola di SIMAK agar tidak tercatat ganda; laporan Presensi Mapel dan Sikap &amp; Karakter pada halaman ini tetap tersedia seperti sebelumnya.
+                      Rekap nilai tugas, ulangan, dan penilaian proses untuk {activeTeachingSubject || 'mata pelajaran aktif'} — {classData.selectedClass} — tidak lagi dibuat dari buku nilai WebKelas. Nilai proses dikelola di SIMAK agar tidak tercatat ganda; laporan Rekap Presensi dan Laporan Sikap pada halaman ini tetap tersedia seperti sebelumnya.
                     </p>
                     <a href={SIMAK_URL} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700">
                       Buka SIMAK <ExternalLink className="h-4 w-4" aria-hidden="true" />
@@ -3913,12 +3913,12 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
               ) : teachingReportCategory === 'behavior' ? (
                 <div className="space-y-5">
-                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Laporan Sikap & Karakter Mapel</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hanya menggunakan catatan observasi {activeTeachingSubject || 'mata pelajaran aktif'} pada kelas ini.</p></div><button onClick={handlePrintTeachingBehaviorPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button></div>
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Laporan Sikap</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Hanya menggunakan catatan observasi {activeTeachingSubject || 'mata pelajaran aktif'} pada kelas ini.</p></div><button onClick={handlePrintTeachingBehaviorPDF} className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak / Simpan PDF</button></div>
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th><th className="px-5 py-4 text-center">Positif</th><th className="px-5 py-4 text-center">Negatif</th><th className="px-5 py-4 text-center">Skor Akhir</th><th className="px-5 py-4 text-center">Predikat</th></tr></thead><tbody>{classData.students.map((student) => { const records = (classData.behaviorRecords || []).filter((record) => record.studentId === student.id && record.subject === activeTeachingSubject); const positive = records.filter((record) => record.type === 'positif').reduce((sum, record) => sum + record.points, 0); const negative = records.filter((record) => record.type === 'negatif').reduce((sum, record) => sum + record.points, 0); const score = 100 + positive - negative; const predicate = score >= 100 ? 'Sangat Baik' : score >= 85 ? 'Baik' : score >= 75 ? 'Cukup' : 'Perlu Pembinaan'; return <tr key={student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-center text-emerald-600">+{positive}</td><td className="px-5 py-3 text-center text-rose-600">-{negative}</td><td className="px-5 py-3 text-center font-bold">{score}</td><td className="px-5 py-3 text-center">{predicate}</td></tr>; })}</tbody></table></div></div>
                 </div>
               ) : (
                 <div className="space-y-5">
-                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rekap Presensi Pembelajaran</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Kehadiran {activeTeachingSubject} pada {classData.selectedClass}.</p></div><div className="flex gap-2"><input type="month" value={teachingAttendanceMonth} onChange={(event) => setTeachingAttendanceMonth(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button onClick={handlePrintTeachingAttendancePDF} className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak PDF</button></div></div>
+                  <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 md:flex-row md:items-center md:justify-between"><div><h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rekap Presensi</h3><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Kehadiran {activeTeachingSubject} pada {classData.selectedClass}.</p></div><div className="flex gap-2"><input type="month" value={teachingAttendanceMonth} onChange={(event) => setTeachingAttendanceMonth(event.target.value)} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" /><button onClick={handlePrintTeachingAttendancePDF} className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700"><Printer className="h-4 w-4" /> Cetak PDF</button></div></div>
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="overflow-x-auto"><table className="min-w-[620px] w-full text-sm text-slate-600 dark:text-slate-300"><thead className="bg-slate-50 dark:bg-slate-700/50"><tr><th className="px-5 py-4 text-left">Nama Siswa</th><th className="px-5 py-4 text-center">L/P</th><th className="px-5 py-4 text-center">Hadir</th><th className="px-5 py-4 text-center">Sakit</th><th className="px-5 py-4 text-center">Izin</th><th className="px-5 py-4 text-center">Alfa</th></tr></thead><tbody>{teachingAttendanceReport.map((student) => <tr key={student.studentId} className="border-t border-slate-100 dark:border-slate-700"><td className="px-5 py-3 font-medium">{student.name}</td><td className="px-5 py-3 text-center">{student.gender}</td><td className="px-5 py-3 text-center text-emerald-600">{student.Hadir}</td><td className="px-5 py-3 text-center text-amber-600">{student.Sakit}</td><td className="px-5 py-3 text-center text-blue-600">{student.Izin}</td><td className="px-5 py-3 text-center text-rose-600">{student.Alfa}</td></tr>)}</tbody></table></div></div>
                 </div>
               )}
@@ -4154,7 +4154,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />Jadwal & Kalender</span>
+                  <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" aria-hidden="true" />Jadwal & Kalender Kelas</span>
                 </button>
               </div>
 
@@ -4614,7 +4614,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                   }`}
                 >
-                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />{workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Catatan Sikap & Karakter'}</span>
+                  <span className="inline-flex items-center gap-2"><Award className="h-4 w-4" aria-hidden="true" />{workspaceMode === 'teaching' ? 'Penilaian Sikap' : 'Catatan Sikap & Karakter'}</span>
                 </button>
                 {workspaceMode !== 'teaching' && <button
                   onClick={() => setBehaviorSubTab('prestasi')}
@@ -4635,7 +4635,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
                         <div>
-                          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Penilaian Sikap & Karakter' : 'Poin Sikap & Karakter Siswa'}</h3>
+                          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{workspaceMode === 'teaching' ? 'Penilaian Sikap' : 'Poin Sikap & Karakter Siswa'}</h3>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{workspaceMode === 'teaching' ? `Catatan observasi ${activeTeachingSubject || 'mata pelajaran'} untuk ${classData.selectedClass}.` : 'Nilai awal standar adalah 100 poin.'}</p>
                         </div>
                         <button

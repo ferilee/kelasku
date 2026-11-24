@@ -117,7 +117,7 @@ export const HOMEROOM_STEPS: WizardStep[] = [
     subs: [
       { id: 'pengaturan', label: 'Aksi Cepat', target: { tab: 'settings', settingsView: 'overview' }, gate: 'admin' },
       { id: 'profil', label: 'Profil Kelas', target: { tab: 'settings', settingsView: 'profile' }, gate: 'admin' },
-      { id: 'jadwal', label: 'Jadwal & Kalender', target: { tab: 'academic', academicSubTab: 'schedule' }, gate: 'admin' },
+      { id: 'jadwal', label: 'Jadwal & Kalender Kelas', target: { tab: 'academic', academicSubTab: 'schedule' }, gate: 'admin' },
       { id: 'pengumuman', label: 'Pengumuman', target: { tab: 'settings', settingsView: 'landing' }, anchor: 'settings-announcements', gate: 'admin' },
       { id: 'konten', label: 'Konten Utama', target: { tab: 'settings', settingsView: 'landing' }, anchor: 'settings-hero', gate: 'admin' },
       { id: 'agenda', label: 'Agenda', target: { tab: 'settings', settingsView: 'landing' }, anchor: 'settings-agenda', gate: 'admin' },
@@ -147,7 +147,7 @@ export const TEACHING_STEPS: WizardStep[] = [
       { id: 'info-siswa', label: 'Informasi untuk Siswa', target: { tab: 'dashboard' }, anchor: 'panel-informasi-siswa', gate: 'always' },
       { id: 'siswa', label: 'Daftar Siswa', target: { tab: 'students', studentView: 'roster' }, gate: 'always' },
       { id: 'presensi-mapel', label: 'Presensi Mapel', target: { tab: 'teaching-attendance' }, gate: 'always' },
-      { id: 'sikap', label: 'Sikap & Karakter', target: { tab: 'behavior', behaviorSubTab: 'sikap' }, gate: 'always' },
+      { id: 'sikap', label: 'Penilaian Sikap', target: { tab: 'behavior', behaviorSubTab: 'sikap' }, gate: 'always' },
       { id: 'perkembangan', label: 'Perkembangan Belajar', target: { tab: 'students', studentView: 'progress' }, gate: 'staff' },
       { id: 'tindak-lanjut', label: 'Tindak Lanjut', target: { tab: 'students', studentView: 'followup' }, gate: 'staff' },
       { id: 'aktivitas', label: 'Aktivitas Belajar', target: { tab: 'monitoring', monitoringSubTab: 'activity' }, gate: 'staff' },
@@ -161,8 +161,8 @@ export const TEACHING_STEPS: WizardStep[] = [
     subs: [
       { id: 'jurnal', label: 'Jurnal Mengajar', target: { tab: 'workspace', workspaceView: 'journal' }, gate: 'always' },
       { id: 'laporan-simak', label: 'Nilai Proses di SIMAK', target: { tab: 'teaching-reports', teachingReportCategory: 'grades' }, gate: 'always' },
-      { id: 'laporan-sikap', label: 'Laporan Sikap & Karakter', target: { tab: 'teaching-reports', teachingReportCategory: 'behavior' }, gate: 'always' },
-      { id: 'laporan-presensi', label: 'Rekap Presensi Pembelajaran', target: { tab: 'teaching-reports', teachingReportCategory: 'attendance' }, gate: 'always' },
+      { id: 'laporan-sikap', label: 'Laporan Sikap', target: { tab: 'teaching-reports', teachingReportCategory: 'behavior' }, gate: 'always' },
+      { id: 'laporan-presensi', label: 'Rekap Presensi', target: { tab: 'teaching-reports', teachingReportCategory: 'attendance' }, gate: 'always' },
     ],
   },
 ];

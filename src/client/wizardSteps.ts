@@ -135,7 +135,9 @@ export const TEACHING_STEPS: WizardStep[] = [
     subs: [
       { id: 'beranda', label: 'Beranda', target: { tab: 'workspace', workspaceView: 'overview' }, gate: 'always' },
       { id: 'jadwal', label: 'Jadwal Mengajar', target: { tab: 'workspace', workspaceView: 'schedule' }, gate: 'always' },
+      { id: 'jadwal-kelas', label: 'Jadwal & Kalender Kelas', target: { tab: 'academic', academicSubTab: 'schedule' }, gate: 'always' },
       { id: 'ringkasan', label: 'Ringkasan Kelas', target: { tab: 'dashboard' }, gate: 'always' },
+      { id: 'pengingat', label: 'Pengingat', target: { tab: 'workspace', workspaceView: 'reminders' }, gate: 'always' },
     ],
   },
   {
@@ -151,7 +153,6 @@ export const TEACHING_STEPS: WizardStep[] = [
       { id: 'perkembangan', label: 'Perkembangan Belajar', target: { tab: 'students', studentView: 'progress' }, gate: 'staff' },
       { id: 'tindak-lanjut', label: 'Tindak Lanjut', target: { tab: 'students', studentView: 'followup' }, gate: 'staff' },
       { id: 'aktivitas', label: 'Aktivitas Belajar', target: { tab: 'monitoring', monitoringSubTab: 'activity' }, gate: 'staff' },
-      { id: 'jadwal-kelas', label: 'Jadwal & Kalender Kelas', target: { tab: 'academic', academicSubTab: 'schedule' }, gate: 'always' },
     ],
   },
   {
@@ -210,6 +211,7 @@ export function deriveWizardPosition(mode: WizardMode, nav: WizardNavState): Wiz
       case 'workspace':
         if (nav.workspaceView === 'schedule') return { area: 'wizard', stepId: 'konteks', subId: 'jadwal' };
         if (nav.workspaceView === 'journal') return { area: 'wizard', stepId: 'dokumentasi', subId: 'jurnal' };
+        if (nav.workspaceView === 'reminders') return { area: 'wizard', stepId: 'konteks', subId: 'pengingat' };
         return { area: 'wizard', stepId: 'konteks', subId: 'beranda' };
       case 'dashboard':
         return { area: 'wizard', stepId: 'konteks', subId: 'ringkasan' };
@@ -227,7 +229,7 @@ export function deriveWizardPosition(mode: WizardMode, nav: WizardNavState): Wiz
           : { area: 'wizard', stepId: 'kelas', subId: null };
       case 'academic':
         return nav.academicSubTab === 'schedule'
-          ? { area: 'wizard', stepId: 'kelas', subId: 'jadwal-kelas' }
+          ? { area: 'wizard', stepId: 'konteks', subId: 'jadwal-kelas' }
           : { area: 'wizard', stepId: 'kelas', subId: 'simak' };
       case 'teaching-reports':
         if (nav.teachingReportCategory === 'behavior') return { area: 'wizard', stepId: 'dokumentasi', subId: 'laporan-sikap' };
@@ -294,6 +296,15 @@ export function parseWizardLocation(search: string): { mode?: WizardMode; nav: W
     return { nav: { ...sub.target }, stepId: UTILITY_STEP.id, subId: sub.id };
   }
   if (!stepId) return null;
+  // Alias posisi lama: sub jadwal-kelas semula milik langkah kelas (Mode
+  // Pengajar) sebelum pindah ke konteks pada perampingan navigasi. URL
+  // tersimpan step=kelas&sub=jadwal-kelas diterjemahkan ke posisi barunya
+  // agar tidak ada tautan lama yang mati.
+  if (stepId === 'kelas' && subId === 'jadwal-kelas') {
+    const konteks = TEACHING_STEPS.find((item) => item.id === 'konteks');
+    const sub = findWizardSub(konteks, 'jadwal-kelas');
+    if (konteks && sub) return { mode: 'teaching', nav: { ...sub.target }, stepId: konteks.id, subId: sub.id };
+  }
   const modes: WizardMode[] = ['homeroom', 'teaching'];
   for (const mode of modes) {
     const step = wizardStepsForMode(mode).find((item) => item.id === stepId);

@@ -356,6 +356,57 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     }
   }, [userRole]);
 
+  // --- Chip status Hari Ini (Tahap 3) --------------------------------------
+  // Chip presensi dihitung per KELOMPOK kelas+mapel+tanggal dari record
+  // mentah endpoint presensi — bukan dari peta tampilan panel yang
+  // menganggap siswa tanpa record sebagai Hadir (rancangan 1.2b/2.3).
+  // Dua sesi kelas+mapel yang sama dalam sehari berbagi satu chip (C1/K2).
+  const [hariIniAttendanceCounts, setHariIniAttendanceCounts] = useState<Record<string, { recorded: number; total: number }>>({});
+  const [hariIniJournals, setHariIniJournals] = useState<TeachingJournal[]>([]);
+  const [hariIniStatusLoaded, setHariIniStatusLoaded] = useState(false);
+  const refreshHariIniStatus = useCallback(async () => {
+    if (workspaceMode !== 'teaching') return;
+    const today = getJakartaDateValue();
+    const dayName = getJakartaNow().dayName;
+    const sessions = (workspace.teachingSchedule || []).filter((item) => item.day === dayName);
+    try {
+      const response = await fetch(`/api/teaching-journals?from=${today}&to=${today}`);
+      if (response.ok) setHariIniJournals(await response.json());
+    } catch (error) {
+      console.error('Gagal memuat jurnal hari ini:', error);
+    }
+    const groups = new Map<string, { classId: string; subject: string }>();
+    sessions.forEach((session) => groups.set(`${session.classId}|${session.subject}`, { classId: session.classId, subject: session.subject }));
+    const counts: Record<string, { recorded: number; total: number }> = {};
+    await Promise.all([...groups.entries()].map(async ([key, group]) => {
+      // Penyebut: studentCount subjectGroups apa adanya (C5/K12).
+      let total = workspace.subjectGroups.find((item) => item.subjectName === group.subject)?.classes.find((item) => item.classId === group.classId)?.studentCount ?? 0;
+      let recorded = 0;
+      try {
+        const response = await fetch(`/api/attendance?date=${today}&type=mapel&subject=${encodeURIComponent(group.subject)}&classId=${group.classId}`);
+        if (response.ok) recorded = (await response.json()).length;
+      } catch (error) {
+        console.error('Gagal memuat status presensi hari ini:', error);
+      }
+      // Untuk kelompok yang sudah jatuh tempo, angka mesin pengingat
+      // (penyebut siswa Aktif saja) didahulukan bila barisnya ada (K12).
+      const reminder = attendanceReminders.find((item) => item.date === today && item.classId === group.classId && item.subject === group.subject);
+      if (reminder) {
+        recorded = reminder.recordedCount;
+        total = reminder.studentCount;
+      }
+      counts[key] = { recorded, total };
+    }));
+    setHariIniAttendanceCounts(counts);
+    setHariIniStatusLoaded(true);
+  }, [workspaceMode, workspace.teachingSchedule, workspace.subjectGroups, attendanceReminders]);
+
+  useEffect(() => {
+    if (workspaceMode === 'teaching' && teachingView === 'hari-ini' && activeTab === 'workspace') {
+      refreshHariIniStatus();
+    }
+  }, [refreshHariIniStatus, workspaceMode, teachingView, activeTab]);
+
   const fetchLearningInterventionReminders = useCallback(async () => {
     if (!canViewLearningProfiles) return;
     try {
@@ -461,6 +512,7 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       setEditingJournalId(null);
       resetJournalForm();
       await fetchTeachingJournals();
+      void refreshHariIniStatus();
       notify(editingJournalId ? 'Jurnal mengajar berhasil diperbarui.' : 'Jurnal mengajar berhasil disimpan.', 'success');
     } catch (error) {
       console.error('Gagal menyimpan jurnal mengajar:', error);
@@ -1892,7 +1944,10 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
         date: teachingAttendanceDate, type: 'mapel', subject: activeTeachingSubject, classId: classData.classId,
         records: Object.entries(teachingAttendanceMap).map(([studentId, status]) => ({ studentId, status })),
       }) });
-      if (res.ok) notify('Presensi pembelajaran berhasil disimpan.');
+      if (res.ok) {
+        notify('Presensi pembelajaran berhasil disimpan.');
+        void refreshHariIniStatus();
+      }
       else {
         const result = await res.json().catch(() => null);
         notify(result?.error || `Gagal menyimpan presensi pembelajaran (${res.status}).`);
@@ -2595,11 +2650,17 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
     });
     return items.slice(0, 3);
   })();
+  // Ringkasan satu kalimat di kepala Hari Ini (rancangan 2.1 butir 1):
+  // hitungan presensi per kelompok dan jurnal per sesi, hanya sesudah
+  // data chip selesai dimuat agar tidak menampilkan angka tebakan.
+  const hariIniGroupKeys = [...new Set(hariIniSessions.map((item) => `${item.classId}|${item.subject}`))];
+  const unfilledAttendanceGroups = hariIniGroupKeys.filter((key) => (hariIniAttendanceCounts[key]?.recorded ?? 0) === 0).length;
+  const unwrittenJournalSessions = hariIniSessions.filter((item) => !hariIniJournals.some((journal) => journal.scheduleId === item.id)).length;
   const hariIniPanel = (
     <div className="space-y-6">
       <div>
         <h3 className="text-xl font-black text-slate-800 dark:text-slate-100">{jakartaGreeting()}, {workspace.user.name || 'Guru'} — {formatJakartaDateLong()}</h3>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{hariIniSessions.length ? `${hariIniSessions.length} sesi mengajar hari ini.` : 'Tidak ada sesi terjadwal untuk hari ini.'}</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{hariIniSessions.length ? `${hariIniSessions.length} sesi mengajar hari ini.${hariIniStatusLoaded ? ` ${unfilledAttendanceGroups} presensi belum diisi · ${unwrittenJournalSessions} jurnal belum ditulis.` : ''}` : 'Tidak ada sesi terjadwal untuk hari ini.'}</p>
       </div>
       {reminderStripItems.length > 0 && (
         <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/20" aria-label="Pengingat mendesak">
@@ -2614,7 +2675,23 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
       )}
       {hariIniSessions.length ? (
         <div className="space-y-3">
-          {hariIniSessions.map((item) => (
+          {hariIniSessions.map((item) => {
+            // Chip presensi per kelompok kelas+mapel+tanggal (C1/K2): dua
+            // sesi sekelompok membaca hitungan yang sama persis.
+            const attendanceCount = hariIniAttendanceCounts[`${item.classId}|${item.subject}`];
+            const attendanceChip = !attendanceCount ? null
+              : attendanceCount.recorded === 0 ? { label: 'Presensi belum diisi', tone: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' }
+              : attendanceCount.total > 0 && attendanceCount.recorded >= attendanceCount.total ? { label: 'Presensi lengkap', tone: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' }
+              : attendanceCount.total > 0 ? { label: `Presensi tercatat ${attendanceCount.recorded}/${attendanceCount.total}`, tone: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' }
+              : { label: `Presensi tercatat ${attendanceCount.recorded}`, tone: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' };
+            // Chip jurnal bertingkat (K1): scheduleId cocok = per sesi;
+            // hanya kelas+mapel+tanggal cocok = bunyi lebih lemah.
+            const sessionJournal = hariIniJournals.find((journal) => journal.scheduleId === item.id);
+            const hasLooseJournal = !sessionJournal && hariIniJournals.some((journal) => journal.classId === item.classId && journal.subject === item.subject);
+            const journalChip = sessionJournal ? { label: 'Jurnal sudah ditulis', tone: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' }
+              : hasLooseJournal ? { label: 'Jurnal hari ini ada', tone: 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' }
+              : { label: 'Jurnal belum ditulis', tone: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' };
+            return (
             <article key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-4">
@@ -2626,12 +2703,19 @@ const Dashboard = ({ userRole = 'admin' }: { userRole?: DashboardRole }) => {
                 </div>
                 <a href={SIMAK_URL} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-300">Materi &amp; nilai di SIMAK ↗</a>
               </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {attendanceChip && <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${attendanceChip.tone}`}>{attendanceChip.label}</span>}
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${journalChip.tone}`}>{journalChip.label}</span>
+              </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => openSessionAttendance(item)} className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-cyan-700"><CheckSquare className="h-4 w-4" aria-hidden="true" /> Isi Presensi</button>
-                <button type="button" onClick={() => openNewJournal(item)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"><FileText className="h-4 w-4" aria-hidden="true" /> Tulis Jurnal</button>
+                {sessionJournal
+                  ? <button type="button" onClick={() => openEditJournal(sessionJournal)} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"><FileText className="h-4 w-4" aria-hidden="true" /> Lihat/Edit Jurnal</button>
+                  : <button type="button" onClick={() => openNewJournal(item)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"><FileText className="h-4 w-4" aria-hidden="true" /> Tulis Jurnal</button>}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="space-y-4">

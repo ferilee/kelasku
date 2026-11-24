@@ -42,6 +42,10 @@ export interface WizardSub {
   target: WizardNavPatch;
   anchor?: string;
   gate: WizardSubGate;
+  // Kelompok chip opsional (perampingan navigasi): sub yang berurutan dan
+  // berbagi nama kelompok yang sama dirender sebagai satu chip kelompok
+  // dengan baris anggota lapis kedua. Target state tidak berubah.
+  group?: string;
 }
 
 export interface WizardStep {
@@ -146,13 +150,12 @@ export const TEACHING_STEPS: WizardStep[] = [
     description: 'Jembatan SIMAK, presensi, dan pendampingan kelas',
     subs: [
       { id: 'simak', label: 'Jembatan SIMAK', target: { tab: 'academic', academicSubTab: 'grades' }, gate: 'always' },
-      { id: 'info-siswa', label: 'Informasi untuk Siswa', target: { tab: 'dashboard' }, anchor: 'panel-informasi-siswa', gate: 'always' },
-      { id: 'siswa', label: 'Daftar Siswa', target: { tab: 'students', studentView: 'roster' }, gate: 'always' },
+      { id: 'siswa', label: 'Daftar Siswa', target: { tab: 'students', studentView: 'roster' }, gate: 'always', group: 'Siswa & Pendampingan' },
+      { id: 'perkembangan', label: 'Perkembangan Belajar', target: { tab: 'students', studentView: 'progress' }, gate: 'staff', group: 'Siswa & Pendampingan' },
+      { id: 'tindak-lanjut', label: 'Tindak Lanjut', target: { tab: 'students', studentView: 'followup' }, gate: 'staff', group: 'Siswa & Pendampingan' },
+      { id: 'aktivitas', label: 'Aktivitas Belajar', target: { tab: 'monitoring', monitoringSubTab: 'activity' }, gate: 'staff', group: 'Siswa & Pendampingan' },
       { id: 'presensi-mapel', label: 'Presensi Mapel', target: { tab: 'teaching-attendance' }, gate: 'always' },
       { id: 'sikap', label: 'Penilaian Sikap', target: { tab: 'behavior', behaviorSubTab: 'sikap' }, gate: 'always' },
-      { id: 'perkembangan', label: 'Perkembangan Belajar', target: { tab: 'students', studentView: 'progress' }, gate: 'staff' },
-      { id: 'tindak-lanjut', label: 'Tindak Lanjut', target: { tab: 'students', studentView: 'followup' }, gate: 'staff' },
-      { id: 'aktivitas', label: 'Aktivitas Belajar', target: { tab: 'monitoring', monitoringSubTab: 'activity' }, gate: 'staff' },
     ],
   },
   {
